@@ -1,0 +1,31 @@
+{
+  "generate": {
+    "enabled": true,
+    "weight": 1.0,
+    "features": ["time", "user_demand", "device_stats"],
+    "dim_reduction": "none"
+  },
+  "aggregate": {
+    "enabled": true,
+    "weight": 0.8,
+    "features": ["energy_bounds", "flexibility"],
+    "dim_reduction": "none"
+  },
+  "trading": {
+    "enabled": true,
+    "weight": 0.9,
+    "features": ["price_trends", "trade_stats"],
+    "dim_reduction": "none"
+  },
+  "schedule": {
+    "enabled": true,
+    "weight": 0.7,
+    "features": ["efficiency", "cost_optimization"],
+    "dim_reduction": "none"
+  },
+  "global": {
+    "enabled": true,
+    "features": ["efficiency", "economic", "reliability", "environmental"],
+    "dim_reduction": "none"
+  }
+} 
