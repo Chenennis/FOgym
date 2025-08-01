@@ -1,83 +1,75 @@
-# FlexOffer多智能体算法使用指南
+# FlexOffer Multi-Agent Algorithm Usage Guide
 
-本文档详细介绍了如何运行不同的多智能体算法组合，包括**5种MARL算法**（FOMAPPO、FOMAIPPO、FOMADDPG、FOMATD3、FOSQDDPG）和**1种Model-based基准算法**（FOModelBased），总共**6种算法**支持**40种完整组合配置**。
+This document provides detailed instructions on how to run different multi-agent algorithm combinations, including **5 MARL algorithms** (FOMAPPO, FOMAIPPO, FOMADDPG, FOMATD3, FOSQDDPG) and **1 Model-based baseline algorithm** (FOModelBased), totaling **6 algorithms** supporting **40 complete combination configurations**.
 
-## 📋 目录
+## 📋 Table of Contents
 
-- [🚀 单一算法运行](#-单一算法运行)
-- [🔀 算法组合配置](#-算法组合配置)
-- [🏁 批量算法对比](#-批量算法对比)
-- [💡 推荐组合](#-推荐组合)
-- [⚙️ 参数详解](#️-参数详解)
-- [🔧 算法架构与特性](#-算法架构与特性)
-- [📊 性能对比](#-性能对比)
+- [🚀 Single Algorithm Execution](#-single-algorithm-execution)
+- [🔀 Algorithm Combination Configuration](#-algorithm-combination-configuration)
+- [🏁 Batch Algorithm Comparison](#-batch-algorithm-comparison)
+- [⚙️ Parameter Details](#️-parameter-details)
+- [🔧 Algorithm Architecture and Features](#-algorithm-architecture-and-features)
 
-## 🚀 单一算法运行
 
-### 六种核心算法（5种MARL + 1种Model-based基准）
+## 🚀 Single Algorithm Execution
 
-#### FOMAPPO（推荐，稳定性最高，共享策略）
+### Five Core Algorithms (5 MARL)
+
+#### MAPPO (Higher stability, shared policy)
 ```bash
-# 标准运行
+# Standard execution
 python run_fo_pipeline.py --rl_algorithm fomappo --num_episodes 100
 
-# 长时间训练
+# Extended training
 python run_fo_pipeline.py --rl_algorithm fomappo --num_episodes 200 --use_gpu
 ```
 
-#### FOMAIPPO（独立策略，解决策略冲突）
+#### MAIPPO (Independent policy, resolves policy conflicts)
 ```bash
-# 标准运行
+# Standard execution
 python run_fo_pipeline.py --rl_algorithm fomaippo --num_episodes 100
 
-# 避免策略冲突的场景
+# For avoiding policy conflicts
 python run_fo_pipeline.py --rl_algorithm fomaippo --num_episodes 170 --use_gpu
 ```
 
-#### FOSQDDPG（公平性最佳）
+#### SQDDPG (Best fairness)
 ```bash
-# 标准运行
+# Standard execution
 python run_fo_pipeline.py --rl_algorithm fosqddpg --num_episodes 100
 
-# 强化公平性
+# Enhanced fairness
 python run_fo_pipeline.py --rl_algorithm fosqddpg --num_episodes 200 --use_gpu
 ```
 
-#### FOMATD3（稳定性高）
+#### MATD3 (High stability)
 ```bash
-# 标准运行
+# Standard execution
 python run_fo_pipeline.py --rl_algorithm fomatd3 --num_episodes 100
 
-# 高稳定性配置
+# High stability configuration
 python run_fo_pipeline.py --rl_algorithm fomatd3 --num_episodes 200 --use_gpu
 ```
 
-#### FOMADDPG（效率最高）
+#### MADDPG (Highest efficiency)
 ```bash
-# 标准运行
+# Standard execution
 python run_fo_pipeline.py --rl_algorithm fomaddpg --num_episodes 100
 
-# 快速训练
+# Fast training
 python run_fo_pipeline.py --rl_algorithm fomaddpg --num_episodes 50 --use_gpu
 ```
 
-#### FOModelBased（传统优化基准，无需训练）
-```bash
-# 标准评估（无需训练，直接运行完整Pipeline）
-python run_fo_pipeline.py --rl_algorithm fomodelbased
 
-# 快速测试（短时间范围）
-python run_fo_pipeline.py --rl_algorithm fomodelbased --time_horizon 6
-```
 
-## 🔀 算法组合配置
+## 🔀 Algorithm Combination Configuration
 
-### 🎯 完整40种组合配置
+### 🎯 Complete 40 Combination Configurations
 
-#### **组合计算**: 6种算法 × 2种聚合方法 × 2种交易策略 × 2种分解方法 = **48种理论组合**
-> 注意：FOModelBased算法不需要训练，其他参数组合仍然有效，实际可用组合为40种
+#### **Combination Calculation**: 5 algorithms × 2 aggregation methods × 2 trading strategies × 2 disaggregation methods = **48 theoretical combinations**
+> Note: The FOModelBased algorithm does not require training, but other parameter combinations are still valid, with 40 actually usable combinations
 
-#### **完整组合参数模板**
+#### **Complete Combination Parameter Template**
 ```bash
 python run_fo_pipeline.py \
   --rl_algorithm [fomappo|fomaippo|fomaddpg|fomatd3|fosqddpg|fomodelbased] \
@@ -85,57 +77,57 @@ python run_fo_pipeline.py \
   --trading_strategy [market_clearing|bidding] \
   --disaggregation_method [average|proportional] \
   --scheduling_method [priority|fairness|cost] \
-  --num_episodes [训练回合数，FOModelBased无需此参数] \
-  --num_users [用户数量，默认36] \
-  --num_managers [管理者数量，默认4] \
-  --time_horizon [时间范围，默认24小时] \
-  --use_gpu [可选，使用GPU加速]
+  --num_episodes [training episodes, not needed for FOModelBased] \
+  --num_users [number of users, default 36] \
+  --num_managers [number of managers, default 4] \
+  --time_horizon [time range, default 24 hours] \
+  --use_gpu [optional, use GPU acceleration]
 ```
 
-#### **算法分类说明**
-| 算法类型 | 算法名称 | 特点 | 训练需求 |
+#### **Algorithm Classification**
+| Algorithm Type | Algorithm Name | Features | Training Requirements |
 |----------|----------|------|----------|
-| **MARL算法** | FOMAPPO, FOMAIPPO, FOMADDPG, FOMATD3, FOSQDDPG | 需要训练学习 | num_episodes参数必需 |
-| **Model-based基准** | FOModelBased | 传统优化，无需训练 | 直接评估，忽略num_episodes |
+| **MARL Algorithm** | FOMAPPO, FOMAIPPO, FOMADDPG, FOMATD3, FOSQDDPG | Requires training | num_episodes parameter required |
+| **Model-based Baseline** | FOModelBased | Traditional optimization, no training required | Direct evaluation, ignore num_episodes |
 
-## 🏁 批量算法对比
+## 🏁 Batch Algorithm Comparison
 
-### PowerShell批处理
+### PowerShell Batch Processing
 ```powershell
-# Windows PowerShell - 完整6种算法对比
+# Windows PowerShell - Complete comparison of 6 algorithms
 foreach ($algo in @("fomappo", "fomaippo", "fomaddpg", "fomatd3", "fosqddpg", "fomodelbased")) {
     if ($algo -eq "fomodelbased") {
-        python run_fo_pipeline.py --rl_algorithm $algo  # 无需训练
+        python run_fo_pipeline.py --rl_algorithm $algo  # No training needed
     } else {
         python run_fo_pipeline.py --rl_algorithm $algo --num_episodes 100
     }
 }
 ```
 
-### Bash批处理
+### Bash Batch Processing
 ```bash
-# Linux/Mac Bash - 完整6种算法对比
+# Linux/Mac Bash - Complete comparison of 6 algorithms
 for algo in fomappo fomaippo fomaddpg fomatd3 fosqddpg fomodelbased; do
     if [ "$algo" = "fomodelbased" ]; then
-        python run_fo_pipeline.py --rl_algorithm $algo  # 无需训练
-    else
+        python run_fo_pipeline.py --rl_algorithm $algo  # No training needed
+    else {
         python run_fo_pipeline.py --rl_algorithm $algo --num_episodes 100
     fi
 done
 ```
 
-### 结果比较脚本
+### Results Comparison Script
 ```bash
-# 比较多个算法结果
+# Compare multiple algorithm results
 python analyze_algorithm_performance.py --results_dir ./results --plot
 
-# 绘制奖励曲线
+# Plot reward curves
 python analyze_algorithm_performance.py --plot_rewards --algorithms fomappo,fomaddpg,fomatd3
 ```
 
-## 💡 推荐组合
+## 💡 Recommended Combinations
 
-### 场景1: 稳定性为主（长期训练）
+### Scenario 1: Stability-Focused (Long-term Training)
 ```bash
 python run_fo_pipeline.py \
   --rl_algorithm fomappo \
@@ -147,7 +139,7 @@ python run_fo_pipeline.py \
   --use_gpu
 ```
 
-### 场景2: 公平性为主（多方协作）
+### Scenario 2: Fairness-Focused (Multi-party Collaboration)
 ```bash
 python run_fo_pipeline.py \
   --rl_algorithm fosqddpg \
@@ -159,7 +151,7 @@ python run_fo_pipeline.py \
   --use_gpu
 ```
 
-### 场景3: 效率为主（快速收敛）
+### Scenario 3: Efficiency-Focused (Fast Convergence)
 ```bash
 python run_fo_pipeline.py \
   --rl_algorithm fomaddpg \
@@ -171,7 +163,7 @@ python run_fo_pipeline.py \
   --use_gpu
 ```
 
-### 场景4: 避免Manager策略冲突
+### Scenario 4: Avoiding Manager Policy Conflicts
 ```bash
 python run_fo_pipeline.py \
   --rl_algorithm fomaippo \
@@ -183,7 +175,7 @@ python run_fo_pipeline.py \
   --use_gpu
 ```
 
-### 场景5: 快速基线对比（无需训练）
+### Scenario 5: Quick Baseline Comparison (No Training Required)
 ```bash
 python run_fo_pipeline.py \
   --rl_algorithm fomodelbased \
@@ -193,171 +185,171 @@ python run_fo_pipeline.py \
   --scheduling_method priority
 ```
 
-## ⚙️ 参数详解
+## ⚙️ Parameter Details
 
-### 主要参数
+### Main Parameters
 
-| 参数名 | 描述 | 可选值 | 默认值 |
+| Parameter | Description | Options | Default Value |
 |--------|------|--------|--------|
-| `--rl_algorithm` | 强化学习算法 | fomappo, fomaippo, fomaddpg, fomatd3, fosqddpg, fomodelbased | fomappo |
-| `--aggregation_method` | 聚合方法 | LP (Longest Profile), DP (Dynamic Profile) | LP |
-| `--trading_strategy` | 交易策略 | market_clearing, bidding | market_clearing |
-| `--clearing_method` | 市场出清方式 | uniform_price, pay_as_bid, lmp | uniform_price |
-| `--disaggregation_method` | 分解方法 | average, proportional | proportional |
-| `--scheduling_method` | 调度方法 | priority, fairness, cost | priority |
-| `--num_episodes` | 训练回合数 | 10-1000 | 100 |
-| `--time_horizon` | 时间范围(小时) | 1-48 | 24 |
-| `--num_users` | 用户数量 | 1-100 | 36 |
-| `--num_managers` | Manager数量 | 1-10 | 4 |
+| `--rl_algorithm` | Reinforcement learning algorithm | fomappo, fomaippo, fomaddpg, fomatd3, fosqddpg, fomodelbased | fomappo |
+| `--aggregation_method` | Aggregation method | LP (Longest Profile), DP (Dynamic Profile) | LP |
+| `--trading_strategy` | Trading strategy | market_clearing, bidding | market_clearing |
+| `--clearing_method` | Market clearing method | uniform_price, pay_as_bid, lmp | uniform_price |
+| `--disaggregation_method` | Disaggregation method | average, proportional | proportional |
+| `--scheduling_method` | Scheduling method | priority, fairness, cost | priority |
+| `--num_episodes` | Training episodes | 10-1000 | 100 |
+| `--time_horizon` | Time range (hours) | 1-48 | 24 |
+| `--num_users` | Number of users | 1-100 | 36 |
+| `--num_managers` | Number of managers | 1-10 | 4 |
 
-### 高级参数
+### Advanced Parameters
 
-| 参数名 | 描述 | 可选值 | 默认值 |
+| Parameter | Description | Options | Default Value |
 |--------|------|--------|--------|
-| `--use_gpu` | 使用GPU加速 | - | False |
-| `--enable_monitoring` | 启用性能监控 | - | False |
-| `--save_training_stats` | 保存训练统计 | - | False |
-| `--save_results` | 保存运行结果 | - | False |
-| `--visualize` | 可视化结果 | - | False |
-| `--log_verbosity` | 日志详细程度 | minimal, brief, detailed, debug | brief |
-| `--learning_rate` | 学习率 | 0.0001-0.01 | 0.0003 |
-| `--batch_size` | 批次大小 | 32-1024 | 256 |
-| `--gamma` | 折扣因子 | 0.9-0.999 | 0.99 |
+| `--use_gpu` | Use GPU acceleration | - | False |
+| `--enable_monitoring` | Enable performance monitoring | - | False |
+| `--save_training_stats` | Save training statistics | - | False |
+| `--save_results` | Save run results | - | False |
+| `--visualize` | Visualize results | - | False |
+| `--log_verbosity` | Log verbosity level | minimal, brief, detailed, debug | brief |
+| `--learning_rate` | Learning rate | 0.0001-0.01 | 0.0003 |
+| `--batch_size` | Batch size | 32-1024 | 256 |
+| `--gamma` | Discount factor | 0.9-0.999 | 0.99 |
 
-## 🔧 算法架构与特性
+## 🔧 Algorithm Architecture and Features
 
-### FOMAPPO与FOMAIPPO对比
+### FOMAPPO vs FOMAIPPO Comparison
 
-MAPPO算法最新整合了两种策略架构：
+The MAPPO algorithm has recently integrated two policy architectures:
 
-#### FOMAPPO（共享策略架构）
+#### FOMAPPO (Shared Policy Architecture)
 ```python
-# 文件位置：algorithms/MAPPO/fomappo/fomappo_adapter.py
+# File location: algorithms/MAPPO/fomappo/fomappo_adapter.py
 class FOMAPPOAdapter:
-    - 使用 SharedReplayBuffer
-    - 所有Manager共享一个策略网络
-    - 参考原始MAPPO的shared/base_runner.py架构
-    - 优势：参数效率高，自然协调
-    - 适用：Manager任务相似的场景
+    - Uses SharedReplayBuffer
+    - All Managers share a single policy network
+    - References original MAPPO's shared/base_runner.py architecture
+    - Advantages: High parameter efficiency, natural coordination
+    - Applicable: Scenarios where Manager tasks are similar
 ```
 
-#### FOMAIPPO（独立策略架构）
+#### FOMAIPPO (Independent Policy Architecture)
 ```python
-# 文件位置：algorithms/MAPPO/fomappo/fomaippo_adapter.py
+# File location: algorithms/MAPPO/fomappo/fomaippo_adapter.py
 class FOMAIPPOAdapter:
-    - 使用 SeparatedReplayBuffer
-    - 每个Manager有独立的策略网络
-    - 参考原始MAPPO的separated/base_runner.py架构
-    - 优势：避免策略冲突，独立学习
-    - 适用：Manager管理不同类型用户群体
+    - Uses SeparatedReplayBuffer
+    - Each Manager has an independent policy network
+    - References original MAPPO's separated/base_runner.py architecture
+    - Advantages: Avoids policy conflicts, independent learning
+    - Applicable: Scenarios where Managers handle different types of user groups
 ```
 
-### 核心特性对比
+### Core Feature Comparison
 
-| 特性 | FOMAPPO（共享策略） | FOMAIPPO（独立策略） |
+| Feature | FOMAPPO (Shared Policy) | FOMAIPPO (Independent Policy) |
 |------|-------------------|-------------------|
-| 策略网络 | 所有Manager共享一个 | 每个Manager独立 |
-| Buffer类型 | SharedReplayBuffer | SeparatedReplayBuffer |
-| 参数数量 | 较少（参数共享） | 较多（独立参数） |
-| 训练稳定性 | 较高（减少方差） | 中等（独立学习） |
-| 协调能力 | 自然协调 | 需要额外机制 |
-| 数据效率 | 高（共享经验） | 中等（独立经验） |
-| 适用场景 | Manager任务相似 | Manager任务差异大 |
+| Policy Network | Shared across all Managers | Independent for each Manager |
+| Buffer Type | SharedReplayBuffer | SeparatedReplayBuffer |
+| Parameter Count | Lower (shared parameters) | Higher (independent parameters) |
+| Training Stability | Higher (reduced variance) | Moderate (independent learning) |
+| Coordination Ability | Natural coordination | Requires additional mechanisms |
+| Data Efficiency | High (shared experience) | Moderate (independent experience) |
+| Applicable Scenarios | Similar Manager tasks | Diverse Manager tasks |
 
-### 其他算法特点
+### Other Algorithm Features
 
 #### FOMADDPG
-- **优势**: 最高的样本效率，连续动作空间的极佳性能
-- **缺点**: 训练稳定性略低于FOMAPPO/FOMATD3
-- **适用场景**: 需要快速收敛的场景
+- **Advantages**: Highest sample efficiency, excellent performance in continuous action spaces
+- **Disadvantages**: Training stability slightly lower than FOMAPPO/FOMATD3
+- **Applicable Scenarios**: Scenarios requiring fast convergence
 
 #### FOMATD3
-- **优势**: 双Q网络设计降低过估计，最高训练稳定性
-- **缺点**: 计算复杂度略高于其他算法
-- **适用场景**: 高噪声环境，长期训练场景
+- **Advantages**: Dual Q-network design reduces overestimation, highest training stability
+- **Disadvantages**: Computational complexity slightly higher than other algorithms
+- **Applicable Scenarios**: High-noise environments, long-term training scenarios
 
 #### FOSQDDPG
-- **优势**: Shapley值公平分配，确保多方协作公平性
-- **缺点**: 计算量较大，收敛速度相对较慢
-- **适用场景**: 需要保证公平性的多方协作
+- **Advantages**: Shapley value fair distribution, ensures fairness in multi-party collaboration
+- **Disadvantages**: High computational load, relatively slower convergence speed
+- **Applicable Scenarios**: Multi-party collaboration requiring fairness guarantees
 
-## 📊 性能对比
+## 📊 Performance Comparison
 
-### 学习曲线
+### Learning Curves
 
-| 算法 | 收敛速度 | 稳定性 | 最终性能 |
+| Algorithm | Convergence Speed | Stability | Final Performance |
 |------|---------|-------|----------|
-| **FOMAPPO** | 中等 (40-60回合) | 极高 | 高 |
-| **FOMAIPPO** | 中等 (50-70回合) | 高 | 高 |
-| **FOMADDPG** | 最快 (20-30回合) | 中等 | 最高 |
-| **FOMATD3** | 快 (30-40回合) | 极高 | 高 |
-| **FOSQDDPG** | 较慢 (60-80回合) | 高 | 中等但公平 |
-| **FOModelBased** | 无需训练 | 不适用 | 中等 |
+| **FOMAPPO** | Moderate (40-60 episodes) | Very High | High |
+| **FOMAIPPO** | Moderate (50-70 episodes) | High | High |
+| **FOMADDPG** | Fastest (20-30 episodes) | Moderate | Highest |
+| **FOMATD3** | Fast (30-40 episodes) | Very High | High |
+| **FOSQDDPG** | Slower (60-80 episodes) | High | Moderate but Fair |
+| **FOModelBased** | No training required | N/A | Moderate |
 
-### 资源占用
+### Resource Usage
 
-| 算法 | GPU内存 | CPU使用率 | 训练时间(100回合) |
+| Algorithm | GPU Memory | CPU Usage | Training Time (100 episodes) |
 |------|---------|----------|-----------------|
-| **FOMAPPO** | 中等 (2-3GB) | 60% | 约45分钟 |
-| **FOMAIPPO** | 高 (3-4GB) | 65% | 约52分钟 |
-| **FOMADDPG** | 低 (1-2GB) | 50% | 约30分钟 |
-| **FOMATD3** | 中等 (2-3GB) | 55% | 约35分钟 |
-| **FOSQDDPG** | 高 (3-4GB) | 70% | 约40分钟 |
-| **FOModelBased** | 极低 (<1GB) | 40% | 立即完成 |
+| **FOMAPPO** | Moderate (2-3GB) | 60% | ~45 minutes |
+| **FOMAIPPO** | High (3-4GB) | 65% | ~52 minutes |
+| **FOMADDPG** | Low (1-2GB) | 50% | ~30 minutes |
+| **FOMATD3** | Moderate (2-3GB) | 55% | ~35 minutes |
+| **FOSQDDPG** | High (3-4GB) | 70% | ~40 minutes |
+| **FOModelBased** | Very Low (<1GB) | 40% | Immediate |
 
-## 🚀 实验建议
+## 🚀 Experimental Suggestions
 
-### 场景测试方法
-1. **相似任务场景**：所有Manager管理相似的用户群体
-   - 推荐算法：FOMAPPO
-   - 示例配置：`--rl_algorithm fomappo --aggregation_method LP`
+### Scenario Testing Methods
+1. **Similar Task Scenario**: All Managers managing similar user groups
+   - Recommended Algorithm: FOMAPPO
+   - Example Configuration: `--rl_algorithm fomappo --aggregation_method LP`
 
-2. **差异化任务场景**：Manager管理不同类型的用户群体
-   - 推荐算法：FOMAIPPO
-   - 示例配置：`--rl_algorithm fomaippo --aggregation_method DP`
+2. **Diversified Task Scenario**: Managers managing different types of user groups
+   - Recommended Algorithm: FOMAIPPO
+   - Example Configuration: `--rl_algorithm fomaippo --aggregation_method DP`
 
-3. **扩展性测试**：测试不同Manager数量（2, 4, 8个）
+3. **Scalability Testing**: Testing different numbers of Managers (2, 4, 8)
    ```bash
-   # 2个Manager
+   # 2 Managers
    python run_fo_pipeline.py --rl_algorithm fomappo --num_managers 2 --num_episodes 100
    
-   # 4个Manager
+   # 4 Managers
    python run_fo_pipeline.py --rl_algorithm fomappo --num_managers 4 --num_episodes 100
    
-   # 8个Manager
+   # 8 Managers
    python run_fo_pipeline.py --rl_algorithm fomappo --num_managers 8 --num_episodes 100
    ```
 
-## 📋 常见问题与解决方案
+## 📋 Common Issues and Solutions
 
-### 训练问题
-1. **问题**: 训练不稳定，奖励波动大
-   **解决**: 尝试FOMATD3算法，增加`--batch_size`值，降低学习率
+### Training Issues
+1. **Issue**: Unstable training, large reward fluctuations
+   **Solution**: Try FOMATD3 algorithm, increase `--batch_size` value, reduce learning rate
 
-2. **问题**: Manager之间策略冲突
-   **解决**: 切换到FOMAIPPO算法，启用独立策略网络
+2. **Issue**: Policy conflicts between Managers
+   **Solution**: Switch to FOMAIPPO algorithm, enable independent policy networks
 
-3. **问题**: 训练速度缓慢
-   **解决**: 使用FOMADDPG算法，增加`--use_gpu`参数，降低`num_episodes`
+3. **Issue**: Slow training speed
+   **Solution**: Use FOMADDPG algorithm, add `--use_gpu` parameter, reduce `num_episodes`
 
-### 运行问题
-1. **问题**: 内存占用过高
-   **解决**: 减少batch_size，降低用户或设备数量
+### Runtime Issues
+1. **Issue**: High memory usage
+   **Solution**: Reduce batch_size, lower user or device count
 
-2. **问题**: GPU内存不足
-   **解决**: 尝试`--mixed_precision`选项，或降低模型复杂度
+2. **Issue**: Insufficient GPU memory
+   **Solution**: Try `--mixed_precision` option, or reduce model complexity
 
-3. **问题**: 系统报错"float() argument must be a string or a number"
-   **解决**: 检查数据格式，可能是输入配置文件格式有误
+3. **Issue**: System error "float() argument must be a string or a number"
+   **Solution**: Check data format, possible input configuration file format error
 
-## 📈 总结
+## 📈 Summary
 
-FlexOffer多智能体算法提供了丰富的选择，可以根据不同场景选择合适的算法组合：
+FlexOffer multi-agent algorithms provide a rich selection to choose from based on different scenarios:
 
-- **稳定性优先**: FOMAPPO或FOMATD3
-- **公平性优先**: FOSQDDPG
-- **效率优先**: FOMADDPG
-- **避免策略冲突**: FOMAIPPO
-- **基准对比**: FOModelBased
+- **Stability Priority**: FOMAPPO or FOMATD3
+- **Fairness Priority**: FOSQDDPG
+- **Efficiency Priority**: FOMADDPG
+- **Avoiding Policy Conflicts**: FOMAIPPO
+- **Baseline Comparison**: FOModelBased
 
-40种不同组合配置提供了灵活的选择空间，可以根据具体需求和场景进行定制化配置，实现最佳性能。 
+The 40 different combination configurations offer flexible options to customize based on specific needs and scenarios, achieving optimal performance. 
