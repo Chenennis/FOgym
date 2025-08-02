@@ -2,7 +2,7 @@
 
 ## System Overview
 
-This system (RLTRADE) is a complete platform for FlexOffer (flexibility offer) generation, aggregation, trading, and scheduling based on multi-agent deep reinforcement learning. The system integrates **five advanced multi-agent RL algorithms** and adopts a Manager-level collaborative architecture to implement an end-to-end energy management solution from device control to market trading.
+This system (FOgym) is a complete platform for FlexOffer (flexibility offer) generation, aggregation, trading, and scheduling based on multi-agent deep reinforcement learning. The system integrates **five advanced multi-agent RL algorithms** and adopts a Manager-level collaborative architecture to implement an end-to-end energy management solution from device control to market trading.
 
 ## ✨ Core Features
 
