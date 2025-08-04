@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""
-FOMADDPG Dec-POMDP观测空间适配器
-
-为FOMADDPG算法提供Dec-POMDP观测空间的处理能力。
-针对Actor-Critic确定性策略梯度算法的特点进行优化。
-
-核心功能：
-1. 观测空间分层解析（复用FOMAPPO架构）
-2. 确定性策略的观测处理优化
-3. 连续动作空间的观测增强
-4. Multi-Agent协作信息的DDPG适配
-5. 目标网络更新的观测一致性处理
-"""
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -20,75 +6,62 @@ from typing import Dict, Tuple, Optional, List, Union
 import sys
 import os
 
-# 添加项目路径
+# Add project path
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 
 from fo_common.dec_pomdp_config import DecPOMDPConfig
 
 class FOMaddpgDecPOMDPAdapter:
     """
-    FOMADDPG Dec-POMDP观测空间适配器
-    
-    专门为FOMADDPG算法设计的Dec-POMDP观测处理器，
-    支持确定性策略梯度和多智能体协作的观测空间管理。
+    FOMADDPG Dec-POMDP observation space adapter
     """
     
     def __init__(self, dec_pomdp_config: DecPOMDPConfig, device=torch.device("cpu")):
         self.config = dec_pomdp_config
         self.device = device
         
-        # Dec-POMDP观测空间维度（与FOMAPPO保持一致）
-        self.private_dim = 39  # 私有信息层维度
-        self.public_dim = 18   # 公共信息层维度  
-        self.others_dim = 15   # 有限他者信息层维度
+        # Dec-POMDP observation space dimensions (consistent with FOMAPPO)
+        self.private_dim = 39  # Private information layer dimension
+        self.public_dim = 18   # Public information layer dimension
+        self.others_dim = 15   # Limited other agents' information layer dimension
         
-        # 总观测维度
-        self.total_obs_dim = self.private_dim + self.public_dim + self.others_dim  # 72维
+        # Total observation dimension
+        self.total_obs_dim = self.private_dim + self.public_dim + self.others_dim  # 72 dimensions
         
-        # FOMADDPG特定的观测处理权重
-        self.private_weight = 1.0   # 私有信息完全可信
-        self.public_weight = 1.0    # 公共信息完全可信
-        self.others_weight = 0.7    # 他者信息在DDPG中稍微提高可信度（原0.8→0.7）
+        # FOMADDPG specific observation processing weights
+        self.private_weight = 1.0   # Private information fully trusted
+        self.public_weight = 1.0    # Public information fully trusted
+        self.others_weight = 0.7    # Other agents' information slightly more trusted in DDPG (original 0.8→0.7)
         
-        # 确定性策略特定参数
-        self.deterministic_mode = True  # DDPG使用确定性策略
-        self.action_smoothing_factor = 0.95  # 动作平滑因子
+        # Deterministic policy specific parameters
+        self.deterministic_mode = True  # DDPG uses deterministic policy
+        self.action_smoothing_factor = 0.95  # Action smoothing factor
         
-        # 历史观测缓存（用于目标网络更新的一致性）
+        # Observation history cache (for consistency in target network updates)
         self.observation_history = {}
-        self.max_history_len = 5  # DDPG通常需要较短的历史
+        self.max_history_len = 5  # DDPG typically needs shorter history
         
-        # 多智能体协作特定缓存
+        # Multi-agent collaboration specific cache
         self.global_observation_cache = None
         self.local_observation_cache = {}
         
     def parse_observation(self, observation: Union[np.ndarray, torch.Tensor], 
                          manager_id: str) -> Dict[str, torch.Tensor]:
         """
-        解析Dec-POMDP观测空间的分层结构
-        
-        Args:
-            observation: 完整观测向量 (72维)
-            manager_id: Manager标识
-            
-        Returns:
-            Dict containing:
-                - 'private': 私有信息层 (39维)
-                - 'public': 公共信息层 (18维)  
-                - 'others': 有限他者信息层 (15维)
+        Parse the layered structure of Dec-POMDP observation space
         """
-        # 转换为torch tensor
+        # Convert to torch tensor
         if isinstance(observation, np.ndarray):
             observation = torch.FloatTensor(observation).to(self.device)
         
-        # 处理批次维度
+        # Handle batch dimension
         if len(observation.shape) == 1:
             observation = observation.unsqueeze(0)
         
         if observation.shape[-1] != self.total_obs_dim:
-            raise ValueError(f"观测维度不匹配: 期望{self.total_obs_dim}, 实际{observation.shape[-1]}")
+            raise ValueError(f"Observation dimension mismatch: expected {self.total_obs_dim}, got {observation.shape[-1]}")
         
-        # 分离三层观测信息
+        # Separate three layers of observation information
         private_obs = observation[..., :self.private_dim]
         public_obs = observation[..., self.private_dim:self.private_dim + self.public_dim]
         others_obs = observation[..., self.private_dim + self.public_dim:]
@@ -102,87 +75,78 @@ class FOMaddpgDecPOMDPAdapter:
     def enhance_private_observation(self, private_obs: torch.Tensor, 
                                   manager_id: str) -> torch.Tensor:
         """
-        增强私有观测信息 - 针对确定性策略优化
+        Enhance private observation information - optimized for deterministic policy
         
-        DDPG特点：
-        1. 确定性策略需要更稳定的观测
-        2. 减少观测噪声的影响
-        3. 保持时序一致性
+        DDPG characteristics:
+        1. Deterministic policy needs more stable observations
+        2. Reduce the impact of observation noise
+        3. Maintain temporal consistency
         """
         enhanced_private = private_obs.clone()
         
-        # 对于确定性策略，使用更平滑的历史信息处理
+        # For deterministic policy, use smoother historical information processing
         if manager_id in self.observation_history:
-            recent_obs = self.observation_history[manager_id][-2:]  # 只使用最近2步
+            recent_obs = self.observation_history[manager_id][-2:]  # Only use the most recent 2 steps
             if len(recent_obs) >= 2:
-                # 计算趋势，但使用更平滑的方式
+                # Calculate trend, but in a smoother way
                 prev_private = recent_obs[-1][:self.private_dim] if recent_obs[-1].shape[0] >= self.private_dim else torch.zeros_like(enhanced_private[0])
                 trend = enhanced_private[0] - prev_private
                 trend_norm = torch.norm(trend).item()
                 
-                # 使用指数平滑
+                # Use exponential smoothing
                 smoothed_trend = min(1.0, trend_norm) * self.action_smoothing_factor
                 enhanced_private = torch.cat([enhanced_private, torch.tensor([[smoothed_trend]]).to(self.device)], dim=-1)
             else:
                 enhanced_private = torch.cat([enhanced_private, torch.tensor([[0.0]]).to(self.device)], dim=-1)
         else:
+            # No history yet
             enhanced_private = torch.cat([enhanced_private, torch.tensor([[0.0]]).to(self.device)], dim=-1)
+        
+        # Update observation history
+        self._update_observation_history(manager_id, private_obs[0])
         
         return enhanced_private
     
     def process_public_observation(self, public_obs: torch.Tensor) -> torch.Tensor:
         """
-        处理公共观测信息 - DDPG优化版本
+        Process public observation information
         
-        DDPG特点：
-        1. 公共信息对所有智能体保持一致
-        2. 支持集中式训练的信息共享
-        3. 确保目标网络更新时的一致性
+        For DDPG, public information is fully trusted and can be used directly
         """
-        # 缓存全局观测信息，确保多智能体一致性
+        # For DDPG, we can directly use public information
         processed_public = public_obs.clone()
         
-        # 验证公共信息的合理性
-        if torch.any(torch.isnan(processed_public)) or torch.any(torch.isinf(processed_public)):
-            print(f"警告: 公共观测信息包含无效值")
-            processed_public = torch.nan_to_num(processed_public, nan=0.0, posinf=0.0, neginf=0.0)
-        
-        # 更新全局观测缓存
-        self.global_observation_cache = processed_public.clone()
+        # Cache global observation for multi-agent coordination
+        if self.global_observation_cache is None:
+            self.global_observation_cache = processed_public.detach()
+        else:
+            # Update with exponential moving average
+            alpha = 0.8
+            self.global_observation_cache = alpha * self.global_observation_cache + (1 - alpha) * processed_public.detach()
         
         return processed_public
     
     def process_others_observation(self, others_obs: torch.Tensor, 
                                  manager_id: str) -> torch.Tensor:
         """
-        处理有限他者观测信息 - DDPG多智能体优化
+        Process other agents' observation information
         
-        DDPG特点：
-        1. 在集中式训练中，他者信息更重要
-        2. 确定性策略对噪声更敏感
-        3. 需要平衡探索和利用
+        For DDPG:
+        1. Other agents' information is more trusted than in stochastic policy algorithms
+        2. Continuous action space requires better coordination
+        3. Apply appropriate weighting
         """
-        if not self.config.enable_other_manager_info:
-            # 如果禁用他者信息，返回零向量
-            return torch.zeros_like(others_obs)
-        
+        # For DDPG, we can use a higher weight for other agents' information
         processed_others = others_obs.clone()
         
-        # DDPG特定的噪声处理（更温和）
-        if self.config.enable_observation_noise:
-            noise_level = self.config.noise_level * 0.7  # DDPG使用更小的噪声
-            noise = torch.randn_like(processed_others) * noise_level
-            processed_others += noise
+        # Apply weight
+        processed_others = processed_others * self.others_weight
         
-        # 应用信息质量权重
-        processed_others *= self.others_weight
+        # Cache for coordination
+        if manager_id not in self.local_observation_cache:
+            self.local_observation_cache[manager_id] = {}
         
-        # DDPG中的信息丢失处理（更保守）
-        if self.config.enable_observation_noise and hasattr(self.config, 'enable_info_missing'):
-            if getattr(self.config, 'enable_info_missing', False):
-                loss_prob = self.config.noise_level * 0.3  # 更低的信息丢失概率
-                loss_mask = torch.rand_like(processed_others) > loss_prob
-                processed_others *= loss_mask.float()
+        self.local_observation_cache[manager_id]['others'] = processed_others.detach()
         
         return processed_others
     
@@ -193,161 +157,178 @@ class FOMaddpgDecPOMDPAdapter:
                               manager_id: str,
                               enhanced: bool = True) -> torch.Tensor:
         """
-        重构完整观测向量 - DDPG优化版本
+        Reconstruct complete observation from three layers
+        
+        For DDPG:
+        1. Apply appropriate weights to each layer
+        2. Ensure stability for deterministic policy
+        3. Maintain temporal consistency
         
         Args:
-            private_obs: 处理后的私有观测
-            public_obs: 处理后的公共观测
-            others_obs: 处理后的他者观测
-            manager_id: Manager标识
-            enhanced: 是否使用增强模式
+            private_obs: Private observation layer
+            public_obs: Public observation layer
+            others_obs: Other agents' observation layer
+            manager_id: Manager ID
+            enhanced: Whether to use enhanced observation
             
         Returns:
-            重构的完整观测向量（适合DDPG使用）
+            Reconstructed complete observation
         """
-        if enhanced:
-            # DDPG增强模式：添加确定性策略相关的特征
-            
-            # 计算私有-公共信息的相关性（使用cosine similarity）
-            private_flat = private_obs.view(private_obs.shape[0], -1)
-            public_flat = public_obs.view(public_obs.shape[0], -1)
-            
-            # 确保维度匹配
-            min_dim = min(private_flat.shape[1], public_flat.shape[1])
-            private_flat = private_flat[:, :min_dim]
-            public_flat = public_flat[:, :min_dim]
-            
-            # 计算cosine similarity
-            private_norm = torch.norm(private_flat, dim=1, keepdim=True) + 1e-8
-            public_norm = torch.norm(public_flat, dim=1, keepdim=True) + 1e-8
-            
-            private_public_corr = torch.sum(private_flat * public_flat, dim=1) / (private_norm.squeeze() * public_norm.squeeze())
-            private_public_corr = torch.tanh(private_public_corr).unsqueeze(1)  # 标准化到[-1,1]
-            
-            # 计算观测稳定性指标（DDPG特有）
-            if manager_id in self.observation_history and len(self.observation_history[manager_id]) > 0:
-                prev_obs = self.observation_history[manager_id][-1]
-                current_obs = torch.cat([private_obs, public_obs, others_obs], dim=-1)
-                
-                # 确保维度匹配
-                if prev_obs.shape[1] == current_obs.shape[1]:
-                    stability = 1.0 - torch.norm(current_obs - prev_obs, dim=1).mean().item()
-                    stability = max(0.0, min(1.0, stability))  # 限制在[0,1]
-                else:
-                    stability = 0.5  # 默认中等稳定性
-            else:
-                stability = 0.5
-            
-            stability_feature = torch.tensor([[stability]], device=self.device).expand(private_obs.shape[0], 1)
-            
-            # 添加DDPG特定的交互特征
-            interaction_features = torch.cat([private_public_corr, stability_feature], dim=1)
-            
-            # 重构观测：私有 + 公共 + 他者 + 交互
-            reconstructed = torch.cat([private_obs, public_obs, others_obs, interaction_features], dim=-1)
-        else:
-            # 基础模式：简单拼接
-            reconstructed = torch.cat([private_obs, public_obs, others_obs], dim=-1)
+        # Apply weights to each layer
+        weighted_private = private_obs * self.private_weight
+        weighted_public = public_obs * self.public_weight
+        weighted_others = others_obs * self.others_weight
         
-        # 缓存观测用于稳定性计算
-        self.local_observation_cache[manager_id] = reconstructed.clone()
+        # Reconstruct complete observation
+        if enhanced and self.deterministic_mode:
+            # For deterministic policy, we need more stable observation
+            if manager_id in self.observation_history and len(self.observation_history[manager_id]) > 0:
+                # Get history
+                history = self.observation_history[manager_id]
+                
+                # If we have enough history, apply temporal smoothing
+                if len(history) >= 2:
+                    prev_obs = history[-1]
+                    prev2_obs = history[-2]
+                    
+                    # Calculate trend
+                    trend = prev_obs - prev2_obs
+                    
+                    # Apply temporal smoothing - weighted average of current and trend
+                    alpha = 0.8  # Weight for current observation
+                    beta = 0.2   # Weight for trend
+                    
+                    # Only apply to private information which is most volatile
+                    smoothed_private = alpha * weighted_private + beta * trend[:self.private_dim].unsqueeze(0)
+                    
+                    # Reconstruct with smoothed private information
+                    reconstructed = torch.cat([smoothed_private, weighted_public, weighted_others], dim=-1)
+                else:
+                    # Not enough history, use weighted concatenation
+                    reconstructed = torch.cat([weighted_private, weighted_public, weighted_others], dim=-1)
+            else:
+                # No history, use weighted concatenation
+                reconstructed = torch.cat([weighted_private, weighted_public, weighted_others], dim=-1)
+        else:
+            # For non-enhanced mode, simply concatenate weighted observations
+            reconstructed = torch.cat([weighted_private, weighted_public, weighted_others], dim=-1)
         
         return reconstructed
     
     def adapt_observation_for_fomaddpg(self, observation: Union[np.ndarray, torch.Tensor], 
                                      manager_id: str) -> Dict[str, torch.Tensor]:
         """
-        为FOMADDPG算法适配观测
+        Adapt observation for FOMADDPG
+        
+        Main entry point for observation adaptation in FOMADDPG
         
         Args:
-            observation: 原始观测
-            manager_id: Manager标识
+            observation: Raw observation
+            manager_id: Manager ID
             
         Returns:
-            适配后的观测字典，包含各层信息和融合后的观测
+            Dictionary containing adapted observation information
         """
-        # 1. 解析观测
+        # Parse observation into three layers
         parsed_obs = self.parse_observation(observation, manager_id)
         
-        # 2. 增强各层观测
+        # Process each layer
         enhanced_private = self.enhance_private_observation(parsed_obs['private'], manager_id)
         processed_public = self.process_public_observation(parsed_obs['public'])
         processed_others = self.process_others_observation(parsed_obs['others'], manager_id)
         
-        # 3. 重构完整观测
-        fused_observation = self.reconstruct_observation(
-            enhanced_private, processed_public, processed_others, manager_id, enhanced=True
+        # Reconstruct complete observation
+        reconstructed = self.reconstruct_observation(
+            enhanced_private, 
+            processed_public, 
+            processed_others,
+            manager_id
         )
         
-        # 4. 更新历史记录
-        self._update_observation_history(manager_id, fused_observation)
-        
+        # Return both the reconstructed observation and individual components
         return {
+            'reconstructed': reconstructed,
             'private': enhanced_private,
             'public': processed_public,
-            'others': processed_others,
-            'fused': fused_observation,
-            'raw_parsed': parsed_obs
+            'others': processed_others
         }
     
     def _update_observation_history(self, manager_id: str, observation: torch.Tensor):
-        """更新观测历史"""
+        """
+        Update observation history for a manager
+        """
         if manager_id not in self.observation_history:
             self.observation_history[manager_id] = []
         
-        self.observation_history[manager_id].append(observation.clone())
+        self.observation_history[manager_id].append(observation.detach().clone())
         
-        # 保持历史长度限制
+        # Limit history length
         if len(self.observation_history[manager_id]) > self.max_history_len:
             self.observation_history[manager_id].pop(0)
     
     def get_observation_stats(self, manager_id: str) -> Dict[str, float]:
-        """获取观测统计信息"""
-        if manager_id not in self.observation_history or len(self.observation_history[manager_id]) == 0:
-            return {
-                'mean': 0.0,
-                'std': 0.0,
-                'stability': 0.0,
-                'history_length': 0
-            }
+        """
+        Get observation statistics for a manager
         
-        recent_obs = torch.stack(self.observation_history[manager_id])
+        Returns statistics about observation history and processing
+        """
+        stats = {}
         
-        return {
-            'mean': recent_obs.mean().item(),
-            'std': recent_obs.std().item(),
-            'stability': 1.0 - recent_obs.std().item() if recent_obs.std().item() < 1.0 else 0.0,
-            'history_length': len(self.observation_history[manager_id])
-        }
+        if manager_id in self.observation_history:
+            history = self.observation_history[manager_id]
+            stats['history_length'] = len(history)
+            
+            if len(history) >= 2:
+                # Calculate observation variance
+                history_tensor = torch.stack(history)
+                stats['observation_variance'] = torch.var(history_tensor, dim=0).mean().item()
+                
+                # Calculate temporal difference
+                diffs = torch.abs(history_tensor[1:] - history_tensor[:-1])
+                stats['mean_temporal_difference'] = diffs.mean().item()
+        else:
+            stats['history_length'] = 0
+            stats['observation_variance'] = 0.0
+            stats['mean_temporal_difference'] = 0.0
+        
+        return stats
     
     def reset_history(self, manager_id: Optional[str] = None):
-        """重置观测历史"""
-        if manager_id is None:
-            self.observation_history.clear()
-            self.local_observation_cache.clear()
-            self.global_observation_cache = None
-        else:
+        """
+        Reset observation history
+        
+        Args:
+            manager_id: If provided, reset only for this manager; otherwise reset all
+        """
+        if manager_id is not None:
             if manager_id in self.observation_history:
-                del self.observation_history[manager_id]
+                self.observation_history[manager_id] = []
             if manager_id in self.local_observation_cache:
-                del self.local_observation_cache[manager_id]
+                self.local_observation_cache[manager_id] = {}
+        else:
+            self.observation_history = {}
+            self.local_observation_cache = {}
+            self.global_observation_cache = None
     
     def get_adapted_dimensions(self) -> Dict[str, int]:
-        """获取适配后的观测维度信息"""
+        """
+        Get dimensions of adapted observation components
+        """
         return {
-            'private_dim': self.private_dim + 1,  # +1 for trend
-            'public_dim': self.public_dim,
-            'others_dim': self.others_dim,
-            'interaction_dim': 2,  # private_public_corr + stability
-            'total_enhanced_dim': self.private_dim + 1 + self.public_dim + self.others_dim + 2
+            'private': self.private_dim + 1,  # +1 for trend information
+            'public': self.public_dim,
+            'others': self.others_dim,
+            'reconstructed': self.private_dim + 1 + self.public_dim + self.others_dim
         }
     
     def enable_deterministic_mode(self, deterministic: bool = True):
-        """启用/禁用确定性模式"""
+        """
+        Enable or disable deterministic mode
+        
+        In deterministic mode, observations are processed for stability
+        """
         self.deterministic_mode = deterministic
         if deterministic:
-            self.action_smoothing_factor = 0.98  # 更平滑
-            self.others_weight = 0.8  # 提高他者信息权重
+            self.others_weight = 0.7  # Higher weight for other agents' information
         else:
-            self.action_smoothing_factor = 0.95  # 正常
-            self.others_weight = 0.7  # 正常权重 
+            self.others_weight = 0.5  # Lower weight for exploration 

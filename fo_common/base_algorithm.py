@@ -1,8 +1,7 @@
 """
-FlexOffer多智能体强化学习算法基础类
+FlexOffer Multi-Agent Reinforcement Learning Algorithm Base Class
 
-本模块提供所有多智能体RL算法的通用基础类和接口，
-减少代码重复，提升代码可维护性。
+This module provides common base classes and interfaces for all multi-agent RL algorithms
 """
 
 import torch
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class BaseMARL(ABC):
-    """多智能体强化学习算法基础类"""
+    """Multi-Agent Reinforcement Learning Algorithm Base Class"""
     
     def __init__(self,
                  n_agents: int,
@@ -33,21 +32,21 @@ class BaseMARL(ABC):
                  buffer_capacity: int = 100000,
                  device: str = "cpu"):
         """
-        初始化基础MARL算法
+        Initialize base MARL algorithm
         
         Args:
-            n_agents: 智能体数量
-            state_dim: 状态维度
-            action_dim: 动作维度
-            lr_actor: Actor学习率
-            lr_critic: Critic学习率
-            hidden_dim: 隐藏层维度
-            max_action: 最大动作值
-            gamma: 折扣因子
-            tau: 软更新系数
-            batch_size: 批次大小
-            buffer_capacity: 缓冲区容量
-            device: 计算设备
+            n_agents: Number of agents
+            state_dim: State dimension
+            action_dim: Action dimension
+            lr_actor: Actor learning rate
+            lr_critic: Critic learning rate
+            hidden_dim: Hidden layer dimension
+            max_action: Maximum action value
+            gamma: Discount factor
+            tau: Soft update coefficient
+            batch_size: Batch size
+            buffer_capacity: Buffer capacity
+            device: Computation device
         """
         self.n_agents = n_agents
         self.state_dim = state_dim
@@ -62,54 +61,54 @@ class BaseMARL(ABC):
         self.buffer_capacity = buffer_capacity
         self.device = torch.device(device)
         
-        # 训练统计
+        # Training statistics
         self.training_step = 0
         self.episode_rewards = []
         self.actor_losses = []
         self.critic_losses = []
         
-        # FlexOffer特定参数
+        # FlexOffer specific parameters
         self.fo_generation_mode = True
         self.manager_coordination_weight = 0.1
         
-        # 初始化组件
+        # Initialize components
         self._setup_networks()
         self._setup_optimizers()
         self._setup_replay_buffer()
     
     @abstractmethod
     def _setup_networks(self):
-        """设置网络结构 - 由子类实现"""
+        """Setup network structures - implemented by subclasses"""
         pass
     
     @abstractmethod
     def _setup_optimizers(self):
-        """设置优化器 - 由子类实现"""
+        """Setup optimizers - implemented by subclasses"""
         pass
     
     @abstractmethod
     def _setup_replay_buffer(self):
-        """设置经验回放缓冲区 - 由子类实现"""
+        """Setup experience replay buffer - implemented by subclasses"""
         pass
     
     @abstractmethod
     def select_actions(self, states: np.ndarray, add_noise: bool = True) -> np.ndarray:
-        """选择动作 - 由子类实现"""
+        """Select actions - implemented by subclasses"""
         pass
     
     @abstractmethod
     def update(self) -> Optional[Dict[str, float]]:
-        """更新算法 - 由子类实现"""
+        """Update algorithm - implemented by subclasses"""
         pass
     
     def store_experience(self, states: np.ndarray, actions: np.ndarray, 
                         rewards: np.ndarray, next_states: np.ndarray, 
                         dones: np.ndarray, **kwargs):
-        """存储经验 - 通用实现"""
+        """Store experience - common implementation"""
         self.replay_buffer.push(states, actions, rewards, next_states, dones, **kwargs)
     
     def soft_update(self, target_net: nn.Module, source_net: nn.Module, tau: float = None):
-        """软更新目标网络 - 通用实现"""
+        """Soft update target network - common implementation"""
         if tau is None:
             tau = self.tau
             
@@ -117,7 +116,7 @@ class BaseMARL(ABC):
             target_param.data.copy_(tau * source_param.data + (1 - tau) * target_param.data)
     
     def save_models(self, path: str):
-        """保存模型 - 通用框架"""
+        """Save models - common framework"""
         save_dict = {
             'training_step': self.training_step,
             'actor_losses': self.actor_losses,
@@ -127,7 +126,7 @@ class BaseMARL(ABC):
         torch.save(save_dict, path)
     
     def load_models(self, path: str):
-        """加载模型 - 通用框架"""
+        """Load models - common framework"""
         checkpoint = torch.load(path, map_location=self.device)
         self.training_step = checkpoint.get('training_step', 0)
         self.actor_losses = checkpoint.get('actor_losses', [])
@@ -136,16 +135,16 @@ class BaseMARL(ABC):
     
     @abstractmethod
     def _add_algorithm_specific_save_data(self, save_dict: Dict):
-        """添加算法特定的保存数据"""
+        """Add algorithm-specific save data"""
         pass
     
     @abstractmethod
     def _load_algorithm_specific_data(self, checkpoint: Dict):
-        """加载算法特定的数据"""
+        """Load algorithm-specific data"""
         pass
     
     def get_training_stats(self) -> Dict[str, Any]:
-        """获取训练统计信息 - 通用实现"""
+        """Get training statistics - common implementation"""
         return {
             'training_step': self.training_step,
             'avg_actor_loss': np.mean(self.actor_losses[-100:]) if self.actor_losses else 0.0,
@@ -156,7 +155,7 @@ class BaseMARL(ABC):
 
 
 class BaseReplayBuffer(ABC):
-    """经验回放缓冲区基础类"""
+    """Experience Replay Buffer Base Class"""
     
     def __init__(self, capacity: int, device: str = "cpu"):
         self.capacity = capacity
@@ -166,25 +165,25 @@ class BaseReplayBuffer(ABC):
     
     @abstractmethod
     def push(self, *args, **kwargs):
-        """存储经验"""
+        """Store experience"""
         pass
     
     @abstractmethod
     def sample(self, batch_size: int):
-        """采样经验"""
+        """Sample experience"""
         pass
     
     def __len__(self):
         return self.size
     
     def clear(self):
-        """清空缓冲区"""
+        """Clear buffer"""
         self.buffer.clear()
         self.size = 0
 
 
 class BaseActorNetwork(nn.Module, ABC):
-    """Actor网络基础类"""
+    """Actor Network Base Class"""
     
     def __init__(self, state_dim: int, action_dim: int, hidden_dim: int, max_action: float):
         super().__init__()
@@ -195,12 +194,12 @@ class BaseActorNetwork(nn.Module, ABC):
     
     @abstractmethod
     def forward(self, state: torch.Tensor) -> torch.Tensor:
-        """前向传播"""
+        """Forward propagation"""
         pass
 
 
 class BaseCriticNetwork(nn.Module, ABC):
-    """Critic网络基础类"""
+    """Critic Network Base Class"""
     
     def __init__(self, state_dim: int, action_dim: int, hidden_dim: int):
         super().__init__()
@@ -210,81 +209,81 @@ class BaseCriticNetwork(nn.Module, ABC):
     
     @abstractmethod
     def forward(self, state: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
-        """前向传播"""
+        """Forward propagation"""
         pass
 
 
 class FlexOfferMixin:
-    """FlexOffer特定功能混入类"""
+    """FlexOffer specific functionality mixin class"""
     
     def apply_fo_constraints(self, actions: torch.Tensor, 
                            fo_constraints: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """应用FlexOffer约束"""
+        """Apply FlexOffer constraints"""
         if fo_constraints is None:
             return actions
         
-        # 简化的约束应用逻辑
+        # Simplified constraint application logic
         constrained_actions = torch.clamp(actions, -1.0, 1.0)
         return constrained_actions
     
     def compute_fo_constraint_loss(self, actions: torch.Tensor, 
                                   fo_constraints: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """计算FlexOffer约束损失"""
+        """Compute FlexOffer constraint loss"""
         if fo_constraints is None:
             return torch.tensor(0.0, device=actions.device)
         
-        # 约束违反损失
+        # Constraint violation loss
         constraint_violations = torch.relu(torch.abs(actions) - 1.0)
         return constraint_violations.mean()
     
     def compute_device_coordination_loss(self, actions: torch.Tensor, 
                                        device_states: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """计算设备协调损失"""
+        """Compute device coordination loss"""
         if device_states is None:
             return torch.tensor(0.0, device=actions.device)
         
-        # 鼓励适度的动作方差（协调但不完全相同）
+        # Encourage moderate action variance (coordinated but not identical)
         action_variance = torch.var(actions, dim=-1).mean()
-        target_variance = 0.5  # 目标方差
+        target_variance = 0.5  # Target variance
         coordination_loss = torch.relu(action_variance - target_variance)
         return coordination_loss
 
 
 class AlgorithmRegistry:
-    """算法注册器"""
+    """Algorithm Registry"""
     
     _algorithms = {}
     
     @classmethod
     def register(cls, name: str, algorithm_class: type):
-        """注册算法"""
+        """Register algorithm"""
         cls._algorithms[name] = algorithm_class
-        logger.info(f"算法注册成功: {name}")
+        logger.info(f"Algorithm registered successfully: {name}")
     
     @classmethod
     def get(cls, name: str):
-        """获取算法类"""
+        """Get algorithm class"""
         if name not in cls._algorithms:
-            raise ValueError(f"未注册的算法: {name}")
+            raise ValueError(f"Unregistered algorithm: {name}")
         return cls._algorithms[name]
     
     @classmethod
     def list_algorithms(cls) -> List[str]:
-        """列出所有注册的算法"""
+        """List all registered algorithms"""
         return list(cls._algorithms.keys())
 
 
-# 算法工厂函数
+# Algorithm factory function
 def create_algorithm(algorithm_name: str, config: Dict[str, Any]) -> BaseMARL:
     """
-    创建算法实例
+    Create algorithm instance
     
     Args:
-        algorithm_name: 算法名称
-        config: 配置参数
+        algorithm_name: Algorithm name
+        config: Configuration parameters
         
     Returns:
-        算法实例
+        Algorithm instance
     """
     algorithm_class = AlgorithmRegistry.get(algorithm_name)
     return algorithm_class(**config) 

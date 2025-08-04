@@ -32,30 +32,30 @@ This system (RLTRADE) is a complete platform for FlexOffer (flexibility offer) g
 
 ```
 FlexOffer System Four-Layer Architecture
-┌───────────────────────────────────────────────────────────────┐
-│                        Multi-Algorithm Support Layer (6 algorithms)          │
-├───────────────────────────────────────────────────── ─────────┤
-│ FOMAPPO    │ FOMAIPPO   │ FOMADDPG   │ FOMATD3   │ FOSQDDPG   │            
-│ Shared policy+ │ Independent policy+ │ Actor-     │ Dual Q-network+ │ Shapley value+  │                
-│ Trust region     │ Conflict avoidance   │ Critic     │ Delayed updates  │ Fair allocation    │                
-└──────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────── ┐
+│                        Multi-Algorithm Support Layer (6 algorithms)                         │
+├─────────────────────────────────────────────────────────────────────────────────────────────┤
+│ FOMAPPO          │ FOMAIPPO               │ FOMADDPG   │ FOMATD3          │ FOSQDDPG        │            
+│ Shared policy+   │ Independent policy+    │ Actor-     │ Dual Q-network+  │ Shapley value+  │                
+│ Trust region     │ Conflict avoidance     │ Critic     │ Delayed updates  │ Fair allocation │                
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
                                     │
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Complete FlexOffer Process                            │
-├─────────────────────────────────────────────────────────────────────┤
-│  Generation Layer        │  Aggregation Layer        │  Trading Layer        │  Scheduling Layer            │
-│  fo_generate/  │  fo_aggregate/ │  fo_trading/   │  fo_schedule/    │
-│  Device MDP modeling   │  LP/DP aggregation     │  Market matching      │  Decomposition scheduling          │
-│  Unified environment      │  Manager aggregation   │  Bilateral auction      │  Satisfaction assessment        │
-└─────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                         Complete FlexOffer Process                                                         │
+├────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│  Generation Layer        │  Aggregation Layer       │  Trading Layer        │  Scheduling Layer            │
+│  fo_generate/            │  fo_aggregate/           │  fo_trading/          │  fo_schedule/                │
+│  Device MDP modeling     │  LP/DP aggregation       │  Market matching      │  Decomposition scheduling    │
+│  Unified environment     │  Manager aggregation     │  Bilateral auction      │  Satisfaction assessment   │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
                                     │
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Device Ecosystem                                  │
-├─────────────────────────────────────────────────────────────────────┤
-│ Dishwashers(36)  │ Heat pumps(36)    │ Batteries(24)    │ EVs(14) │ PV(8)  │
-│ 100% deployment    │ 100% deployment    │ 67% deployment     │ 39% deployment  │ 22% deployment    │
-│ User behavior modeling  │ Temperature control      │ SOC management       │ Charging strategy │ Generation forecast   │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                        Device Ecosystem                                                                          │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Dishwashers(36)         │ Heat pumps(36)         │ Batteries(24)      │ EVs(14)            │ PV(8)               │
+│ 100% deployment         │ 100% deployment        │ 67% deployment     │ 39% deployment     │ 22% deployment      │
+│ User behavior modeling  │ Temperature control    │ SOC management     │ Charging strategy  │ Generation forecast │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## 🧠 Algorithm Feature Comparison

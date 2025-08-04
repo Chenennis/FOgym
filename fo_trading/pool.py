@@ -11,42 +11,42 @@ from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from enum import Enum
 
-# 添加项目根目录到系统路径以便导入
+# Add project root directory to system path for import
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# 导入fo_generate和fo_aggregate模块
+# Import fo_generate and fo_aggregate modules
 from fo_generate.dfo import DFOSystem, DFOSlice
 from fo_generate.sfo import SFOSystem, SFOSlice
 from fo_aggregate import Manager, AggregatedFlexOffer
 from fo_aggregate.manager import Manager
 
-# 创建日志记录器
+# Create logger
 logger = logging.getLogger(__name__)
 
 class WeatherModel:
-    """天气模型，处理天气数据和预测"""
+    """Weather model, handling weather data and predictions"""
     
     WEATHER_TYPES = ["sunny", "cloudy", "rainy", "snowy"]
     
     def __init__(self, weather_data_file: Optional[str] = None, time_horizon: int = 24):
         """
-        初始化天气模型
+        Initialize weather model
         
         Args:
-            weather_data_file: 天气数据文件路径
-            time_horizon: 时间范围
+            weather_data_file: Weather data file path
+            time_horizon: Time range
         """
         self.time_horizon = time_horizon
         self.current_step = 0
         
-        # 天气数据
+        # Weather data
         self.weather_data = {
             'weather': ["sunny"] * time_horizon,
             'temperature': [20.0] * time_horizon,
             'solar_irradiance': [800.0] * time_horizon
         }
         
-        # 从文件加载或生成天气数据
+        # Load weather data from file or generate it
         if weather_data_file and os.path.exists(weather_data_file):
             self.load_weather_data(weather_data_file)
         else:
@@ -54,15 +54,15 @@ class WeatherModel:
     
     def load_weather_data(self, weather_data_file: str):
         """
-        从文件加载天气数据
+        Load weather data from file
         
         Args:
-            weather_data_file: 天气数据文件路径
+            weather_data_file: Weather data file path
         """
         try:
             df = pd.read_csv(weather_data_file)
             
-            # 检查列是否存在
+            # Check if columns exist
             if 'weather' in df.columns:
                 self.weather_data['weather'] = df['weather'].tolist()[:self.time_horizon]
                 
@@ -72,21 +72,21 @@ class WeatherModel:
             if 'solar_irradiance' in df.columns:
                 self.weather_data['solar_irradiance'] = df['solar_irradiance'].tolist()[:self.time_horizon]
                 
-            logger.info(f"成功从 {weather_data_file} 加载天气数据")
+            logger.info(f"Successfully loaded weather data from {weather_data_file}")
         except Exception as e:
-            logger.error(f"加载天气数据失败: {e}")
+            logger.error(f"Failed to load weather data: {e}")
             self.generate_weather_data()
     
     def generate_weather_data(self):
-        """生成随机天气数据"""
-        weather_probs = [0.5, 0.3, 0.15, 0.05]  # 各类天气的概率
+        """Generate random weather data"""
+        weather_probs = [0.5, 0.3, 0.15, 0.05]  # Probabilities of different weather types
         
         for t in range(self.time_horizon):
-            # 天气类型
+            # Weather type
             weather_type = np.random.choice(self.WEATHER_TYPES, p=weather_probs)
             self.weather_data['weather'][t] = weather_type
             
-            # 根据天气类型生成其他参数
+            # Generate other parameters based on weather type
             if weather_type == "sunny":
                 self.weather_data['temperature'][t] = random.uniform(20, 30)
                 self.weather_data['solar_irradiance'][t] = random.uniform(800, 1000)
@@ -100,14 +100,14 @@ class WeatherModel:
                 self.weather_data['temperature'][t] = random.uniform(-5, 5)
                 self.weather_data['solar_irradiance'][t] = random.uniform(50, 200)
                 
-        logger.info("已生成随机天气数据")
+        logger.info("Random weather data generated")
     
     def get_current_weather(self) -> Dict:
         """
-        获取当前时间步的天气数据
+        Get current time step weather data
         
         Returns:
-            Dict: 当前天气数据
+            Dict: Current weather data
         """
         return {
             'weather': self.weather_data['weather'][self.current_step],
@@ -117,18 +117,18 @@ class WeatherModel:
     
     def get_weather_impact(self, energy_type: str) -> float:
         """
-        获取天气对能源的影响系数
+        Get weather impact coefficient on energy
         
         Args:
-            energy_type: 能源类型（solar_pv, wind_turbine, etc.）
+            energy_type: Energy type (solar_pv, wind_turbine, etc.)
             
         Returns:
-            float: 影响系数
+            float: Impact coefficient
         """
         current_weather = self.weather_data['weather'][self.current_step]
         
         if energy_type == "solar_pv":
-            # 太阳能发电效率
+            # Solar power generation efficiency
             if current_weather == "sunny":
                 return 1.0
             elif current_weather == "cloudy":
@@ -138,44 +138,44 @@ class WeatherModel:
             else:  # snowy
                 return 0.1
         else:
-            return 1.0  # 默认不受天气影响
+            return 1.0  # Default not affected by weather
     
     def step(self):
-        """更新当前时间步"""
+        """Update current time step"""
         self.current_step = (self.current_step + 1) % self.time_horizon
         
     def save_weather_data(self, filename: str):
         """
-        保存天气数据到文件
+        Save weather data to file
         
         Args:
-            filename: 文件名
+            filename: File name
         """
         df = pd.DataFrame(self.weather_data)
         df.to_csv(filename, index=False)
-        logger.info(f"天气数据已保存到 {filename}")
+        logger.info(f"Weather data saved to {filename}")
 
 class DemandModel:
-    """能源需求模型"""
+    """Energy demand model"""
     
     def __init__(self, demand_data_file: Optional[str] = None, time_horizon: int = 24):
         """
-        初始化需求模型
+        Initialize demand model
         
         Args:
-            demand_data_file: 需求数据文件路径
-            time_horizon: 时间范围
+            demand_data_file: Demand data file path
+            time_horizon: Time range
         """
         self.time_horizon = time_horizon
         self.current_step = 0
         
-        # 需求数据
+        # Demand data
         self.demand_data = {
             'total_demand': np.zeros(time_horizon),
             'predicted_demand': np.zeros(time_horizon)
         }
         
-        # 从文件加载或生成需求数据
+        # Load demand data from file or generate it
         if demand_data_file and os.path.exists(demand_data_file):
             self.load_demand_data(demand_data_file)
         else:
@@ -183,30 +183,30 @@ class DemandModel:
     
     def load_demand_data(self, demand_data_file: str):
         """
-        从文件加载需求数据
+        Load demand data from file
         
         Args:
-            demand_data_file: 需求数据文件路径
+            demand_data_file: Demand data file path
         """
         try:
             df = pd.read_csv(demand_data_file)
             
-            # 检查列是否存在
+            # Check if columns exist
             if 'demand' in df.columns:
                 demand_values = df['demand'].values[:self.time_horizon]
                 self.demand_data['total_demand'] = np.array(demand_values, dtype=np.float64)
-                # 添加一些随机噪声作为预测误差
+                # Add some random noise as prediction error
                 noise = np.random.normal(0, 0.05 * np.mean(self.demand_data['total_demand']), self.time_horizon)
                 self.demand_data['predicted_demand'] = self.demand_data['total_demand'] + noise
                 
-            logger.info(f"成功从 {demand_data_file} 加载需求数据")
+            logger.info(f"Successfully loaded demand data from {demand_data_file}")
         except Exception as e:
-            logger.error(f"加载需求数据失败: {e}")
+            logger.error(f"Failed to load demand data: {e}")
             self.generate_demand_data()
     
     def generate_demand_data(self):
-        """生成随机需求数据"""
-        # 典型的一天需求曲线（双峰：早晨和晚上）
+        """Generate random demand data"""
+        # Typical day demand curve (double peak: morning and evening)
         base_demand = np.array([
             200, 150, 120, 100, 100, 150,  # 0:00 - 5:00
             250, 350, 400, 380, 360, 380,  # 6:00 - 11:00
@@ -214,48 +214,48 @@ class DemandModel:
             450, 500, 450, 400, 300, 250   # 18:00 - 23:00
         ])[:self.time_horizon]
         
-        # 添加随机噪声
+        # Add random noise
         noise = np.random.normal(0, 20, self.time_horizon)
         self.demand_data['total_demand'] = base_demand + noise
         
-        # 预测值加入更大的噪声
+        # Add larger noise to prediction values
         prediction_noise = np.random.normal(0, 40, self.time_horizon)
         self.demand_data['predicted_demand'] = base_demand + prediction_noise
         
-        logger.info("已生成随机需求数据")
+        logger.info("Random demand data generated")
     
     def get_current_demand(self) -> float:
         """
-        获取当前时间步的需求
+        Get current time step demand
         
         Returns:
-            float: 当前需求
+            float: Current demand
         """
         return self.demand_data['total_demand'][self.current_step]
     
     def get_predicted_demand(self, steps_ahead: int = 1) -> float:
         """
-        获取未来时间步的预测需求
+        Get predicted demand for future time steps
         
         Args:
-            steps_ahead: 预测的时间步数
+            steps_ahead: Number of time steps ahead to predict
             
         Returns:
-            float: 预测需求
+            float: Predicted demand
         """
         future_step = (self.current_step + steps_ahead) % self.time_horizon
         return self.demand_data['predicted_demand'][future_step]
     
     def step(self):
-        """更新当前时间步"""
+        """Update current time step"""
         self.current_step = (self.current_step + 1) % self.time_horizon
         
     def save_demand_data(self, filename: str):
         """
-        保存需求数据到文件
+        Save demand data to file
         
         Args:
-            filename: 文件名
+            filename: File name
         """
         df = pd.DataFrame({
             'hour': range(self.time_horizon),
@@ -263,20 +263,20 @@ class DemandModel:
             'predicted': self.demand_data['predicted_demand']
         })
         df.to_csv(filename, index=False)
-        logger.info(f"需求数据已保存到 {filename}")
+        logger.info(f"Demand data saved to {filename}")
 
 # 数据结构定义
 @dataclass
 class Bid:
-    """报价/出价数据结构"""
+    """Bid/offer data structure"""
     bid_id: str
     participant_id: str
     bid_type: str = "fixed"  # fixed, block, curve
-    price: float = 0.0       # 元/kWh
+    price: float = 0.0       # dkk/kWh
     quantity: float = 0.0    # kWh
     time_step: int = 0
     side: str = "buy"        # buy, sell
-    priority: int = 3        # 优先级 1-5
+    priority: int = 3        # Priority 1-5
     is_flexible: bool = True
     min_quantity: float = 0.0
     max_quantity: float = 0.0
@@ -289,7 +289,7 @@ class Bid:
             self.min_quantity = min(self.quantity * 0.1, 1.0)
     
     def to_dict(self) -> Dict:
-        """转换为字典"""
+        """Convert to dictionary"""
         return {
             'bid_id': self.bid_id,
             'participant_id': self.participant_id,
@@ -307,7 +307,7 @@ class Bid:
 
 @dataclass
 class ClearingResult:
-    """出清结果数据结构"""
+    """Clearing result data structure"""
     clearing_id: str
     clearing_price: float
     clearing_quantity: float
@@ -318,7 +318,7 @@ class ClearingResult:
     total_welfare: float = 0.0
     
     def to_dict(self) -> Dict:
-        """转换为字典"""
+        """Convert to dictionary"""
         return {
             'clearing_id': self.clearing_id,
             'clearing_price': self.clearing_price,
@@ -332,7 +332,7 @@ class ClearingResult:
 
 @dataclass
 class Trade:
-    """交易记录"""
+    """Trade record"""
     trade_id: str
     buyer_id: str
     seller_id: str
@@ -350,7 +350,7 @@ class Trade:
             self.trade_time = datetime.now()
     
     def to_dict(self) -> Dict:
-        """转换为字典"""
+        """Convert to dictionary"""
         return {
             'trade_id': self.trade_id,
             'buyer_id': self.buyer_id,
@@ -365,16 +365,16 @@ class Trade:
             'bid_id': self.bid_id
         }
 
-# 抽象交易算法基类
+# Abstract trading algorithm base class
 class TradingAlgorithm(ABC):
-    """交易算法抽象基类"""
+    """Abstract trading algorithm base class"""
     
     def __init__(self, algorithm_name: str):
         """
-        初始化交易算法
+        Initialize trading algorithm
         
         Args:
-            algorithm_name: 算法名称
+            algorithm_name: Algorithm name
         """
         self.algorithm_name = algorithm_name
         self.logger = logging.getLogger(f"TradingAlgorithm.{algorithm_name}")
@@ -382,13 +382,13 @@ class TradingAlgorithm(ABC):
     @abstractmethod
     def process_bids(self, bids: List[Bid]) -> List[ClearingResult]:
         """
-        处理报价列表
+        Process bid list
         
         Args:
-            bids: 报价列表
+            bids: Bid list
             
         Returns:
-            List[ClearingResult]: 出清结果列表
+            List[ClearingResult]: Clearing result list
         """
         pass
     
@@ -396,44 +396,44 @@ class TradingAlgorithm(ABC):
     def generate_trades(self, clearing_results: List[ClearingResult], 
                        bids: List[Bid]) -> List[Trade]:
         """
-        根据出清结果生成交易
+        Generate trades based on clearing results
         
         Args:
-            clearing_results: 出清结果列表
-            bids: 原始报价列表
+            clearing_results: Clearing result list
+            bids: Original bid list
             
         Returns:
-            List[Trade]: 交易列表
+            List[Trade]: Trade list
         """
         pass
     
     def validate_bids(self, bids: List[Bid]) -> List[Bid]:
         """
-        验证报价有效性
+        Validate bid validity
         
         Args:
-            bids: 报价列表
+            bids: Bid list
             
         Returns:
-            List[Bid]: 有效的报价列表
+            List[Bid]: Valid bid list
         """
         valid_bids = []
         for bid in bids:
             if self._is_valid_bid(bid):
                 valid_bids.append(bid)
             else:
-                self.logger.warning(f"无效报价: {bid.bid_id}")
+                self.logger.warning(f"Invalid bid: {bid.bid_id}")
         return valid_bids
     
     def _is_valid_bid(self, bid: Bid) -> bool:
         """
-        检查单个报价是否有效
+        Check if a single bid is valid
         
         Args:
-            bid: 报价
+            bid: Bid
             
         Returns:
-            bool: 是否有效
+            bool: Whether valid
         """
         if bid.price < 0:
             return False
@@ -445,13 +445,13 @@ class TradingAlgorithm(ABC):
     
     def calculate_market_metrics(self, clearing_results: List[ClearingResult]) -> Dict:
         """
-        计算市场指标
+        Calculate market metrics
         
         Args:
-            clearing_results: 出清结果列表
+            clearing_results: Clearing result list
             
         Returns:
-            Dict: 市场指标
+            Dict: Market metrics
         """
         if not clearing_results:
             return {}
@@ -466,45 +466,45 @@ class TradingAlgorithm(ABC):
             'total_welfare': sum(cr.total_welfare for cr in clearing_results)
         }
 
-# Bidding算法实现
+# Bidding algorithm implementation
 class BiddingAlgorithm(TradingAlgorithm):
     """
-    报价算法实现
+    Bidding algorithm implementation
     
-    功能：
-    - 市场参与者表达其电能买入/卖出的意愿与条件
-    - 支持多种报价类型：固定报价、分段报价、曲线报价
-    - 报价收集和管理
+    Features:
+    - Market participants express their willingness to buy/sell electricity and conditions
+    - Support multiple bid types: fixed bid, segmented bid, curve bid
+    - Bid collection and management
     """
     
     def __init__(self):
         super().__init__("bidding")
-        self.collected_bids: Dict[str, List[Bid]] = {}  # 按时间步组织的报价
-        self.participants: Dict[str, Dict] = {}  # 参与者信息
+        self.collected_bids: Dict[str, List[Bid]] = {}  # Bids organized by time step
+        self.participants: Dict[str, Dict] = {}  # Participant information
     
     def register_participant(self, participant_id: str, participant_info: Dict):
         """
-        注册市场参与者
+        Register market participant
         
         Args:
-            participant_id: 参与者ID
-            participant_info: 参与者信息
+            participant_id: Participant ID
+            participant_info: Participant information
         """
         self.participants[participant_id] = participant_info
-        self.logger.info(f"参与者 {participant_id} 已注册")
+        self.logger.info(f"Participant {participant_id} registered")
     
     def submit_bid(self, bid: Bid) -> bool:
         """
-        提交报价
+        Submit bid
         
         Args:
-            bid: 报价对象
+            bid: Bid object
             
         Returns:
-            bool: 是否成功提交
+            bool: Whether successful submission
         """
         if not self._is_valid_bid(bid):
-            self.logger.warning(f"无效报价: {bid.bid_id}")
+            self.logger.warning(f"Invalid bid: {bid.bid_id}")
             return False
         
         time_step_key = str(bid.time_step)
@@ -512,73 +512,73 @@ class BiddingAlgorithm(TradingAlgorithm):
             self.collected_bids[time_step_key] = []
         
         self.collected_bids[time_step_key].append(bid)
-        self.logger.info(f"收到报价: {bid.bid_id}, 参与者: {bid.participant_id}, "
-                        f"类型: {bid.side}, 价格: {bid.price}, 数量: {bid.quantity}")
+        self.logger.info(f"Received bid: {bid.bid_id}, Participant: {bid.participant_id}, "
+                        f"Type: {bid.side}, Price: {bid.price}, Quantity: {bid.quantity}")
         return True
     
     def process_bids(self, bids: List[Bid]) -> List[ClearingResult]:
         """
-        处理报价列表 - Bidding算法主要负责收集和组织报价
+        Process bid list - Bidding algorithm mainly responsible for collecting and organizing bids
         
         Args:
-            bids: 报价列表
+            bids: Bid list
             
         Returns:
-            List[ClearingResult]: 出清结果列表（空列表，因为bidding算法不执行出清）
+            List[ClearingResult]: Clearing result list (empty list because bidding algorithm does not execute clearing)
         """
-        # 验证报价
+        # Validate bids
         valid_bids = self.validate_bids(bids)
         
-        # 按时间步和类型分组
+        # Group bids by time step and type
         buy_bids = [bid for bid in valid_bids if bid.side == "buy"]
         sell_bids = [bid for bid in valid_bids if bid.side == "sell"]
         
-        # 按价格排序
-        buy_bids.sort(key=lambda x: x.price, reverse=True)  # 买方出价从高到低
-        sell_bids.sort(key=lambda x: x.price)  # 卖方出价从低到高
+        # Sort bids by price
+        buy_bids.sort(key=lambda x: x.price, reverse=True)  # Buy bids from high to low
+        sell_bids.sort(key=lambda x: x.price)  # Sell bids from low to high
         
-        self.logger.info(f"处理报价: {len(buy_bids)} 个买方报价, {len(sell_bids)} 个卖方报价")
+        self.logger.info(f"Processed {len(buy_bids)} buy bids, {len(sell_bids)} sell bids")
         
-        # Bidding算法不执行出清，返回空列表
-        # 实际出清由Market Clearing算法完成
+        # Bidding algorithm does not execute clearing, return empty list
+        # Actual clearing is done by Market Clearing algorithm
         return []
     
     def generate_trades(self, clearing_results: List[ClearingResult], 
                        bids: List[Bid]) -> List[Trade]:
         """
-        Bidding算法不生成交易，由Market Clearing算法生成
+        Bidding algorithm does not generate trades, Market Clearing algorithm generates them
         
         Args:
-            clearing_results: 出清结果列表
-            bids: 原始报价列表
+            clearing_results: Clearing result list
+            bids: Original bid list
             
         Returns:
-            List[Trade]: 空交易列表
+            List[Trade]: Empty trade list
         """
         return []
     
     def get_bids_by_timestep(self, time_step: int) -> List[Bid]:
         """
-        获取指定时间步的所有报价
+        Get all bids for a specific time step
         
         Args:
-            time_step: 时间步
+            time_step: Time step
             
         Returns:
-            List[Bid]: 报价列表
+            List[Bid]: Bid list
         """
         time_step_key = str(time_step)
         return self.collected_bids.get(time_step_key, [])
     
     def get_market_summary(self, time_step: int) -> Dict:
         """
-        获取市场概况
+        Get market summary
         
         Args:
-            time_step: 时间步
+            time_step: Time step
             
         Returns:
-            Dict: 市场概况
+            Dict: Market summary
         """
         bids = self.get_bids_by_timestep(time_step)
         buy_bids = [bid for bid in bids if bid.side == "buy"]
@@ -596,15 +596,15 @@ class BiddingAlgorithm(TradingAlgorithm):
             'demand_supply_ratio': buy_quantity / sell_quantity if sell_quantity > 0 else float('inf')
         }
 
-# Market Clearing算法实现
+# Market Clearing algorithm implementation
 class MarketClearingAlgorithm(TradingAlgorithm):
     """
-    市场出清算法实现
+    Market clearing algorithm implementation
     
-    功能：
-    - 在收到所有参与者出价的基础上确定成交电量、成交价格、哪些报价中标
-    - 满足供需平衡、价格公平、最小成本或最大社会福利目标
-    - 支持统一价格出清和按报价支付
+    Features:
+    - Determine the clearing quantity, clearing price, and which bids win based on all participants' bids
+    - Meet supply and demand balance, price fairness, minimum cost, or maximum social welfare goals
+    - Support uniform price clearing and pay-as-bid clearing
     """
     
     def __init__(self, clearing_method: str = "uniform_price"):
@@ -614,22 +614,22 @@ class MarketClearingAlgorithm(TradingAlgorithm):
     
     def process_bids(self, bids: List[Bid]) -> List[ClearingResult]:
         """
-        处理报价列表，执行市场出清
+        Process bid list, execute market clearing
         
         Args:
-            bids: 报价列表
+            bids: Bid list
             
         Returns:
-            List[ClearingResult]: 出清结果列表
+            List[ClearingResult]: Clearing result list
         """
-        # 验证报价
+        # Validate bids
         valid_bids = self.validate_bids(bids)
         
         if not valid_bids:
-            self.logger.warning("没有有效报价，无法执行出清")
+            self.logger.warning("No valid bids, cannot execute clearing")
             return []
         
-        # 按时间步分组出清
+        # Group bids by time step
         bids_by_timestep = {}
         for bid in valid_bids:
             time_step = bid.time_step
@@ -648,38 +648,38 @@ class MarketClearingAlgorithm(TradingAlgorithm):
     
     def _clear_market_for_timestep(self, bids: List[Bid], time_step: int) -> Optional[ClearingResult]:
         """
-        为单个时间步执行市场出清
+        Execute market clearing for a single time step
         
         Args:
-            bids: 该时间步的报价列表
-            time_step: 时间步
+            bids: Bid list for this time step
+            time_step: Time step
             
         Returns:
-            Optional[ClearingResult]: 出清结果
+            Optional[ClearingResult]: Clearing result
         """
-        # 分离买方和卖方报价
+        # Separate buy and sell bids
         buy_bids = [bid for bid in bids if bid.side == "buy"]
         sell_bids = [bid for bid in bids if bid.side == "sell"]
         
         if not buy_bids or not sell_bids:
-            self.logger.warning(f"时间步 {time_step}: 缺少买方或卖方报价")
+            self.logger.warning(f"Time step {time_step}: No buy or sell bids")
             return None
         
-        # 按价格排序
-        buy_bids.sort(key=lambda x: x.price, reverse=True)  # 买方出价从高到低
-        sell_bids.sort(key=lambda x: x.price)  # 卖方出价从低到高
+        # Sort bids by price
+        buy_bids.sort(key=lambda x: x.price, reverse=True)  # Buy bids from high to low
+        sell_bids.sort(key=lambda x: x.price)  # Sell bids from low to high
         
-        # 找到供需平衡点
+        # Find clearing point
         clearing_price, clearing_quantity, matched_bids = self._find_clearing_point(buy_bids, sell_bids)
         
         if clearing_quantity == 0:
-            self.logger.warning(f"时间步 {time_step}: 无法找到供需平衡点")
+            self.logger.warning(f"Time step {time_step}: Cannot find clearing point")
             return None
         
-        # 计算市场福利
+        # Calculate market welfare
         total_welfare = self._calculate_welfare(buy_bids, sell_bids, clearing_price, clearing_quantity)
         
-        # 创建出清结果
+        # Create clearing result
         clearing_result = ClearingResult(
             clearing_id=f"clearing_{time_step}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
             clearing_price=clearing_price,
@@ -689,177 +689,170 @@ class MarketClearingAlgorithm(TradingAlgorithm):
             total_welfare=total_welfare
         )
         
-        self.logger.info(f"时间步 {time_step} 出清完成: 价格 {clearing_price:.4f}, 数量 {clearing_quantity:.2f}")
+        self.logger.info(f"Time step {time_step} clearing completed: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
         return clearing_result
     
     def _find_clearing_point(self, buy_bids: List[Bid], sell_bids: List[Bid]) -> Tuple[float, float, List[Tuple[str, float]]]:
         """
-        找到供需平衡点 - 超级宽松版本
+        Find clearing point
         
         Args:
-            buy_bids: 排序后的买方报价（价格从高到低）
-            sell_bids: 排序后的卖方报价（价格从低到高）
+            buy_bids: Sorted buy bids (price from high to low)
+            sell_bids: Sorted sell bids (price from low to high)
             
         Returns:
-            Tuple[float, float, List]: (出清价格, 出清数量, 匹配的报价列表)
+            Tuple[float, float, List]: (clearing price, clearing quantity, matched bids list)
         """
-        self.logger.info(f"开始寻找出清点: 买方报价{len(buy_bids)}个，卖方报价{len(sell_bids)}个")
+        self.logger.info(f"Start finding clearing point: {len(buy_bids)} buy bids, {len(sell_bids)} sell bids")
         
-        # 输出报价详情
+        # Output bid details
         for i, bid in enumerate(buy_bids):
-            self.logger.info(f"买方报价{i}: {bid.participant_id}, 价格{bid.price:.4f}, 数量{bid.quantity:.2f}")
+            self.logger.info(f"Buy bid {i}: {bid.participant_id}, price {bid.price:.4f}, quantity {bid.quantity:.2f}")
         for i, bid in enumerate(sell_bids):
-            self.logger.info(f"卖方报价{i}: {bid.participant_id}, 价格{bid.price:.4f}, 数量{bid.quantity:.2f}")
+            self.logger.info(f"Sell bid {i}: {bid.participant_id}, price {bid.price:.4f}, quantity {bid.quantity:.2f}")
         
-        # 🔧 检查是否有任何报价
+        # 🔧 Check if there are any bids
         if not buy_bids or not sell_bids:
-            self.logger.warning("买方或卖方报价为空，无法找到出清点")
-            # 创建一个默认的匹配，确保有交易发生
+            self.logger.warning("No buy or sell bids, cannot find clearing point")
+            # Create a default match, ensure there is a transaction
             if buy_bids:
                 clearing_price = buy_bids[0].price * 0.9
-                clearing_quantity = max(5.0, buy_bids[0].quantity * 0.5)  # 确保至少有5.0的数量
+                clearing_quantity = max(5.0, buy_bids[0].quantity * 0.5)  # Ensure at least 5.0 quantity
                 matched_bids = [(buy_bids[0].bid_id, clearing_quantity)]
-                self.logger.info(f"创建默认买方匹配: 价格{clearing_price:.4f}, 数量{clearing_quantity:.2f}")
+                self.logger.info(f"Create default buy match: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
                 return clearing_price, clearing_quantity, matched_bids
             elif sell_bids:
                 clearing_price = sell_bids[0].price * 1.1
-                clearing_quantity = max(5.0, sell_bids[0].quantity * 0.5)  # 确保至少有5.0的数量
+                clearing_quantity = max(5.0, sell_bids[0].quantity * 0.5)  # Ensure at least 5.0 quantity
                 matched_bids = [(sell_bids[0].bid_id, clearing_quantity)]
-                self.logger.info(f"创建默认卖方匹配: 价格{clearing_price:.4f}, 数量{clearing_quantity:.2f}")
+                self.logger.info(f"Create default sell match: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
                 return clearing_price, clearing_quantity, matched_bids
             else:
-                # 即使没有任何报价，也返回一个最小的非零交易量
-                return 0.15, 1.0, []  # 默认价格0.15元/kWh，数量1.0 kWh
+                # Even if there are no bids, return a minimum non-zero transaction volume
+                return 0.15, 1.0, []  # Default price 0.15 kWh/kWh, quantity 1.0 kWh
         
-        # 构建供需曲线
+        # Build supply and demand curves
         buy_curve = []
         sell_curve = []
         
-        # 买方需求曲线（累积）
+        # Buy demand curve (cumulative)
         cumulative_buy_quantity = 0
         for bid in buy_bids:
             cumulative_buy_quantity += bid.quantity
             buy_curve.append((bid.price, cumulative_buy_quantity))
         
-        # 卖方供给曲线（累积）
+        # Sell supply curve (cumulative)
         cumulative_sell_quantity = 0
         for bid in sell_bids:
             cumulative_sell_quantity += bid.quantity
             sell_curve.append((bid.price, cumulative_sell_quantity))
         
-        self.logger.info(f"买方需求曲线: {buy_curve}")
-        self.logger.info(f"卖方供给曲线: {sell_curve}")
+        self.logger.info(f"Buy demand curve: {buy_curve}")
+        self.logger.info(f"Sell supply curve: {sell_curve}")
         
-        # 找到供需交点
+        # Find supply and demand intersection
         clearing_price = 0.0
         clearing_quantity = 0.0
         
-        # 🔧 超级宽松匹配策略
-        # 1. 首先尝试标准匹配（买方价格>=卖方价格）
+        # 🔧 Super loose matching strategy
+        # 1. First try standard matching (buy price >= sell price)
         for i, (buy_price, buy_qty) in enumerate(buy_curve):
             for j, (sell_price, sell_qty) in enumerate(sell_curve):
-                # 如果买方出价 >= 卖方出价，且数量匹配
+                # If buy price >= sell price, and quantity matches
                 if buy_price >= sell_price:
                     potential_quantity = min(buy_qty, sell_qty)
-                    self.logger.info(f"找到标准匹配: 买方价格{buy_price:.4f}>=卖方价格{sell_price:.4f}, 潜在数量{potential_quantity:.2f}")
+                    self.logger.info(f"Found standard match: buy price {buy_price:.4f}>=sell price {sell_price:.4f}, potential quantity {potential_quantity:.2f}")
                     if potential_quantity > clearing_quantity:
                         clearing_quantity = potential_quantity
                         if self.clearing_method == "uniform_price":
-                            # 统一边际价格
+                            # Uniform marginal price
                             clearing_price = (buy_price + sell_price) / 2
                         elif self.clearing_method == "pay_as_bid":
-                            # 按报价支付（这里简化为卖方价格）
+                            # Pay as bid (simplified to sell price)
                             clearing_price = sell_price
                         else:
                             clearing_price = (buy_price + sell_price) / 2
-                        self.logger.info(f"更新出清点: 价格{clearing_price:.4f}, 数量{clearing_quantity:.2f}")
+                        self.logger.info(f"Update clearing point: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
         
-        # 2. 如果标准匹配失败，尝试超级宽松匹配
+        # 2. If standard matching fails, try super loose matching
         if clearing_quantity == 0:
-            self.logger.warning("标准匹配失败，尝试超级宽松匹配条件")
+            self.logger.warning("Standard matching failed, try super loose matching conditions")
             
-            # 找到最高买价和最低卖价
+            # Find highest buy price and lowest sell price
             if buy_bids and sell_bids:
                 highest_buy = buy_bids[0].price
                 lowest_sell = sell_bids[0].price
                 
-                # 计算价格差距
+                # Calculate price gap
                 price_gap = lowest_sell - highest_buy
-                self.logger.info(f"价格差距: 最高买价{highest_buy:.4f} vs 最低卖价{lowest_sell:.4f}, 差距{price_gap:.4f}")
+                self.logger.info(f"Price gap: highest buy price {highest_buy:.4f} vs lowest sell price {lowest_sell:.4f}, gap {price_gap:.4f}")
                 
-                # 🔧 完全忽略价格差距限制
-                # 无论价格差距多大，都强制匹配
-                # 使用最高买价和最低卖价的平均值作为出清价格
                 clearing_price = (highest_buy + lowest_sell) / 2
                 
-                # 取买卖双方最小数量的90%作为出清数量
+                # Take 90% of the minimum quantity of both sides as the clearing quantity
                 min_buy_qty = min(bid.quantity for bid in buy_bids) if buy_bids else 0
                 min_sell_qty = min(bid.quantity for bid in sell_bids) if sell_bids else 0
                 clearing_quantity = min(min_buy_qty, min_sell_qty) * 0.9
                 
-                self.logger.info(f"超级宽松匹配成功: 价格{clearing_price:.4f}, 数量{clearing_quantity:.2f}")
+                self.logger.info(f"Super loose matching successful: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
         
-        # 3. 如果超级宽松匹配仍然失败，强制创建匹配
-        if clearing_quantity < 1.0:  # 设置一个最小阈值，确保有足够的交易量
-            self.logger.warning("超级宽松匹配失败或数量太小，创建强制匹配")
+        if clearing_quantity < 1.0:  # Set a minimum threshold to ensure enough transaction volume
+            self.logger.warning("Super loose matching failed or quantity too small, create forced match")
             
             if buy_bids and sell_bids:
-                # 使用买卖双方价格的平均值
+                # Use average of buy and sell prices
                 avg_buy_price = sum(bid.price for bid in buy_bids) / len(buy_bids)
                 avg_sell_price = sum(bid.price for bid in sell_bids) / len(sell_bids)
                 clearing_price = (avg_buy_price + avg_sell_price) / 2
                 
-                # 🔧 设置一个更大的出清数量
-                # 使用买卖双方平均数量的70%
                 avg_buy_qty = sum(bid.quantity for bid in buy_bids) / len(buy_bids)
                 avg_sell_qty = sum(bid.quantity for bid in sell_bids) / len(sell_bids)
                 clearing_quantity = min(avg_buy_qty, avg_sell_qty) * 0.7
                 
-                # 确保数量至少为5.0
+                # Ensure quantity is at least 5.0
                 clearing_quantity = max(5.0, clearing_quantity)
                 
-                self.logger.info(f"强制匹配: 价格{clearing_price:.4f}, 数量{clearing_quantity:.2f}")
+                self.logger.info(f"Forced match: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
         
-        self.logger.info(f"最终出清结果: 价格{clearing_price:.4f}, 数量{clearing_quantity:.2f}")
+        self.logger.info(f"Final clearing result: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
         
-        # 找到匹配的报价
+        # Find matched bids
         matched_bids = []
         if clearing_quantity > 0:
             matched_bids = self._match_bids(buy_bids, sell_bids, clearing_quantity)
-            self.logger.info(f"匹配的报价数量: {len(matched_bids)}")
+            self.logger.info(f"Number of matched bids: {len(matched_bids)}")
         else:
-            self.logger.warning("出清数量为0，创建最小匹配")
-            # 🔧 即使出清数量为0，也创建一个最小的匹配
+            self.logger.warning("Clearing quantity is 0, create minimum match")
             if buy_bids and sell_bids:
-                # 设置一个最小的非零交易量
+                # Set a minimum non-zero transaction volume
                 clearing_quantity = 1.0
                 clearing_price = 0.15 if clearing_price == 0.0 else clearing_price
                 matched_bids = [(buy_bids[0].bid_id, clearing_quantity), (sell_bids[0].bid_id, clearing_quantity)]
-                self.logger.info(f"创建最小匹配: 价格{clearing_price:.4f}, 数量{clearing_quantity:.2f}")
+                self.logger.info(f"Create minimum match: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
             else:
-                # 即使没有任何报价，也返回一个最小的非零交易量
+                # Even if there are no bids, return a minimum non-zero transaction volume
                 clearing_quantity = 1.0
                 clearing_price = 0.15
-                self.logger.info(f"创建默认最小匹配: 价格{clearing_price:.4f}, 数量{clearing_quantity:.2f}")
+                self.logger.info(f"Create default minimum match: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
         
         return clearing_price, clearing_quantity, matched_bids
     
     def _match_bids(self, buy_bids: List[Bid], sell_bids: List[Bid], clearing_quantity: float) -> List[Tuple[str, float]]:
         """
-        匹配报价
+        Match bids
         
         Args:
-            buy_bids: 买方报价列表
-            sell_bids: 卖方报价列表
-            clearing_quantity: 出清数量
+            buy_bids: Buy bid list
+            sell_bids: Sell bid list
+            clearing_quantity: Clearing quantity
             
         Returns:
-            List[Tuple[str, float]]: 匹配的报价列表 (bid_id, matched_quantity)
+            List[Tuple[str, float]]: Matched bids list (bid_id, matched_quantity)
         """
         matched_bids = []
         remaining_quantity = clearing_quantity
         
-        # 优先匹配买方报价
+        # Match buy bids first
         for bid in buy_bids:
             if remaining_quantity <= 0:
                 break
@@ -867,7 +860,7 @@ class MarketClearingAlgorithm(TradingAlgorithm):
             matched_bids.append((bid.bid_id, matched_quantity))
             remaining_quantity -= matched_quantity
         
-        # 匹配卖方报价
+        # Match sell bids
         remaining_quantity = clearing_quantity
         for bid in sell_bids:
             if remaining_quantity <= 0:
@@ -881,18 +874,18 @@ class MarketClearingAlgorithm(TradingAlgorithm):
     def _calculate_welfare(self, buy_bids: List[Bid], sell_bids: List[Bid], 
                           clearing_price: float, clearing_quantity: float) -> float:
         """
-        计算市场福利
+        Calculate market welfare
         
         Args:
-            buy_bids: 买方报价列表
-            sell_bids: 卖方报价列表
-            clearing_price: 出清价格
-            clearing_quantity: 出清数量
+            buy_bids: Buy bid list
+            sell_bids: Sell bid list
+            clearing_price: Clearing price
+            clearing_quantity: Clearing quantity
             
         Returns:
-            float: 总福利
+            float: Total welfare
         """
-        # 消费者剩余：买方愿意支付的价格 - 实际支付价格
+        # Consumer surplus: Buy price - actual payment price
         consumer_surplus = 0.0
         remaining_quantity = clearing_quantity
         
@@ -903,7 +896,7 @@ class MarketClearingAlgorithm(TradingAlgorithm):
             consumer_surplus += matched_quantity * (bid.price - clearing_price)
             remaining_quantity -= matched_quantity
         
-        # 生产者剩余：实际收到价格 - 卖方愿意接受的价格
+        # Producer surplus: Actual received price - sell price
         producer_surplus = 0.0
         remaining_quantity = clearing_quantity
         
@@ -919,48 +912,48 @@ class MarketClearingAlgorithm(TradingAlgorithm):
     def generate_trades(self, clearing_results: List[ClearingResult], 
                        bids: List[Bid]) -> List[Trade]:
         """
-        根据出清结果生成交易
+        Generate trades based on clearing results
         
         Args:
-            clearing_results: 出清结果列表
-            bids: 原始报价列表
+            clearing_results: Clearing result list
+            bids: Original bid list
             
         Returns:
-            List[Trade]: 交易列表
+            List[Trade]: Trade list
         """
-        self.logger.info(f"开始生成交易: {len(clearing_results)}个出清结果, {len(bids)}个原始报价")
+        self.logger.info(f"Start generating trades: {len(clearing_results)} clearing results, {len(bids)} original bids")
         
         trades = []
         bid_dict = {bid.bid_id: bid for bid in bids}
         
         for i, clearing_result in enumerate(clearing_results):
-            self.logger.info(f"处理出清结果{i}: 价格{clearing_result.clearing_price:.4f}, 数量{clearing_result.clearing_quantity:.2f}, 匹配报价数{len(clearing_result.matched_bids)}")
+            self.logger.info(f"Processing clearing result {i}: price {clearing_result.clearing_price:.4f}, quantity {clearing_result.clearing_quantity:.2f}, matched bids {len(clearing_result.matched_bids)}")
             
-            # 从匹配的报价中生成交易
+            # Generate trades from matched bids
             buy_matches = []
             sell_matches = []
             
             for bid_id, matched_quantity in clearing_result.matched_bids:
-                self.logger.info(f"处理匹配报价: {bid_id}, 数量{matched_quantity:.2f}")
+                self.logger.info(f"Processing matched bid: {bid_id}, quantity {matched_quantity:.2f}")
                 if bid_id in bid_dict:
                     bid = bid_dict[bid_id]
                     if bid.side == "buy":
                         buy_matches.append((bid, matched_quantity))
-                        self.logger.info(f"添加买方匹配: {bid.participant_id}, 数量{matched_quantity:.2f}")
+                        self.logger.info(f"Add buy match: {bid.participant_id}, quantity {matched_quantity:.2f}")
                     else:
                         sell_matches.append((bid, matched_quantity))
-                        self.logger.info(f"添加卖方匹配: {bid.participant_id}, 数量{matched_quantity:.2f}")
+                        self.logger.info(f"Add sell match: {bid.participant_id}, quantity {matched_quantity:.2f}")
                 else:
-                    self.logger.warning(f"未找到报价ID: {bid_id}")
+                    self.logger.warning(f"Bid ID not found: {bid_id}")
             
-            self.logger.info(f"买方匹配数: {len(buy_matches)}, 卖方匹配数: {len(sell_matches)}")
+            self.logger.info(f"Number of buy matches: {len(buy_matches)}, number of sell matches: {len(sell_matches)}")
             
-            # 创建交易记录
+            # Create trade records
             trade_id_counter = 0
             for buy_bid, buy_quantity in buy_matches:
                 for sell_bid, sell_quantity in sell_matches:
                     trade_quantity = min(buy_quantity, sell_quantity)
-                    self.logger.info(f"尝试创建交易: 买方{buy_bid.participant_id}({buy_quantity:.2f}) vs 卖方{sell_bid.participant_id}({sell_quantity:.2f}), 交易数量{trade_quantity:.2f}")
+                    self.logger.info(f"Try to create trade: buyer {buy_bid.participant_id}({buy_quantity:.2f}) vs seller {sell_bid.participant_id}({sell_quantity:.2f}), trade quantity {trade_quantity:.2f}")
                     if trade_quantity > 0:
                         trade = Trade(
                             trade_id=f"{clearing_result.clearing_id}_trade_{trade_id_counter}",
@@ -976,14 +969,14 @@ class MarketClearingAlgorithm(TradingAlgorithm):
                         )
                         trades.append(trade)
                         trade_id_counter += 1
-                        self.logger.info(f"成功创建交易: {trade.trade_id}, 买方{trade.buyer_id}, 卖方{trade.seller_id}, 数量{trade.quantity:.2f}, 价格{trade.price:.4f}")
+                        self.logger.info(f"Successfully created trade: {trade.trade_id}, buyer {trade.buyer_id}, seller {trade.seller_id}, quantity {trade.quantity:.2f}, price {trade.price:.4f}")
         
-        self.logger.info(f"交易生成完成: 共生成{len(trades)}笔交易")
+        self.logger.info(f"Trade generation completed: {len(trades)} trades")
         return trades
 
-# 交易算法工厂
+# Trading algorithm factory
 class TradingAlgorithmFactory:
-    """交易算法工厂模式"""
+    """Trading algorithm factory mode"""
     
     _algorithms = {
         "bidding": BiddingAlgorithm,
@@ -993,17 +986,17 @@ class TradingAlgorithmFactory:
     @classmethod
     def create_algorithm(cls, algorithm_name: str, **kwargs) -> TradingAlgorithm:
         """
-        创建交易算法实例
+        Create trading algorithm instance
         
         Args:
-            algorithm_name: 算法名称
-            **kwargs: 算法参数
+            algorithm_name: Algorithm name
+            **kwargs: Algorithm parameters
             
         Returns:
-            TradingAlgorithm: 算法实例
+            TradingAlgorithm: Algorithm instance
         """
         if algorithm_name not in cls._algorithms:
-            raise ValueError(f"未知的交易算法: {algorithm_name}")
+            raise ValueError(f"Unknown trading algorithm: {algorithm_name}")
         
         algorithm_class = cls._algorithms[algorithm_name]
         return algorithm_class(**kwargs)
@@ -1011,92 +1004,92 @@ class TradingAlgorithmFactory:
     @classmethod
     def register_algorithm(cls, algorithm_name: str, algorithm_class: type):
         """
-        注册新的交易算法
+        Register new trading algorithm
         
         Args:
-            algorithm_name: 算法名称
-            algorithm_class: 算法类
+            algorithm_name: Algorithm name
+            algorithm_class: Algorithm class
         """
         if not issubclass(algorithm_class, TradingAlgorithm):
-            raise ValueError(f"算法类必须继承自TradingAlgorithm")
+            raise ValueError(f"Algorithm class must inherit from TradingAlgorithm")
         
         cls._algorithms[algorithm_name] = algorithm_class
-        logger.info(f"已注册交易算法: {algorithm_name}")
+        logger.info(f"Trading algorithm registered: {algorithm_name}")
     
     @classmethod
     def get_available_algorithms(cls) -> List[str]:
         """
-        获取可用的交易算法列表
+        Get available trading algorithm list
         
         Returns:
-            List[str]: 算法名称列表
+            List[str]: Algorithm name list
         """
         return list(cls._algorithms.keys())
 
 class TradingPool:
     """
-    交易池 - 支持多种交易算法
+    Trading pool - support multiple trading algorithms
     
-    主要功能：
-    1. 管理FlexOffer和报价
-    2. 支持Bidding和Market Clearing算法
-    3. 执行交易和记录
-    4. 提供市场分析功能
+    Main functions:
+    1. Manage FlexOffer and bids
+    2. Support Bidding and Market Clearing algorithms
+    3. Execute trades and record
+    4. Provide market analysis functions
     """
     
     def __init__(self, weather_model: WeatherModel, demand_model: DemandModel, 
                  trading_algorithm: str = "market_clearing", **algorithm_kwargs):
         """
-        初始化交易池
+        Initialize trading pool
         
         Args:
-            weather_model: 天气模型
-            demand_model: 需求模型
-            trading_algorithm: 交易算法名称
-            **algorithm_kwargs: 算法参数
+            weather_model: Weather model
+            demand_model: Demand model
+            trading_algorithm: Trading algorithm name
+            **algorithm_kwargs: Algorithm parameters
         """
         self.weather_model = weather_model
         self.demand_model = demand_model
         self.time_horizon = weather_model.time_horizon
         self.current_step = 0
         
-        # 交易算法
+        # Trading algorithm
         self.trading_algorithm_name = trading_algorithm
         self.trading_algorithm = TradingAlgorithmFactory.create_algorithm(trading_algorithm, **algorithm_kwargs)
         
-        # 支持多种算法混合使用
+        # Support multiple algorithms
         self.algorithms = {
             "bidding": TradingAlgorithmFactory.create_algorithm("bidding"),
             "market_clearing": self.trading_algorithm
         }
         
-        # 数据存储
+        # Data storage
         self.managers: Dict[str, Manager] = {}
         self.participants: Dict[str, Dict] = {}
         self.bids: List[Bid] = []
         self.clearing_results: List[ClearingResult] = []
         self.trade_history: List[Trade] = []
         
-        # 保留原有兼容性
+        # Keep original compatibility
         self.available_offers: Dict[str, Dict] = {}
         
-        # 价格模型
+        # Price model
         self.grid_prices = np.random.uniform(0.1, 0.3, self.time_horizon)
         self.energy_prices = np.random.uniform(0.08, 0.25, self.time_horizon)
         
-        logger.info(f"交易池初始化完成，主算法: {trading_algorithm}")
+        logger.info(f"Trading pool initialized, main algorithm: {trading_algorithm}")
     
     def add_manager(self, manager_id: str, manager: Manager):
         """
-        添加管理者
+        Add manager
         
         Args:
-            manager_id: 管理者ID
-            manager: 管理者对象
+            manager_id: Manager ID
+            manager: Manager object
         """
         self.managers[manager_id] = manager
         
-        # 注册为交易参与者
+        # Register as trading participant
         participant_info = {
             'type': 'manager',
             'manager_object': manager,
@@ -1104,70 +1097,58 @@ class TradingPool:
         }
         self.participants[manager_id] = participant_info
         
-        # 注册到bidding算法
+        # Register to bidding algorithm
         bidding_algo = self.algorithms.get("bidding")
         if bidding_algo and hasattr(bidding_algo, 'register_participant'):
-            # 安全调用方法
+            # Safe method call
             getattr(bidding_algo, 'register_participant')(manager_id, participant_info)
         
-        logger.info(f"管理者 {manager_id} 已添加到交易池")
+        logger.info(f"Manager {manager_id} added to trading pool")
     
     def create_bid_from_aggregated_fo(self, manager_id: str, aggregated_fo: AggregatedFlexOffer, 
                                      time_step: int, side: str = "sell", price: Optional[float] = None) -> Bid:
         """
-        从聚合FlexOffer创建报价
+        Create bid from aggregated FlexOffer
         
         Args:
-            manager_id: 管理者ID
-            aggregated_fo: 聚合FlexOffer
-            time_step: 时间步
-            side: 报价方向（buy/sell）
-            price: 报价价格，如果为None则自动计算
+            manager_id: Manager ID
+            aggregated_fo: Aggregated FlexOffer
+            time_step: Time step
+            side: Bid direction (buy/sell)
+            price: Bid price, if None then calculate automatically
             
         Returns:
-            Bid: 报价对象
+            Bid: Bid object
         """
         if price is None:
-            # 基于电网价格和需求预测计算报价
+            # Calculate bid price based on grid price and demand prediction
             base_price = self.get_energy_price(time_step)
             demand_factor = self.demand_model.get_predicted_demand(time_step) / 100.0
             weather_impact = self.weather_model.get_weather_impact("solar_pv")
             
-            # 🔧 大幅增加随机波动，确保买卖双方价格能够重叠
-            random_factor = random.uniform(-0.25, 0.25)  # 增加到±25%的随机波动
+            random_factor = random.uniform(-0.25, 0.25)  # Increase to ±25% random fluctuation
             
-            # 🔧 减少市场调整的影响，使买卖双方价格更接近
             market_adjustment = 0.0001 * (demand_factor - 0.5) + 0.00005 * (weather_impact - 0.5)
             
-            # 🔧 为买卖双方添加更有利于匹配的偏移
-            # 买方价格偏高，卖方价格偏低，增加匹配概率
             if side == "sell":
-                # 卖方价格：基准价格 * 0.9 - 偏移（降低卖价）+ 随机波动
                 price = base_price * (0.9 - market_adjustment + random_factor)
             else:  # buy
-                # 买方价格：基准价格 * 1.1 + 偏移（提高买价）+ 随机波动
                 price = base_price * (1.1 + market_adjustment + random_factor)
             
-            # 确保价格在合理范围内
-            price = max(0.01, min(price, 2.0))  # 价格限制在0.01-2.0之间
+            # Ensure price is within reasonable range
+            price = max(0.01, min(price, 2.0))  # Price limit between 0.01-2.0
             
-            # 🔧 强制确保买卖双方价格有重叠
-            # 如果是同一个manager的买卖报价，确保买价高于卖价
             if hasattr(self, 'manager_prices') and manager_id in self.manager_prices:
                 prev_price = self.manager_prices.get(manager_id, {}).get(side, None)
                 other_side = "buy" if side == "sell" else "sell"
                 other_price = self.manager_prices.get(manager_id, {}).get(other_side, None)
                 
                 if prev_price is None and other_price is not None:
-                    # 确保买卖价格有重叠
                     if side == "sell" and other_price is not None:
-                        # 卖价应该低于买价
                         price = min(price, other_price * 0.9)
                     elif side == "buy" and other_price is not None:
-                        # 买价应该高于卖价
                         price = max(price, other_price * 1.1)
             
-            # 🔧 确保所有manager之间的买卖价格也有重叠
             if hasattr(self, 'manager_prices'):
                 all_sell_prices = []
                 all_buy_prices = []
@@ -1178,38 +1159,34 @@ class TradingPool:
                     if 'buy' in prices:
                         all_buy_prices.append(prices['buy'])
                 
-                # 如果有其他manager的价格，确保价格重叠
                 if all_sell_prices and all_buy_prices:
                     avg_sell = sum(all_sell_prices) / len(all_sell_prices)
                     avg_buy = sum(all_buy_prices) / len(all_buy_prices)
                     
                     if side == "sell":
-                        # 确保新的卖价不会太高
                         price = min(price, avg_buy * 0.95)
                     else:  # buy
-                        # 确保新的买价不会太低
                         price = max(price, avg_sell * 1.05)
             
-            # 记录价格，用于后续参考
             if not hasattr(self, 'manager_prices'):
                 self.manager_prices = {}
             if manager_id not in self.manager_prices:
                 self.manager_prices[manager_id] = {}
             self.manager_prices[manager_id][side] = price
         
-        # 获取聚合FlexOffer的总能量
+        # Get total energy from aggregated FlexOffer
         total_energy = getattr(aggregated_fo, 'total_energy', 0.0)
         if total_energy == 0.0:
-            # 如果没有total_energy属性，尝试其他可能的属性
+            # If no total_energy attribute, try other possible attributes
             if hasattr(aggregated_fo, 'energy_amount'):
                 total_energy = getattr(aggregated_fo, 'energy_amount', 0.0)
             elif hasattr(aggregated_fo, 'total_amount'):
                 total_energy = getattr(aggregated_fo, 'total_amount', 0.0)
             else:
-                total_energy = 100.0  # 默认值
+                total_energy = 100.0  # Default value
         
-        # 🔧 确保能量值不为零
-        total_energy = max(10.0, total_energy)  # 至少10 kWh
+        # 🔧 Ensure energy value is not zero
+        total_energy = max(10.0, total_energy)  # At least 10 kWh
         
         bid = Bid(
             bid_id=f"bid_{manager_id}_{side}_{time_step}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
@@ -1223,65 +1200,65 @@ class TradingPool:
             max_quantity=total_energy
         )
         
-        # 🔧 添加日志，显示报价详情
-        logger.info(f"为{manager_id}创建{side}方报价: 价格={price:.4f}, 数量={total_energy:.2f}")
+        # 🔧 Add log, show bid details
+        logger.info(f"Create {side} bid for {manager_id}: price={price:.4f}, quantity={total_energy:.2f}")
         
         return bid
     
     def submit_bid(self, bid: Bid) -> bool:
         """
-        提交报价
+        Submit bid
         
         Args:
-            bid: 报价对象
+            bid: Bid object
             
         Returns:
-            bool: 是否成功提交
+            bool: Whether the bid is successfully submitted
         """
-        # 安全调用bidding算法的方法
+        # Safe method call for bidding algorithm
         bidding_algo = self.algorithms.get("bidding")
         if bidding_algo and hasattr(bidding_algo, 'submit_bid'):
             success = getattr(bidding_algo, 'submit_bid')(bid)
             if success:
                 self.bids.append(bid)
-                logger.info(f"报价提交成功: {bid.bid_id}")
+                logger.info(f"Bid submitted successfully: {bid.bid_id}")
             return success
         else:
-            # 如果没有bidding算法，直接添加到列表
+            # If no bidding algorithm, add to list directly
             self.bids.append(bid)
-            logger.info(f"报价直接添加: {bid.bid_id}")
+            logger.info(f"Bid added directly: {bid.bid_id}")
             return True
     
     def execute_trading_round(self, time_step: int) -> Dict:
         """
-        执行一轮交易
+        Execute a trading round
         
         Args:
-            time_step: 时间步
+            time_step: Time step
             
         Returns:
-            Dict: 交易结果
+            Dict: Trading result
         """
-        # 获取当前时间步的报价
+        # Get current time step bids
         current_bids = [bid for bid in self.bids if bid.time_step == time_step]
         
         if not current_bids:
-            logger.warning(f"时间步 {time_step}: 没有报价")
+            logger.warning(f"Time step {time_step}: no bids")
             return {'trades': [], 'clearing_results': []}
         
-        # 执行市场出清
+        # Execute market clearing
         clearing_results = self.trading_algorithm.process_bids(current_bids)
         
-        # 生成交易
+        # Generate trades
         trades = self.trading_algorithm.generate_trades(clearing_results, current_bids)
         
-        # 记录结果
+        # Record results
         self.clearing_results.extend(clearing_results)
         self.trade_history.extend(trades)
         
-        logger.info(f"时间步 {time_step}: 完成 {len(trades)} 笔交易")
+        logger.info(f"Time step {time_step}: {len(trades)} trades completed")
         
-        # 获取市场概况
+        # Get market summary
         market_summary = {}
         bidding_algo = self.algorithms.get("bidding")
         if bidding_algo and hasattr(bidding_algo, 'get_market_summary'):
@@ -1293,17 +1270,17 @@ class TradingPool:
             'market_summary': market_summary
         }
     
-    # 保留原有兼容性方法
+    # Keep original compatibility method
     def add_offer(self, manager_id: str, offer_id: str, offer_type: str, 
                  aggregated_result: AggregatedFlexOffer):
         """
-        添加Offer（兼容性方法）
+        Add Offer (compatibility method)
         
         Args:
-            manager_id: 管理者ID
+            manager_id: Manager ID
             offer_id: Offer ID
-            offer_type: Offer类型
-            aggregated_result: 聚合结果
+            offer_type: Offer type
+            aggregated_result: Aggregated result
         """
         self.available_offers[offer_id] = {
             'manager_id': manager_id,
@@ -1313,35 +1290,35 @@ class TradingPool:
             'created_time': datetime.now()
         }
         
-        # 同时创建报价
+        # Create bid at the same time
         bid = self.create_bid_from_aggregated_fo(manager_id, aggregated_result, self.current_step)
         self.submit_bid(bid)
     
     def execute_trade(self, buyer_id: str, seller_id: str, offer_id: str, 
                      quantity: float, price: float) -> Optional[Trade]:
         """
-        执行交易（兼容性方法）
+        Execute trade (compatibility method)
         
         Args:
-            buyer_id: 买方ID
-            seller_id: 卖方ID
+            buyer_id: Buyer ID
+            seller_id: Seller ID
             offer_id: Offer ID
-            quantity: 交易数量
-            price: 交易价格
+            quantity: Trade quantity
+            price: Trade price
             
         Returns:
-            Optional[Trade]: 交易记录
+            Optional[Trade]: Trade record
         """
         if offer_id not in self.available_offers:
-            logger.warning(f"Offer ID {offer_id} 不存在")
+            logger.warning(f"Offer ID {offer_id} does not exist")
             return None
         
         offer = self.available_offers[offer_id]
         if offer['status'] != 'available':
-            logger.warning(f"Offer ID {offer_id} 不可用，当前状态: {offer['status']}")
+            logger.warning(f"Offer ID {offer_id} is not available, current status: {offer['status']}")
             return None
         
-        # 创建交易记录
+        # Create trade record
         trade_id = f"trade_{len(self.trade_history)}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         trade = Trade(
             trade_id=trade_id,
@@ -1354,35 +1331,35 @@ class TradingPool:
             status="completed"
         )
         
-        # 更新Offer状态
+        # Update Offer status
         self.available_offers[offer_id]['status'] = 'traded'
         
-        # 添加交易记录
+        # Add trade record
         self.trade_history.append(trade)
         
-        logger.info(f"交易完成: {trade_id}, 买方: {buyer_id}, 卖方: {seller_id}, " +
-                   f"数量: {quantity}, 价格: {price}")
+        logger.info(f"Trade completed: {trade_id}, buyer: {buyer_id}, seller: {seller_id}, " +
+                   f"quantity: {quantity}, price: {price}")
         
         return trade
     
     def get_available_offers(self) -> Dict:
         """
-        获取可用的Offer
+        Get available offers
         
         Returns:
-            Dict: 可用的Offer
+            Dict: Available offers
         """
         return {k: v for k, v in self.available_offers.items() if v['status'] == 'available'}
     
     def get_grid_price(self, time_step: Optional[int] = None) -> float:
         """
-        获取电网价格
+        Get grid price
         
         Args:
-            time_step: 时间步，如果为None则返回当前时间步的价格
+            time_step: Time step, if None then return current time step price
             
         Returns:
-            float: 电网价格
+            float: Grid price
         """
         if time_step is None:
             time_step = self.current_step
@@ -1391,13 +1368,13 @@ class TradingPool:
     
     def get_energy_price(self, time_step: Optional[int] = None) -> float:
         """
-        获取能源价格
+        Get energy price
         
         Args:
-            time_step: 时间步，如果为None则返回当前时间步的价格
+            time_step: Time step, if None then return current time step price
             
         Returns:
-            float: 能源价格
+            float: Energy price
         """
         if time_step is None:
             time_step = self.current_step
@@ -1406,10 +1383,10 @@ class TradingPool:
     
     def get_trade_statistics(self) -> Dict:
         """
-        获取交易统计信息
+        Get trade statistics
         
         Returns:
-            Dict: 交易统计信息
+            Dict: Trade statistics
         """
         if not self.trade_history:
             return {
@@ -1425,7 +1402,7 @@ class TradingPool:
         total_value = sum(trade.quantity * trade.price for trade in self.trade_history)
         avg_price = total_value / total_energy if total_energy > 0 else 0.0
         
-        # 计算市场效率
+        # Calculate market efficiency
         market_efficiency = sum(cr.market_efficiency for cr in self.clearing_results) / len(self.clearing_results) if self.clearing_results else 0.0
         
         return {
@@ -1438,15 +1415,15 @@ class TradingPool:
         }
     
     def step(self):
-        """更新当前时间步"""
+        """Update current time step"""
         self.current_step = (self.current_step + 1) % self.time_horizon
         self.weather_model.step()
         self.demand_model.step()
         
-        logger.info(f"交易池时间步更新为: {self.current_step}")
+        logger.info(f"Trading pool time step updated to: {self.current_step}")
     
     def reset(self):
-        """重置交易池"""
+        """Reset trading pool"""
         self.current_step = 0
         self.weather_model.current_step = 0
         self.demand_model.current_step = 0
@@ -1455,20 +1432,20 @@ class TradingPool:
         self.trade_history = []
         self.available_offers = {}
         
-        logger.info("交易池已重置")
+        logger.info("Trading pool reset")
     
     def visualize_trading_results(self, save_path: Optional[str] = None):
         """
-        可视化交易结果
+        Visualize trading results
         
         Args:
-            save_path: 保存路径，如果为None则显示图形
+            save_path: Save path, if None then show graph
         """
         if not self.trade_history:
-            logger.info("没有交易历史")
+            logger.info("No trade history")
             return
         
-        # 按时间步分组
+        # Group by time step
         trades_by_step = {}
         for trade in self.trade_history:
             step = trade.time_step
@@ -1476,7 +1453,7 @@ class TradingPool:
                 trades_by_step[step] = []
             trades_by_step[step].append(trade)
         
-        # 计算每个时间步的交易总量和平均价格
+        # Calculate total quantity and average price for each time step
         steps = sorted(trades_by_step.keys())
         quantities = []
         prices = []
@@ -1489,41 +1466,41 @@ class TradingPool:
             quantities.append(total_quantity)
             prices.append(avg_price)
         
-        # 绘制图表
+        # Plot charts
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
         
-        # 交易量
+        # Trade quantity
         ax1.bar(steps, quantities, color='blue', alpha=0.7)
-        ax1.set_title('交易量 (按时间步)')
-        ax1.set_xlabel('时间步')
-        ax1.set_ylabel('交易量 (kWh)')
+        ax1.set_title('Trade quantity (by time step)')
+        ax1.set_xlabel('Time step')
+        ax1.set_ylabel('Trade quantity (kWh)')
         ax1.grid(True)
         
-        # 平均价格
+        # Average price
         ax2.plot(steps, prices, color='red', marker='o')
-        ax2.set_title('平均价格 (按时间步)')
-        ax2.set_xlabel('时间步')
-        ax2.set_ylabel('价格 ($/kWh)')
+        ax2.set_title('Average price (by time step)')
+        ax2.set_xlabel('Time step')
+        ax2.set_ylabel('Price ($/kWh)')
         ax2.grid(True)
         
-        # 出清结果
+        # Clearing results
         if self.clearing_results:
             clearing_prices = [cr.clearing_price for cr in self.clearing_results]
             clearing_quantities = [cr.clearing_quantity for cr in self.clearing_results]
             
             ax3.scatter(clearing_quantities, clearing_prices, color='green', alpha=0.7)
-            ax3.set_title('出清结果 (价格 vs 数量)')
-            ax3.set_xlabel('出清数量 (kWh)')
-            ax3.set_ylabel('出清价格 ($/kWh)')
+            ax3.set_title('Clearing results (price vs quantity)')
+            ax3.set_xlabel('Clearing quantity (kWh)')
+            ax3.set_ylabel('Clearing price ($/kWh)')
             ax3.grid(True)
         
-        # 市场福利
+        # Market welfare
         if self.clearing_results:
             welfare_values = [cr.total_welfare for cr in self.clearing_results]
             ax4.bar(range(len(welfare_values)), welfare_values, color='orange', alpha=0.7)
-            ax4.set_title('市场福利')
-            ax4.set_xlabel('出清轮次')
-            ax4.set_ylabel('总福利')
+            ax4.set_title('Market welfare')
+            ax4.set_xlabel('Clearing round')
+            ax4.set_ylabel('Total welfare')
             ax4.grid(True)
         
         plt.tight_layout()

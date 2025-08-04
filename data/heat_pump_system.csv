@@ -1,57 +1,57 @@
-# 住宅小区热泵系统综合数据文件
-# 用途：包含小区内各住户热泵系统的所有配置参数和运行数据
-# 更新频率：参数部分在系统配置变更时更新，调度部分每日更新
-# 数据说明：
-# - room_id: 房间唯一标识符（楼号-单元号-房号-房间类型）
-# - 物理参数：房间的物理特性（面积、体积等）
-# - 温度参数：温度设定值和限制
-# - 设备参数：热泵性能参数
-# - 时间参数：典型运行时段和调度信息
+# Residential District Heat Pump System Comprehensive Data File
+# Purpose: Contains all configuration parameters and operational data for heat pump systems in each household in the district
+# Update Frequency: Parameter section updated when system configuration changes, scheduling section updated daily
+# Data Description:
+# - room_id: Room unique identifier (building number-unit number-room number-room type)
+# - Physical parameters: Room physical characteristics (area, volume, etc.)
+# - Temperature parameters: Temperature setpoints and limits
+# - Equipment parameters: Heat pump performance parameters
+# - Time parameters: Typical operation periods and scheduling information
 
-room_id,房间类型,room_area,room_volume,temp_min,temp_max,initial_temp,cop,heat_loss_coef,主要使用时段,次要使用时段,主要时段目标温度,次要时段目标温度,最大功率,保温等级,房间特征,用户类型,用途说明
-1-1-101-LR,客厅,30,90,18,28,22,3.2,0.023,07:00-22:00,22:00-07:00,24,20,3500,A级,大开间,居家型,三口之家主要活动区
-1-1-101-MB,主卧,20,60,18,26,22,3.2,0.021,21:00-08:00,08:00-21:00,23,19,2000,A级,标准间带卫,居家型,夫妻卧室
-1-1-101-SB,次卧,15,45,18,26,22,3.2,0.022,20:00-07:00,07:00-20:00,22,19,1500,A级,标准间,学生型,孩子房间
-1-1-101-ST,书房,12,36,18,26,22,3.2,0.020,09:00-22:00,22:00-09:00,23,19,1200,A级,小间,工作型,居家办公区
-1-1-102-LR,客厅,35,105,18,28,22,3.2,0.023,08:00-23:00,23:00-08:00,24,20,4000,A级,大开间,老年型,退休老人起居室
-1-1-102-MB,主卧,22,66,18,26,22,3.2,0.021,20:00-08:00,08:00-20:00,23,20,2200,A级,标准间带卫,老年型,老年夫妻卧室
-1-1-102-SB,次卧,16,48,18,26,22,3.2,0.022,19:00-07:00,07:00-19:00,22,19,1600,A级,标准间,访客型,偶尔使用
-1-2-201-LR,客厅,28,84,18,28,22,3.2,0.024,18:00-23:00,23:00-18:00,24,19,3000,B级,大开间,上班型,双职工家庭
-1-2-201-MB,主卧,18,54,18,26,22,3.2,0.022,22:00-07:00,07:00-22:00,23,19,1800,B级,标准间带卫,上班型,双职工卧室
-1-2-202-LR,客厅,32,96,18,28,22,3.2,0.023,全天,全天,23,21,3500,A级,大开间,婴幼型,有婴儿家庭
-1-2-202-MB,主卧,20,60,18,26,22,3.2,0.021,20:00-08:00,08:00-20:00,23,21,2000,A级,标准间带卫,婴幼型,婴儿房
-2-1-101-LR,客厅,40,120,18,28,22,3.2,0.022,07:00-23:00,23:00-07:00,24,20,4500,A级,复式大开间,居家型,大家庭活动区
-2-1-101-MB,主卧,25,75,18,26,22,3.2,0.020,21:00-08:00,08:00-21:00,23,19,2500,A级,套间带卫,居家型,主卧带书房
-2-1-101-SB1,次卧1,18,54,18,26,22,3.2,0.021,20:00-07:00,07:00-20:00,22,19,1800,A级,标准间,学生型,高中生房间
-2-1-101-SB2,次卧2,18,54,18,26,22,3.2,0.021,21:00-07:00,07:00-21:00,22,19,1800,A级,标准间,学生型,小学生房间
+room_id,room_type,room_area,room_volume,temp_min,temp_max,initial_temp,cop,heat_loss_coef,primary_usage_period,secondary_usage_period,primary_target_temp,secondary_target_temp,max_power,insulation_level,room_characteristics,user_type,usage_description
+1-1-101-LR,Living Room,30,90,18,28,22,3.2,0.023,07:00-22:00,22:00-07:00,24,20,3500,Level A,Open Space,Family,Main activity area for family of three
+1-1-101-MB,Master Bedroom,20,60,18,26,22,3.2,0.021,21:00-08:00,08:00-21:00,23,19,2000,Level A,Standard with Bath,Family,Couple's bedroom
+1-1-101-SB,Secondary Bedroom,15,45,18,26,22,3.2,0.022,20:00-07:00,07:00-20:00,22,19,1500,Level A,Standard Room,Student,Child's room
+1-1-101-ST,Study,12,36,18,26,22,3.2,0.020,09:00-22:00,22:00-09:00,23,19,1200,Level A,Small Room,Work,Home office area
+1-1-102-LR,Living Room,35,105,18,28,22,3.2,0.023,08:00-23:00,23:00-08:00,24,20,4000,Level A,Open Space,Elderly,Retired elderly living room
+1-1-102-MB,Master Bedroom,22,66,18,26,22,3.2,0.021,20:00-08:00,08:00-20:00,23,20,2200,Level A,Standard with Bath,Elderly,Elderly couple bedroom
+1-1-102-SB,Secondary Bedroom,16,48,18,26,22,3.2,0.022,19:00-07:00,07:00-19:00,22,19,1600,Level A,Standard Room,Guest,Occasionally used
+1-2-201-LR,Living Room,28,84,18,28,22,3.2,0.024,18:00-23:00,23:00-18:00,24,19,3000,Level B,Open Space,Working,Dual-income family
+1-2-201-MB,Master Bedroom,18,54,18,26,22,3.2,0.022,22:00-07:00,07:00-22:00,23,19,1800,Level B,Standard with Bath,Working,Dual-income bedroom
+1-2-202-LR,Living Room,32,96,18,28,22,3.2,0.023,All day,All day,23,21,3500,Level A,Open Space,Infant,Family with infant
+1-2-202-MB,Master Bedroom,20,60,18,26,22,3.2,0.021,20:00-08:00,08:00-20:00,23,21,2000,Level A,Standard with Bath,Infant,Infant room
+2-1-101-LR,Living Room,40,120,18,28,22,3.2,0.022,07:00-23:00,23:00-07:00,24,20,4500,Level A,Duplex Open Space,Family,Large family activity area
+2-1-101-MB,Master Bedroom,25,75,18,26,22,3.2,0.020,21:00-08:00,08:00-21:00,23,19,2500,Level A,Suite with Bath,Family,Master bedroom with study
+2-1-101-SB1,Secondary Bedroom 1,18,54,18,26,22,3.2,0.021,20:00-07:00,07:00-20:00,22,19,1800,Level A,Standard Room,Student,High school student room
+2-1-101-SB2,Secondary Bedroom 2,18,54,18,26,22,3.2,0.021,21:00-07:00,07:00-21:00,22,19,1800,Level A,Standard Room,Student,Elementary student room
 
-# 补充说明：
-# 1. room_id格式：楼号-单元号-房号-房间类型
-#    - LR: 客厅 Living Room
-#    - MB: 主卧 Master Bedroom
-#    - SB: 次卧 Secondary Bedroom
-#    - ST: 书房 Study
-# 2. 用户类型说明：
-#    - 居家型：全天大部分时间在家
-#    - 上班型：白天外出上班
-#    - 老年型：退休在家，作息规律
-#    - 学生型：上学时间外出
-#    - 婴幼型：有婴幼儿家庭
-#    - 工作型：居家办公
-# 3. 保温等级：
-#    - A级：高效保温，热损失系数低
-#    - B级：标准保温
-# 4. 房间特征分类：
-#    - 大开间：面积大，开放式空间
-#    - 复式大开间：复式结构大空间
-#    - 标准间：普通房间
-#    - 标准间带卫：带卫生间的标准房间
-#    - 套间带卫：带卫生间和额外功能区
-#    - 小间：面积较小的标准房间
-# 5. 使用时段特点：
-#    - 主要使用时段：温度要求较高，活动频繁
-#    - 次要使用时段：可降低温度，节能为主
-# 6. 温度设置原则：
-#    - 婴幼儿房间温度波动小
-#    - 老年人房间温度适当提高
-#    - 客厅温度范围较大，满足不同需求
+# Additional Notes:
+# 1. room_id format: Building number-Unit number-Room number-Room type
+#    - LR: Living Room
+#    - MB: Master Bedroom
+#    - SB: Secondary Bedroom
+#    - ST: Study
+# 2. User type description:
+#    - Family: Most of the day at home
+#    - Working: Out during the day for work
+#    - Elderly: Retired at home, regular schedule
+#    - Student: Out during school hours
+#    - Infant: Family with infants or toddlers
+#    - Work: Work from home
+# 3. Insulation level:
+#    - Level A: High efficiency insulation, low heat loss coefficient
+#    - Level B: Standard insulation
+# 4. Room characteristics classification:
+#    - Open Space: Large area, open space
+#    - Duplex Open Space: Duplex structure large space
+#    - Standard Room: Regular room
+#    - Standard with Bath: Standard room with bathroom
+#    - Suite with Bath: Room with bathroom and additional functional area
+#    - Small Room: Smaller standard room
+# 5. Usage period characteristics:
+#    - Primary usage period: Higher temperature requirements, frequent activity
+#    - Secondary usage period: Can lower temperature, energy saving priority
+# 6. Temperature setting principles:
+#    - Infant rooms have smaller temperature fluctuations
+#    - Elderly rooms have slightly higher temperatures
+#    - Living rooms have wider temperature ranges to meet different needs

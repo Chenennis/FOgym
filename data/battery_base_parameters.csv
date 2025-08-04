@@ -1,14 +1,14 @@
-# 电池基础参数配置文件
-# 用途：用于初始化BatteryParameters类，这些参数是生成DFO所必需的基本参数
-# 相关代码：fo_generate/battery_model.py中的BatteryParameters类
-# 更新频率：电池参数变更时更新
+# Battery Basic Parameters Configuration File
+# Purpose: Used to initialize the BatteryParameters class, these parameters are essential basic parameters for generating DFO
+# Related code: BatteryParameters class in fo_generate/battery_model.py
+# Update frequency: Updated when battery parameters change
 
-battery_id,soc_min,soc_max,p_min,p_max,efficiency,initial_soc,battery_type,capacity_kwh,充电类型,说明
-BAT001,0.20,0.90,-100,100,0.95,0.50,固定储能,200,双向,#大型商业储能电池1号
-BAT002,0.15,0.95,-150,150,0.92,0.60,固定储能,300,双向,#工业园区储能电池2号
-BAT003,0.25,0.85,-80,80,0.93,0.40,固定储能,160,双向,#社区储能电池3号
-EV001,0.20,0.90,-50,50,0.92,0.35,电动汽车,75,V2G,#特斯拉Model 3长续航版
-EV002,0.15,0.85,-40,40,0.91,0.45,电动汽车,60,V2G,#比亚迪汉EV
-EV003,0.20,0.90,-60,60,0.93,0.30,电动汽车,100,V2G,#特斯拉Model Y性能版
-EV004,0.15,0.85,-30,30,0.90,0.40,电动汽车,50,单向,#小鹏P5
-EV005,0.20,0.90,-45,45,0.92,0.50,电动汽车,70,V2G,#蔚来ET7
+battery_id,soc_min,soc_max,p_min,p_max,efficiency,initial_soc,battery_type,capacity_kwh,charging_type,description
+BAT001,0.20,0.90,-100,100,0.95,0.50,Stationary Storage,200,Bidirectional,#Large Commercial Storage Battery 1
+BAT002,0.15,0.95,-150,150,0.92,0.60,Stationary Storage,300,Bidirectional,#Industrial Park Storage Battery 2
+BAT003,0.25,0.85,-80,80,0.93,0.40,Stationary Storage,160,Bidirectional,#Community Storage Battery 3
+EV001,0.20,0.90,-50,50,0.92,0.35,Electric Vehicle,75,V2G,#Tesla Model 3 Long Range
+EV002,0.15,0.85,-40,40,0.91,0.45,Electric Vehicle,60,V2G,#BYD Han EV
+EV003,0.20,0.90,-60,60,0.93,0.30,Electric Vehicle,100,V2G,#Tesla Model Y Performance
+EV004,0.15,0.85,-30,30,0.90,0.40,Electric Vehicle,50,One-way,#Xpeng P5
+EV005,0.20,0.90,-45,45,0.92,0.50,Electric Vehicle,70,V2G,#NIO ET7
