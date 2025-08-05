@@ -1,7 +1,7 @@
-# 电池基础参数配置文件
-# 用途：用于初始化BatteryParameters类，这些参数是生成DFO所必需的基本参数
-# 相关代码：fo_generate/battery_model.py中的BatteryParameters类
-# 更新频率：电池参数变更时更新
+# battery base parameters configuration file
+# purpose: used to initialize BatteryParameters class, these parameters are necessary for generating DFO
+# related code: BatteryParameters class in fo_generate/battery_model.py
+# update frequency: update when battery parameters change
 
 battery_id,soc_min,soc_max,p_min,p_max,efficiency,initial_soc,battery_type,capacity_kwh,充电类型,说明
 BAT001,0.20,0.90,-100,100,0.95,0.50,固定储能,200,双向,#大型商业储能电池1号

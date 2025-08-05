@@ -1,7 +1,7 @@
-# 电池DFO生成输入参数文件
-# 用途：用于generate_dfo方法，定义DFO生成的时间范围和约束条件
-# 相关代码：fo_generate/battery_model.py中的BatteryModel.generate_dfo方法
-# 更新频率：每次生成DFO时更新
+# battery DFO generation input parameter file
+# purpose: used to define the time range and constraints for generating DFO
+# related code: BatteryModel.generate_dfo method in fo_generate/battery_model.py
+# update frequency: update when generating DFO
 
 battery_id,time_horizon,start_time,end_time,调度类型,优先级,可用时段,所需SOC,位置,说明
 BAT001,24,2024-03-20 00:00:00,2024-03-20 23:00:00,峰谷套利,2,全天,0.3,商业区A栋,商业区日常调度
