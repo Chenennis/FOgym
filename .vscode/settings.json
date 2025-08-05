@@ -1,0 +1,7 @@
+{
+    "python.defaultInterpreter": "D:\\anaconda\\envs\\FO\\python.exe",
+    "python.pythonPath": "D:\\anaconda\\envs\\FO\\python.exe",
+    "python.condaPath": "D:\\anaconda\\Scripts\\conda.exe",
+    "python.terminal.activateEnvironment": true,
+    "python.terminal.activateEnvInCurrentTerminal": true
+}
