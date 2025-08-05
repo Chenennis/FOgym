@@ -1462,7 +1462,7 @@ class TradingPool:
             ax3.set_ylabel('clearing price ($/kWh)')
             ax3.grid(True)
         
-        # 市场福利
+        # market welfare
         if self.clearing_results:
             welfare_values = [cr.total_welfare for cr in self.clearing_results]
             ax4.bar(range(len(welfare_values)), welfare_values, color='orange', alpha=0.7)
