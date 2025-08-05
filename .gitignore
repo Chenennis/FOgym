@@ -1,11 +1,11 @@
-# Python缓存文件
+# Python cache files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 
-# 虚拟环境
+# virtual environment
 venv/
 env/
 ENV/
@@ -14,24 +14,24 @@ ENV/
 env.bak/
 venv.bak/
 
-# IDE配置文件
+# IDE configuration files
 .idea/
 .vscode/
 .cursor/
 *.swp
 *.swo
 
-# 日志和数据库
+# logs and databases
 *.log
 *.sqlite3
 *.db
 
-# 构建和分发
+# build and distribution
 build/
 dist/
 *.egg-info/
 
-# 其他
+# other
 .DS_Store
 Thumbs.db
 .coverage
