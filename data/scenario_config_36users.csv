@@ -1,2 +1,2 @@
 scenario_id,name,description,num_managers,num_users,time_horizon,time_step,dishwasher_deployment_rate,ev_penetration_rate,pv_penetration_rate,battery_penetration_rate,heatpump_penetration_rate
-base_36_users,36 Users Base Scenario,4 Managers managing 36 users with 100% dishwasher deployment,4,36,24,1.0,1.0,0.4,0.3,0.9,0.6
+base_36_users,36用户基础场景,4个Manager管理36个用户，包含100%洗碗机部署,4,36,24,1.0,1.0,0.4,0.3,0.9,0.6

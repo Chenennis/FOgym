@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dec-POMDP-aware FOMAPPO policy network
+Dec-POMDP感知的FOMAPPO策略网络
 """
 
 import torch
@@ -9,48 +9,48 @@ import numpy as np
 import sys
 import os
 
-# Add project path
+# 添加项目路径
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 
 from fo_common.dec_pomdp_config import DecPOMDPConfig
 
 class DecPOMDPFOMAPPOPolicy:
-    """Dec-POMDP-aware FOMAPPO policy class"""
+    """Dec-POMDP感知的FOMAPPO策略类"""
     
     def __init__(self, args, obs_space, cent_obs_space, act_space, dec_pomdp_config: DecPOMDPConfig, device=torch.device("cpu")):
         self.device = device
         self.dec_pomdp_config = dec_pomdp_config
         
-        # Basic parameters
+        # 基础参数
         self.lr = getattr(args, 'lr', 0.0003)
         self.critic_lr = getattr(args, 'critic_lr', 0.0003)
         self.opti_eps = getattr(args, 'opti_eps', 1e-5)
         self.weight_decay = getattr(args, 'weight_decay', 0)
         
-        # Observation space dimension (based on Dec-POMDP architecture)
-        # Get total dimension from obs_space
+        # 观测空间维度（基于Dec-POMDP架构）
+        # 从传入的obs_space获取总维度
         self.total_obs_dim = obs_space.shape[0]
         
-        # Calculate each part dimension based on total dimension, maintaining proportions
-        total_parts = 72  # Original total
-        self.private_dim = int(self.total_obs_dim * (39/total_parts))  # Private information layer dimension
-        self.public_dim = int(self.total_obs_dim * (18/total_parts))   # Public information layer dimension
-        self.others_dim = self.total_obs_dim - self.private_dim - self.public_dim  # Limited other-agent information layer dimension
+        # 根据总维度计算各部分维度，保持比例
+        total_parts = 72  # 原始总和
+        self.private_dim = int(self.total_obs_dim * (39/total_parts))  # 私有信息层维度
+        self.public_dim = int(self.total_obs_dim * (18/total_parts))   # 公共信息层维度
+        self.others_dim = self.total_obs_dim - self.private_dim - self.public_dim  # 有限他者信息层维度
         
-        # Ensure total dimension is correct
-        assert self.private_dim + self.public_dim + self.others_dim == self.total_obs_dim, f"Dimension mismatch: {self.private_dim} + {self.public_dim} + {self.others_dim} != {self.total_obs_dim}"
+        # 确保维度总和正确
+        assert self.private_dim + self.public_dim + self.others_dim == self.total_obs_dim, f"维度不匹配: {self.private_dim} + {self.public_dim} + {self.others_dim} != {self.total_obs_dim}"
         
-        # Action space
+        # 动作空间
         self.act_space = act_space
         self.action_dim = act_space.shape[0] if hasattr(act_space, 'shape') else 10
         
-        # Create Dec-POMDP-aware network
+        # 创建Dec-POMDP感知的网络
         self.actor = DecPOMDPActor(args, self.private_dim, self.public_dim, self.others_dim, 
                                    self.action_dim, dec_pomdp_config, device)
         self.critic = DecPOMDPCritic(args, self.private_dim, self.public_dim, self.others_dim, 
                                      dec_pomdp_config, device)
         
-        # Optimizer
+        # 优化器
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),
                                                 lr=self.lr, eps=self.opti_eps,
                                                 weight_decay=self.weight_decay)
@@ -60,31 +60,31 @@ class DecPOMDPFOMAPPOPolicy:
                                                  weight_decay=self.weight_decay)
     
     def parse_observation(self, obs):
-        """Parse Dec-POMDP observation space, safely handling observations with different dimensions"""
+        """解析Dec-POMDP观测空间，安全处理不同维度的观测"""
         if isinstance(obs, np.ndarray):
             obs = torch.FloatTensor(obs).to(self.device)
         
-        # Process batch dimension
+        # 处理批次维度
         if len(obs.shape) == 1:
             obs = obs.unsqueeze(0)
         
-        # Get actual observation dimension
+        # 获取实际观测维度
         actual_dim = obs.shape[1]
         
-        # Check if dimension matches expectation
+        # 检查维度是否匹配预期
         if actual_dim != self.total_obs_dim:
-            logger.warning(f"Observation dimension mismatch: expected {self.total_obs_dim} dimensions, got {actual_dim} dimensions. Attempting safe handling.")
+            logger.warning(f"观测维度不匹配: 预期{self.total_obs_dim}维，实际{actual_dim}维。尝试安全处理。")
             
-            # Calculate safe slice indices
+            # 计算安全的切片索引
             safe_private_end = min(self.private_dim, actual_dim)
             safe_public_end = min(self.private_dim + self.public_dim, actual_dim)
             
-            # Safely separate three layers of observation information
+            # 安全分离三层观测信息
             private_obs = obs[:, :safe_private_end]
             public_obs = obs[:, min(self.private_dim, actual_dim):safe_public_end]
             others_obs = obs[:, min(safe_public_end, actual_dim):]
             
-            # If dimension is insufficient, pad with zeros
+            # 如果维度不足，用零填充
             if safe_private_end < self.private_dim:
                 padding = torch.zeros(obs.shape[0], self.private_dim - safe_private_end, device=self.device)
                 private_obs = torch.cat([private_obs, padding], dim=1)
@@ -97,7 +97,7 @@ class DecPOMDPFOMAPPOPolicy:
                 padding = torch.zeros(obs.shape[0], self.others_dim - (actual_dim - safe_public_end), device=self.device)
                 others_obs = torch.cat([others_obs, padding], dim=1)
         else:
-            # Normal separation of three layers of observation information
+            # 正常分离三层观测信息
             private_obs = obs[:, :self.private_dim]
             public_obs = obs[:, self.private_dim:self.private_dim + self.public_dim]
             others_obs = obs[:, self.private_dim + self.public_dim:]
@@ -106,17 +106,17 @@ class DecPOMDPFOMAPPOPolicy:
     
     def get_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_critic, masks, 
                     available_actions=None, deterministic=False):
-        """Get actions and value predictions"""
-        # Parse observation
+        """获取动作和价值预测"""
+        # 解析观测
         private_obs, public_obs, others_obs = self.parse_observation(obs)
         
-        # Actor forward pass
+        # Actor前向传播
         actions, action_log_probs, rnn_states_actor = self.actor(
             private_obs, public_obs, others_obs, rnn_states_actor, masks, 
             available_actions, deterministic
         )
         
-        # Critic forward pass
+        # Critic前向传播
         values, rnn_states_critic = self.critic(
             private_obs, public_obs, others_obs, rnn_states_critic, masks
         )
@@ -124,29 +124,29 @@ class DecPOMDPFOMAPPOPolicy:
         return values, actions, action_log_probs, rnn_states_actor, rnn_states_critic
     
     def get_values(self, cent_obs, rnn_states_critic, masks):
-        """Get value function predictions"""
+        """获取价值函数预测"""
         private_obs, public_obs, others_obs = self.parse_observation(cent_obs)
         values, _ = self.critic(private_obs, public_obs, others_obs, rnn_states_critic, masks)
         return values
     
     def evaluate_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_critic, action, 
                          masks, available_actions=None, active_masks=None):
-        """Evaluate action log probabilities, entropy, and value function"""
+        """评估动作的对数概率、熵和价值函数"""
         private_obs, public_obs, others_obs = self.parse_observation(obs)
         
-        # Actor evaluation
+        # Actor评估
         action_log_probs, dist_entropy = self.actor.evaluate_actions(
             private_obs, public_obs, others_obs, rnn_states_actor, action, 
             masks, available_actions, active_masks
         )
         
-        # Critic evaluation
+        # Critic评估
         values, _ = self.critic(private_obs, public_obs, others_obs, rnn_states_critic, masks)
         
         return values, action_log_probs, dist_entropy
     
     def act(self, obs, rnn_states_actor, masks, available_actions=None, deterministic=False):
-        """Only calculate actions (for inference)"""
+        """仅计算动作（用于推理）"""
         private_obs, public_obs, others_obs = self.parse_observation(obs)
         
         actions, _, rnn_states_actor = self.actor(
@@ -158,7 +158,7 @@ class DecPOMDPFOMAPPOPolicy:
 
 
 class DecPOMDPActor(nn.Module):
-    """Dec-POMDP-aware Actor network"""
+    """Dec-POMDP感知的Actor网络"""
     
     def __init__(self, args, private_dim, public_dim, others_dim, action_dim, 
                  dec_pomdp_config: DecPOMDPConfig, device=torch.device("cpu")):
@@ -169,14 +169,14 @@ class DecPOMDPActor(nn.Module):
         self.hidden_size = getattr(args, 'hidden_size', 256)
         self.action_dim = action_dim
         
-        # Record input dimension
+        # 记录输入维度
         self.private_dim = private_dim
         self.public_dim = public_dim
         self.others_dim = others_dim
         
-        logger.info(f"Actor network input dimension: private={private_dim}, public={public_dim}, others={others_dim}")
+        logger.info(f"Actor网络输入维度: 私有={private_dim}, 公共={public_dim}, 他者={others_dim}")
         
-        # Private information processing network (no noise, high weight)
+        # 私有信息处理网络（无噪声，高权重）
         self.private_encoder = nn.Sequential(
             nn.Linear(private_dim, self.hidden_size),
             nn.ReLU(),
@@ -184,7 +184,7 @@ class DecPOMDPActor(nn.Module):
             nn.ReLU()
         )
         
-        # Public information processing network (standard processing)
+        # 公共信息处理网络（标准处理）
         self.public_encoder = nn.Sequential(
             nn.Linear(public_dim, self.hidden_size // 2),
             nn.ReLU(),
@@ -192,7 +192,7 @@ class DecPOMDPActor(nn.Module):
             nn.ReLU()
         )
         
-        # Others information processing network (with uncertainty processing)
+        # 他者信息处理网络（带不确定性处理）
         self.others_encoder = nn.Sequential(
             nn.Linear(others_dim, self.hidden_size // 2),
             nn.ReLU(),
@@ -200,7 +200,7 @@ class DecPOMDPActor(nn.Module):
             nn.ReLU()
         )
         
-        # Information fusion network
+        # 信息融合网络
         fusion_input_dim = (self.hidden_size // 2) + (self.hidden_size // 4) + (self.hidden_size // 4)
         self.fusion_network = nn.Sequential(
             nn.Linear(fusion_input_dim, self.hidden_size),
@@ -209,44 +209,44 @@ class DecPOMDPActor(nn.Module):
             nn.ReLU()
         )
         
-        # Action output network
+        # 动作输出网络
         self.action_head = nn.Sequential(
             nn.Linear(self.hidden_size, self.hidden_size // 2),
             nn.ReLU(),
             nn.Linear(self.hidden_size // 2, self.action_dim)
         )
         
-        # Action distribution parameters
+        # 动作分布参数
         self.action_std = nn.Parameter(torch.ones(self.action_dim) * 0.1)
         
         self.to(device)
     
     def forward(self, private_obs, public_obs, others_obs, rnn_states, masks, 
                 available_actions=None, deterministic=False):
-        """Forward pass"""
+        """前向传播"""
         
-        # Process private information (most reliable)
+        # 处理私有信息（最可靠）
         private_features = self.private_encoder(private_obs)
         
-        # Process public information (standard reliability)
+        # 处理公共信息（标准可靠性）
         public_features = self.public_encoder(public_obs)
         
-        # Process others information (consider uncertainty)
+        # 处理他者信息（考虑不确定性）
         others_features = self.others_encoder(others_obs)
         
-        # Process others information availability
+        # 处理他者信息的可用性
         if not self.config.enable_other_manager_info:
             others_features = torch.zeros_like(others_features)
         
-        # Fuse all information
+        # 融合所有信息
         fused_features = torch.cat([private_features, public_features, others_features], dim=-1)
         fused_output = self.fusion_network(fused_features)
         
-        # Generate action distribution
+        # 生成动作分布
         action_mean = self.action_head(fused_output)
         action_std = self.action_std.expand_as(action_mean)
         
-        # Create action distribution
+        # 创建动作分布
         action_dist = torch.distributions.Normal(action_mean, action_std)
         
         if deterministic:
@@ -256,16 +256,16 @@ class DecPOMDPActor(nn.Module):
         
         action_log_probs = action_dist.log_prob(actions).sum(dim=-1, keepdim=True)
         
-        # RNN state processing (simplified implementation)
+        # RNN状态处理（简化实现）
         new_rnn_states = rnn_states
         
         return actions, action_log_probs, new_rnn_states
     
     def evaluate_actions(self, private_obs, public_obs, others_obs, rnn_states, action, 
                          masks, available_actions=None, active_masks=None):
-        """Evaluate given action log probabilities and entropy"""
+        """评估给定动作的对数概率和熵"""
         
-        # Recalculate action distribution
+        # 重新计算动作分布
         private_features = self.private_encoder(private_obs)
         public_features = self.public_encoder(public_obs)
         others_features = self.others_encoder(others_obs)
@@ -288,7 +288,7 @@ class DecPOMDPActor(nn.Module):
 
 
 class DecPOMDPCritic(nn.Module):
-    """Dec-POMDP-aware Critic network"""
+    """Dec-POMDP感知的Critic网络"""
     
     def __init__(self, args, private_dim, public_dim, others_dim, 
                  dec_pomdp_config: DecPOMDPConfig, device=torch.device("cpu")):
@@ -298,14 +298,14 @@ class DecPOMDPCritic(nn.Module):
         self.config = dec_pomdp_config
         self.hidden_size = getattr(args, 'hidden_size', 256)
         
-        # Record input dimension
+        # 记录输入维度
         self.private_dim = private_dim
         self.public_dim = public_dim
         self.others_dim = others_dim
         
-        logger.info(f"Critic network input dimension: private={private_dim}, public={public_dim}, others={others_dim}")
+        logger.info(f"Critic网络输入维度: 私有={private_dim}, 公共={public_dim}, 他者={others_dim}")
         
-        # Similar architecture to Actor
+        # 与Actor相似的架构
         self.private_encoder = nn.Sequential(
             nn.Linear(private_dim, self.hidden_size),
             nn.ReLU(),
@@ -327,7 +327,7 @@ class DecPOMDPCritic(nn.Module):
             nn.ReLU()
         )
         
-        # Information fusion network
+        # 信息融合网络
         fusion_input_dim = (self.hidden_size // 2) + (self.hidden_size // 4) + (self.hidden_size // 4)
         self.fusion_network = nn.Sequential(
             nn.Linear(fusion_input_dim, self.hidden_size),
@@ -336,7 +336,7 @@ class DecPOMDPCritic(nn.Module):
             nn.ReLU()
         )
         
-        # Value function output
+        # 价值函数输出
         self.value_head = nn.Sequential(
             nn.Linear(self.hidden_size, self.hidden_size // 2),
             nn.ReLU(),
@@ -346,25 +346,25 @@ class DecPOMDPCritic(nn.Module):
         self.to(device)
     
     def forward(self, private_obs, public_obs, others_obs, rnn_states, masks):
-        """Forward pass"""
+        """前向传播"""
         
-        # Process each layer of observation information
+        # 处理各层观测信息
         private_features = self.private_encoder(private_obs)
         public_features = self.public_encoder(public_obs)
         others_features = self.others_encoder(others_obs)
         
-        # Process others information availability
+        # 处理他者信息的可用性
         if not self.config.enable_other_manager_info:
             others_features = torch.zeros_like(others_features)
         
-        # Fuse information
+        # 融合信息
         fused_features = torch.cat([private_features, public_features, others_features], dim=-1)
         fused_output = self.fusion_network(fused_features)
         
-        # Calculate value function
+        # 计算价值函数
         values = self.value_head(fused_output)
         
-        # RNN state processing (simplified implementation)
+        # RNN状态处理（简化实现）
         new_rnn_states = rnn_states
         
         return values, new_rnn_states 

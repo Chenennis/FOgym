@@ -2,19 +2,19 @@
 # -*- coding: utf-8 -*-
 
 """
-ModelBased FlexOffer Pipeline package entry point
-Allows running the package as python -m
+ModelBased FlexOffer Pipeline包的入口点
+允许以python -m形式运行包
 """
 
 import sys
 import os
 
-# Handle import methods
+# 处理导入方式
 try:
-    # Try to import as part of the package
+    # 尝试作为包的一部分导入
     from .model_based_pipeline import run_pipeline
 except (ImportError, SystemError):
-    # Import method when running as a script
+    # 直接运行脚本时的导入方式
     current_dir = os.path.dirname(os.path.abspath(__file__))
     if current_dir not in sys.path:
         sys.path.insert(0, current_dir)

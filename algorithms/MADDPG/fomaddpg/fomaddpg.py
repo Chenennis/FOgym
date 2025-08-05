@@ -7,13 +7,13 @@ from collections import deque
 import sys
 import os
 
-# Add project path
+# 添加项目路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from .fomaddpg_policy import FOMaddpgPolicy
 
 class ReplayBuffer:
-    """Experience replay buffer - supports multi-agent experience storage"""
+    """经验回放缓冲区 - 支持多智能体经验存储"""
     
     def __init__(self, capacity: int = 1000000):
         self.capacity = capacity
@@ -25,11 +25,11 @@ class ReplayBuffer:
              rewards: np.ndarray, 
              next_states: np.ndarray, 
              dones: np.ndarray):
-        """Add experience to buffer"""
+        """添加经验到缓冲区"""
         self.buffer.append((states, actions, rewards, next_states, dones))
     
     def sample(self, batch_size: int) -> Tuple[torch.Tensor, ...]:
-        """Sample batch data from buffer"""
+        """从缓冲区采样批次数据"""
         batch = random.sample(self.buffer, batch_size)
         
         states, actions, rewards, next_states, dones = zip(*batch)
@@ -49,14 +49,14 @@ class FOMADDPG:
     """
     FlexOffer Multi-Agent Deep Deterministic Policy Gradient (FOMADDPG)
     
-    A multi-agent DDPG algorithm specifically designed for the FlexOffer system.
-    Supports collaborative learning at the Manager level and precise control at the device level.
+    专门为FlexOffer系统设计的多智能体DDPG算法。
+    支持Manager级别的协作学习和设备级别的精确控制。
     
-    Key features:
-    - Device-level state transition modeling
-    - Inter-Manager collaboration mechanism
-    - FlexOffer constraint-aware reward design
-    - Distributed training and centralized execution
+    主要特点：
+    - 设备级状态转移建模
+    - Manager间协作机制
+    - FlexOffer约束感知的奖励设计
+    - 分布式训练和集中式执行
     """
     
     def __init__(self,
@@ -74,22 +74,22 @@ class FOMADDPG:
                  batch_size: int = 256,
                  device: str = "cpu"):
         """
-        Initialize FOMADDPG algorithm
+        初始化FOMADDPG算法
         
         Args:
-            n_agents: Number of agents (Managers)
-            state_dim: State dimension for a single agent
-            action_dim: Action dimension for a single agent
-            lr_actor: Actor learning rate
-            lr_critic: Critic learning rate
-            hidden_dim: Network hidden layer dimension
-            max_action: Maximum action value
-            gamma: Discount factor
-            tau: Soft update coefficient
-            noise_scale: Exploration noise scale
-            buffer_capacity: Experience replay buffer capacity
-            batch_size: Batch size
-            device: Computation device
+            n_agents: 智能体数量（Manager数量）
+            state_dim: 单个智能体状态维度
+            action_dim: 单个智能体动作维度
+            lr_actor: Actor学习率
+            lr_critic: Critic学习率
+            hidden_dim: 网络隐藏层维度
+            max_action: 最大动作值
+            gamma: 折扣因子
+            tau: 软更新系数
+            noise_scale: 探索噪声比例
+            buffer_capacity: 经验回放缓冲区容量
+            batch_size: 批次大小
+            device: 计算设备
         """
         self.n_agents = n_agents
         self.state_dim = state_dim
@@ -100,7 +100,7 @@ class FOMADDPG:
         self.batch_size = batch_size
         self.device = torch.device(device)
         
-        # Create multiple agent policies
+        # 创建多个智能体策略
         self.agents = []
         for i in range(n_agents):
             agent = FOMaddpgPolicy(
@@ -116,14 +116,14 @@ class FOMADDPG:
             )
             self.agents.append(agent)
         
-        # Experience replay buffer
+        # 经验回放缓冲区
         self.replay_buffer = ReplayBuffer(buffer_capacity)
         
-        # FlexOffer specific parameters
-        self.fo_generation_mode = True  # FlexOffer generation mode
-        self.manager_coordination_weight = 0.1  # Manager coordination weight
+        # FlexOffer特定参数
+        self.fo_generation_mode = True  # FlexOffer生成模式
+        self.manager_coordination_weight = 0.1  # Manager协调权重
         
-        # Training statistics
+        # 训练统计
         self.training_step = 0
         self.episode_rewards = []
         self.actor_losses = []
@@ -131,14 +131,14 @@ class FOMADDPG:
     
     def select_actions(self, states: np.ndarray, add_noise: bool = True) -> np.ndarray:
         """
-        Select actions for all agents
+        为所有智能体选择动作
         
         Args:
-            states: States of all agents [n_agents, state_dim]
-            add_noise: Whether to add exploration noise
+            states: 所有智能体的状态 [n_agents, state_dim]
+            add_noise: 是否添加探索噪声
             
         Returns:
-            Actions of all agents [n_agents, action_dim]
+            所有智能体的动作 [n_agents, action_dim]
         """
         actions = []
         noise_scale = self.noise_scale if add_noise else 0.0
@@ -156,21 +156,21 @@ class FOMADDPG:
                         next_states: np.ndarray, 
                         dones: np.ndarray):
         """
-        Store experience to replay buffer
+        存储经验到回放缓冲区
         
         Args:
-            states: Current states [n_agents, state_dim]
-            actions: Actions [n_agents, action_dim]
-            rewards: Rewards [n_agents]
-            next_states: Next states [n_agents, state_dim]
-            dones: Done flags [n_agents]
+            states: 当前状态 [n_agents, state_dim]
+            actions: 动作 [n_agents, action_dim]
+            rewards: 奖励 [n_agents]
+            next_states: 下一状态 [n_agents, state_dim]
+            dones: 完成标志 [n_agents]
         """
-        # Flatten states and actions for centralized training
+        # 展平状态和动作以适应集中式训练
         flat_states = states.flatten()
         flat_actions = actions.flatten()
         flat_next_states = next_states.flatten()
         
-        # Use average reward as global reward
+        # 使用平均奖励作为全局奖励
         global_reward = np.mean(rewards)
         global_done = np.any(dones)
         
@@ -184,15 +184,15 @@ class FOMADDPG:
     
     def update(self) -> Dict[str, float]:
         """
-        Update policies for all agents
+        更新所有智能体的策略
         
         Returns:
-            Training statistics
+            训练统计信息
         """
         if len(self.replay_buffer) < self.batch_size:
             return {}
         
-        # Sample from experience replay buffer
+        # 从经验回放缓冲区采样
         states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
         
         states = states.to(self.device)
@@ -201,10 +201,10 @@ class FOMADDPG:
         next_states = next_states.to(self.device)
         dones = dones.to(self.device).unsqueeze(1)
         
-        # Calculate actions for next states (using target networks)
+        # 计算下一状态的动作（使用目标网络）
         next_actions = []
         for i, agent in enumerate(self.agents):
-            # Extract next state for each agent
+            # 提取每个智能体的下一状态
             agent_next_state = next_states[:, i*self.state_dim:(i+1)*self.state_dim]
             with torch.no_grad():
                 next_action = agent.actor_target(agent_next_state)
@@ -212,16 +212,16 @@ class FOMADDPG:
         
         next_actions = torch.cat(next_actions, dim=1)
         
-        # Update each agent
+        # 更新每个智能体
         total_actor_loss = 0.0
         total_critic_loss = 0.0
         
         for i, agent in enumerate(self.agents):
-            # Extract current agent's states
+            # 提取当前智能体的状态
             agent_states = states[:, i*self.state_dim:(i+1)*self.state_dim]
             agent_actions = actions[:, i*self.action_dim:(i+1)*self.action_dim]
             
-            # Update Critic
+            # 更新Critic
             critic_loss = agent.update_critic(
                 states=states,
                 actions=actions,
@@ -232,8 +232,8 @@ class FOMADDPG:
                 gamma=self.gamma
             )
             
-            # Update Actor
-            # Create actions with current agent using current policy, others using sampled actions
+            # 更新Actor
+            # 创建当前智能体的动作，其他智能体使用当前策略
             current_actions = actions.clone()
             current_actions[:, i*self.action_dim:(i+1)*self.action_dim] = agent.actor(agent_states)
             
@@ -243,7 +243,7 @@ class FOMADDPG:
                 agent_actions=agent_actions
             )
             
-            # Soft update target networks
+            # 软更新目标网络
             agent.soft_update(agent.actor_target, agent.actor, self.tau)
             agent.soft_update(agent.critic_target, agent.critic, self.tau)
             
@@ -252,7 +252,7 @@ class FOMADDPG:
         
         self.training_step += 1
         
-        # Record training statistics
+        # 记录训练统计
         avg_actor_loss = total_actor_loss / self.n_agents
         avg_critic_loss = total_critic_loss / self.n_agents
         
@@ -267,59 +267,59 @@ class FOMADDPG:
     
     def generate_flexoffers(self, states: np.ndarray) -> Dict[str, Any]:
         """
-        Generate FlexOffers based on current states
+        基于当前状态生成FlexOffer
         
         Args:
-            states: Current states [n_agents, state_dim]
+            states: 当前状态 [n_agents, state_dim]
             
         Returns:
-            FlexOffer system dictionary
+            FlexOffer系统字典
         """
-        # Select actions (without noise, for inference)
+        # 选择动作（不添加噪声，用于推理）
         actions = self.select_actions(states, add_noise=False)
         
-        # Convert actions to FlexOffer parameters
+        # 将动作转换为FlexOffer参数
         fo_systems = {}
         
         for i in range(self.n_agents):
             manager_id = f"manager_{i+1}"
             agent_action = actions[i]
             
-            # Map actions to FlexOffer parameters
-            # This is a simplified implementation, actual mapping should be based on specific FlexOffer model
+            # 将动作映射到FlexOffer参数
+            # 这里是简化实现，实际应该根据具体的FlexOffer模型进行映射
             fo_systems[manager_id] = self._action_to_flexoffer(agent_action, manager_id)
         
         return fo_systems
     
     def _action_to_flexoffer(self, action: np.ndarray, manager_id: str) -> Dict[str, Any]:
         """
-        Convert agent action to FlexOffer system
+        将智能体动作转换为FlexOffer系统
         
         Args:
-            action: Agent action
+            action: 智能体动作
             manager_id: Manager ID
             
         Returns:
-            FlexOffer system dictionary
+            FlexOffer系统字典
         """
-        # Simplified implementation: map actions to FlexOffer parameters
-        # Actual implementation should map according to specific FlexOffer model
+        # 简化实现：将动作映射为FlexOffer参数
+        # 实际实现应该根据具体的FlexOffer模型进行详细映射
         
         device_fos = {}
         
-        # Assume each Manager manages multiple devices, action dimensions correspond to different devices
-        devices_per_manager = len(action) // 2  # Assume each device needs 2 action parameters
+        # 假设每个Manager管理多个设备，动作维度对应不同设备
+        devices_per_manager = len(action) // 2  # 假设每个设备需要2个动作参数
         
         for device_idx in range(devices_per_manager):
             device_id = f"device_{manager_id}_{device_idx}"
             
-            # Extract device-related action parameters
+            # 提取设备相关的动作参数
             start_idx = device_idx * 2
             power_action = action[start_idx] if start_idx < len(action) else 0.0
             flexibility_action = action[start_idx + 1] if start_idx + 1 < len(action) else 0.0
             
-            # Create simplified FlexOffer system
-            # This should be created according to actual DFO/SFO model
+            # 创建简化的FlexOffer系统
+            # 这里应该根据实际的DFO/SFO模型进行创建
             device_fo = {
                 'device_id': device_id,
                 'power_range': (max(0, power_action - 0.5), max(0, power_action + 0.5)),
@@ -334,21 +334,21 @@ class FOMADDPG:
     
     def _compute_energy_bounds(self, power_action: float, flexibility_action: float) -> List[Tuple[float, float]]:
         """
-        Calculate energy bounds based on actions
+        基于动作计算能量边界
         
         Args:
-            power_action: Power action
-            flexibility_action: Flexibility action
+            power_action: 功率动作
+            flexibility_action: 灵活性动作
             
         Returns:
-            List of energy bounds for 24 hours
+            24小时的能量边界列表
         """
         bounds = []
         base_power = max(0, power_action)
         flexibility = max(0, min(1, flexibility_action))
         
         for hour in range(24):
-            # Simplified energy bounds calculation
+            # 简化的能量边界计算
             min_power = base_power * (1 - flexibility)
             max_power = base_power * (1 + flexibility)
             bounds.append((min_power, max_power))
@@ -357,39 +357,39 @@ class FOMADDPG:
     
     def train_episode(self, env, max_steps: int = 24) -> Dict[str, float]:
         """
-        Train one episode
+        训练一个episode
         
         Args:
-            env: Multi-agent environment
-            max_steps: Maximum steps (corresponding to 24 hours)
+            env: 多智能体环境
+            max_steps: 最大步数（对应24小时）
             
         Returns:
-            Episode statistics
+            Episode统计信息
         """
         states = env.reset()
         episode_reward = 0.0
         episode_steps = 0
         
         for step in range(max_steps):
-            # Select actions
+            # 选择动作
             actions = self.select_actions(states, add_noise=True)
             
-            # Execute actions
+            # 执行动作
             next_states, rewards, dones, infos = env.step(actions)
             
-            # Store experience
+            # 存储经验
             self.store_experience(states, actions, rewards, next_states, dones)
             
-            # Update policies
+            # 更新策略
             if len(self.replay_buffer) >= self.batch_size:
                 update_info = self.update()
             
-            # Update states
+            # 更新状态
             states = next_states
             episode_reward += np.mean(rewards)
             episode_steps += 1
             
-            # Check if done
+            # 检查是否完成
             if np.any(dones):
                 break
         
@@ -402,22 +402,22 @@ class FOMADDPG:
         }
     
     def save_models(self, filepath_prefix: str):
-        """Save models for all agents"""
+        """保存所有智能体的模型"""
         for i, agent in enumerate(self.agents):
             filepath = f"{filepath_prefix}_agent_{i}.pt"
             agent.save(filepath)
     
     def load_models(self, filepath_prefix: str):
-        """Load models for all agents"""
+        """加载所有智能体的模型"""
         for i, agent in enumerate(self.agents):
             filepath = f"{filepath_prefix}_agent_{i}.pt"
             try:
                 agent.load(filepath)
             except FileNotFoundError:
-                print(f"Warning: Could not find model file {filepath}")
+                print(f"警告: 无法找到模型文件 {filepath}")
     
     def get_training_stats(self) -> Dict[str, Any]:
-        """Get training statistics"""
+        """获取训练统计信息"""
         return {
             'episode_rewards': self.episode_rewards,
             'actor_losses': self.actor_losses,

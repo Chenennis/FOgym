@@ -1,5 +1,8 @@
 """
-This module provides a unified configuration management interface, integrating all configuration-related functionalities.
+FlexOffer统一配置管理系统
+
+本模块提供统一的配置管理接口，整合所有配置相关功能，
+包括Dec-POMDP配置、算法配置、设备配置等。
 """
 
 import json
@@ -19,17 +22,17 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AlgorithmConfig:
-    """Algorithm base configuration"""
+    """算法基础配置"""
     name: str
     type: str  # 'ppo', 'ddpg', 'td3', 'sqddpg'
     
-    # Network configuration
+    # 网络配置
     state_dim: int = 73
     action_dim: int = 36
     hidden_dim: int = 256
     n_agents: int = 4
     
-    # Training configuration
+    # 训练配置
     lr_actor: float = 1e-4
     lr_critic: float = 1e-3
     gamma: float = 0.99
@@ -37,17 +40,17 @@ class AlgorithmConfig:
     batch_size: int = 64
     max_action: float = 1.0
     
-    # Specific attributes
+    # 特定属性
     stochastic: bool = True
     has_value_network: bool = True
     has_replay_buffer: bool = False
     has_twin_critic: bool = False
     has_shapley_computation: bool = False
     
-    # Device configuration
+    # 设备配置
     device: str = "cpu"
     
-    # Dec-POMDP configuration
+    # Dec-POMDP配置
     enable_dec_pomdp: bool = True
     private_dim: int = 40
     public_dim: int = 18
@@ -56,22 +59,22 @@ class AlgorithmConfig:
 
 @dataclass
 class EnvironmentConfig:
-    """Environment configuration"""
+    """环境配置"""
     name: str = "FlexOffer-v1"
     
-    # Time configuration
-    time_horizon: int = 24  # hours
-    time_step: float = 0.25  # 15 minutes step
+    # 时间配置
+    time_horizon: int = 24  # 小时
+    time_step: float = 0.25  # 15分钟步长
     total_steps: int = 96  # 24 * 4
     
-    # Device configuration
+    # 设备配置
     n_users: int = 36
     n_devices: int = 118
     device_types: List[str] = field(default_factory=lambda: [
         'battery', 'heat_pump', 'ev', 'pv', 'dishwasher'
     ])
     
-    # Manager configuration
+    # Manager配置
     n_managers: int = 4
     manager_assignment: Dict[int, List[int]] = field(default_factory=lambda: {
         0: list(range(0, 9)),   # Manager 0: Users 0-8
@@ -80,7 +83,7 @@ class EnvironmentConfig:
         3: list(range(27, 36))  # Manager 3: Users 27-35
     })
     
-    # Reward configuration
+    # 奖励配置
     reward_weights: Dict[str, float] = field(default_factory=lambda: {
         'user_satisfaction': 0.4,
         'system_efficiency': 0.3,
@@ -91,48 +94,48 @@ class EnvironmentConfig:
 
 @dataclass
 class TrainingConfig:
-    """Training configuration"""
-    # Basic training parameters
+    """训练配置"""
+    # 基础训练参数
     total_episodes: int = 1000
     max_episode_steps: int = 96
     save_interval: int = 100
     eval_interval: int = 50
     
-    # Experience replay configuration
+    # 经验重放配置
     buffer_capacity: int = 100000
     min_buffer_size: int = 1000
     
-    # Exploration configuration
+    # 探索配置
     exploration_noise: float = 0.1
     noise_decay: float = 0.995
     min_noise: float = 0.01
     
-    # Network update configuration
-    policy_update_interval: int = 2  # TD3 feature
+    # 网络更新配置
+    policy_update_interval: int = 2  # TD3特性
     target_update_freq: int = 1
     
-    # Early stopping configuration
+    # 早停配置
     patience: int = 100
     min_improvement: float = 0.01
 
 
 @dataclass
 class LoggingConfig:
-    """Logging configuration"""
+    """日志配置"""
     level: str = "INFO"
     format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     
-    # File logging
+    # 文件日志
     enable_file_logging: bool = True
     log_file: str = "flexoffer.log"
     max_file_size: int = 10 * 1024 * 1024  # 10MB
     backup_count: int = 5
     
-    # Console logging
+    # 控制台日志
     enable_console_logging: bool = True
     console_level: str = "INFO"
     
-    # Special logging
+    # 特殊日志
     enable_tensorboard: bool = True
     tensorboard_dir: str = "runs"
     
@@ -142,7 +145,7 @@ class LoggingConfig:
 
 
 class ConfigManager:
-    """Unified configuration manager"""
+    """统一配置管理器"""
     
     def __init__(self, config_file: Optional[str] = None):
         self.config_file = config_file
@@ -153,14 +156,14 @@ class ConfigManager:
             self.load_from_file(config_file)
     
     def _load_default_configs(self):
-        """Load default configurations"""
-        # Dec-POMDP configuration
+        """加载默认配置"""
+        # Dec-POMDP配置
         self._configs['dec_pomdp'] = DecPOMDPConfig()
         
-        # Base configuration
+        # 基础配置
         self._configs['base'] = Config()
         
-        # Algorithm configuration
+        # 算法配置
         self._configs['algorithms'] = {
             'FOMAPPO': AlgorithmConfig(
                 name='FOMAPPO',
@@ -194,36 +197,36 @@ class ConfigManager:
             )
         }
         
-        # Environment configuration
+        # 环境配置
         self._configs['environment'] = EnvironmentConfig()
         
-        # Training configuration
+        # 训练配置
         self._configs['training'] = TrainingConfig()
         
-        # Logging configuration
+        # 日志配置
         self._configs['logging'] = LoggingConfig()
     
     def get_config(self, config_name: str) -> Any:
-        """Get configuration"""
+        """获取配置"""
         if config_name not in self._configs:
-            raise ValueError(f"Configuration '{config_name}' does not exist")
+            raise ValueError(f"配置'{config_name}'不存在")
         return self._configs[config_name]
     
     def get_algorithm_config(self, algorithm_name: str) -> AlgorithmConfig:
-        """Get algorithm configuration"""
+        """获取算法配置"""
         algorithms = self._configs.get('algorithms', {})
         if algorithm_name not in algorithms:
-            raise ValueError(f"Algorithm '{algorithm_name}' configuration does not exist")
+            raise ValueError(f"算法'{algorithm_name}'配置不存在")
         return algorithms[algorithm_name]
     
     def set_config(self, config_name: str, config: Any):
-        """Set configuration"""
+        """设置配置"""
         self._configs[config_name] = config
     
     def update_config(self, config_name: str, updates: Dict[str, Any]):
-        """Update configuration"""
+        """更新配置"""
         if config_name not in self._configs:
-            raise ValueError(f"Configuration '{config_name}' does not exist")
+            raise ValueError(f"配置'{config_name}'不存在")
         
         config = self._configs[config_name]
         if hasattr(config, '__dict__'):
@@ -231,17 +234,17 @@ class ConfigManager:
                 if hasattr(config, key):
                     setattr(config, key, value)
                 else:
-                    logger.warning(f"Configuration '{config_name}' does not have attribute '{key}'")
+                    logger.warning(f"配置'{config_name}'没有属性'{key}'")
         else:
-            # Dictionary type configuration
+            # 字典类型配置
             config.update(updates)
     
     def save_to_file(self, file_path: str, format: str = 'auto'):
-        """Save configuration to file"""
+        """保存配置到文件"""
         if format == 'auto':
             format = 'yaml' if file_path.endswith('.yaml') or file_path.endswith('.yml') else 'json'
         
-        # Convert to serializable dictionary
+        # 转换为可序列化的字典
         serializable_configs = {}
         for name, config in self._configs.items():
             if hasattr(config, '__dict__'):
@@ -249,7 +252,7 @@ class ConfigManager:
             else:
                 serializable_configs[name] = config
         
-        # Add metadata
+        # 添加元数据
         serializable_configs['_metadata'] = {
             'created_at': datetime.now().isoformat(),
             'version': '1.0.0',
@@ -265,15 +268,15 @@ class ConfigManager:
                 else:
                     json.dump(serializable_configs, f, indent=2, ensure_ascii=False)
             
-            logger.info(f"Configuration saved to: {file_path}")
+            logger.info(f"配置已保存到: {file_path}")
         except Exception as e:
-            logger.error(f"Failed to save configuration: {e}")
+            logger.error(f"保存配置失败: {e}")
             raise
     
     def load_from_file(self, file_path: str):
-        """Load configuration from file"""
+        """从文件加载配置"""
         if not os.path.exists(file_path):
-            raise FileNotFoundError(f"Configuration file does not exist: {file_path}")
+            raise FileNotFoundError(f"配置文件不存在: {file_path}")
         
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -282,11 +285,11 @@ class ConfigManager:
                 else:
                     loaded_configs = json.load(f)
             
-            # Skip metadata
+            # 跳过元数据
             if '_metadata' in loaded_configs:
                 del loaded_configs['_metadata']
             
-            # Update configurations
+            # 更新配置
             for name, config_data in loaded_configs.items():
                 if name in self._configs:
                     if isinstance(config_data, dict):
@@ -296,15 +299,15 @@ class ConfigManager:
                 else:
                     self._configs[name] = config_data
             
-            logger.info(f"Configuration loaded from file: {file_path}")
+            logger.info(f"配置已从文件加载: {file_path}")
         except Exception as e:
-            logger.error(f"Failed to load configuration: {e}")
+            logger.error(f"加载配置失败: {e}")
             raise
     
     def validate_config(self, config_name: str) -> bool:
-        """Validate configuration"""
+        """验证配置"""
         if config_name not in self._configs:
-            logger.error(f"Configuration '{config_name}' does not exist")
+            logger.error(f"配置'{config_name}'不存在")
             return False
         
         config = self._configs[config_name]
@@ -317,63 +320,63 @@ class ConfigManager:
             elif config_name == 'training':
                 return self._validate_training_config(config)
             else:
-                # Basic validation
+                # 基础验证
                 return config is not None
         except Exception as e:
-            logger.error(f"Error validating configuration '{config_name}': {e}")
+            logger.error(f"验证配置'{config_name}'时出错: {e}")
             return False
     
     def _validate_algorithm_configs(self, algorithms: Dict[str, AlgorithmConfig]) -> bool:
-        """Validate algorithm configurations"""
+        """验证算法配置"""
         required_algorithms = ['FOMAPPO', 'FOMADDPG', 'FOMATD3', 'FOSQDDPG']
         
         for algo_name in required_algorithms:
             if algo_name not in algorithms:
-                logger.error(f"Missing algorithm configuration: {algo_name}")
+                logger.error(f"缺少算法配置: {algo_name}")
                 return False
             
             config = algorithms[algo_name]
             if config.state_dim <= 0 or config.action_dim <= 0:
-                logger.error(f"Algorithm '{algo_name}' has invalid dimension configuration")
+                logger.error(f"算法'{algo_name}'维度配置无效")
                 return False
         
         return True
     
     def _validate_environment_config(self, env_config: EnvironmentConfig) -> bool:
-        """Validate environment configuration"""
+        """验证环境配置"""
         if env_config.n_users <= 0 or env_config.n_devices <= 0:
-            logger.error("Invalid number of users or devices in environment configuration")
+            logger.error("环境配置中用户数或设备数无效")
             return False
         
         if env_config.n_managers <= 0:
-            logger.error("Invalid Manager count configuration")
+            logger.error("Manager数量配置无效")
             return False
         
         return True
     
     def _validate_training_config(self, training_config: TrainingConfig) -> bool:
-        """Validate training configuration"""
+        """验证训练配置"""
         if training_config.total_episodes <= 0:
-            logger.error("Invalid training episodes configuration")
+            logger.error("训练轮数配置无效")
             return False
         
         if training_config.buffer_capacity <= training_config.min_buffer_size:
-            logger.error("Invalid buffer configuration")
+            logger.error("缓冲区配置无效")
             return False
         
         return True
     
     def print_config_summary(self):
-        """Print configuration summary"""
-        print("🔧 FlexOffer Configuration Summary")
+        """打印配置摘要"""
+        print("🔧 FlexOffer配置摘要")
         print("=" * 50)
         
         for name, config in self._configs.items():
-            print(f"\n📋 {name.upper()} Configuration:")
+            print(f"\n📋 {name.upper()}配置:")
             
             if name == 'algorithms':
                 for algo_name, algo_config in config.items():
-                    print(f"   🤖 {algo_name}: {algo_config.type} ({'stochastic' if algo_config.stochastic else 'deterministic'})")
+                    print(f"   🤖 {algo_name}: {algo_config.type} ({'随机' if algo_config.stochastic else '确定性'})")
             elif hasattr(config, '__dict__'):
                 important_attrs = self._get_important_attributes(name)
                 for attr in important_attrs:
@@ -381,12 +384,12 @@ class ConfigManager:
                         value = getattr(config, attr)
                         print(f"   📊 {attr}: {value}")
             else:
-                print(f"   📊 Type: {type(config).__name__}")
+                print(f"   📊 类型: {type(config).__name__}")
         
         print("=" * 50)
     
     def _get_important_attributes(self, config_name: str) -> List[str]:
-        """Get important configuration attributes"""
+        """获取重要配置属性"""
         important_attrs = {
             'environment': ['n_users', 'n_devices', 'n_managers', 'time_horizon'],
             'training': ['total_episodes', 'batch_size', 'buffer_capacity'],
@@ -396,7 +399,7 @@ class ConfigManager:
         return important_attrs.get(config_name, [])
     
     def export_config_template(self, file_path: str):
-        """Export configuration template"""
+        """导出配置模板"""
         template = {
             "algorithms": {
                 "FOMAPPO": {
@@ -420,15 +423,15 @@ class ConfigManager:
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(template, f, indent=2, ensure_ascii=False)
         
-        print(f"Configuration template exported to: {file_path}")
+        print(f"配置模板已导出到: {file_path}")
 
 
-# Global configuration manager instance
+# 全局配置管理器实例
 _global_config_manager: Optional[ConfigManager] = None
 
 
 def get_config_manager(config_file: Optional[str] = None) -> ConfigManager:
-    """Get global configuration manager"""
+    """获取全局配置管理器"""
     global _global_config_manager
     
     if _global_config_manager is None:
@@ -438,20 +441,20 @@ def get_config_manager(config_file: Optional[str] = None) -> ConfigManager:
 
 
 def get_algorithm_config(algorithm_name: str) -> AlgorithmConfig:
-    """Get algorithm configuration"""
+    """快捷方式：获取算法配置"""
     return get_config_manager().get_algorithm_config(algorithm_name)
 
 
 def get_dec_pomdp_config() -> DecPOMDPConfig:
-    """Get Dec-POMDP configuration"""
+    """快捷方式：获取Dec-POMDP配置"""
     return get_config_manager().get_config('dec_pomdp')
 
 
 def get_environment_config() -> EnvironmentConfig:
-    """Get environment configuration"""
+    """快捷方式：获取环境配置"""
     return get_config_manager().get_config('environment')
 
 
 def get_training_config() -> TrainingConfig:
-    """Get training configuration"""
+    """快捷方式：获取训练配置"""
     return get_config_manager().get_config('training') 

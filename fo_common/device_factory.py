@@ -1,5 +1,8 @@
 """
-This module provides a unified device creation and management interface
+FlexOffer统一设备工厂
+
+本模块提供统一的设备创建和管理接口，
+消除在多个文件中重复的设备创建逻辑。
 """
 
 import numpy as np
@@ -8,14 +11,14 @@ from typing import Dict, Any, Optional, Type, Union
 from abc import ABC, abstractmethod
 import logging
 
-# Device model imports
+# 设备模型导入
 from fo_generate.battery_model import BatteryModel, BatteryParameters
 from fo_generate.heat_model import HeatPumpModel, HeatPumpParameters
 from fo_generate.ev_model import EVModel, EVParameters, EVUserBehavior
 from fo_generate.pv_model import PVModel, PVParameters
 from fo_generate.dishwasher_model import DishwasherModel, DishwasherParameters, DishwasherUserBehavior
 
-# MDP device imports
+# MDP设备导入
 from fo_generate.unified_mdp_env import (
     DeviceMDPInterface, DeviceType, 
     BatteryMDPDevice, HeatPumpMDPDevice, 
@@ -26,16 +29,16 @@ logger = logging.getLogger(__name__)
 
 
 class DeviceConfigTemplate:
-    """Device configuration template"""
+    """设备配置模板"""
     
     @staticmethod
     def get_battery_defaults() -> Dict[str, Any]:
-        """Get battery default configuration"""
+        """获取电池默认配置"""
         return {
             'capacity': 10.0,           # kWh
             'max_power': 5.0,           # kW
-            'efficiency': 0.95,         # efficiency
-            'initial_state': 0.5,       # initial SOC
+            'efficiency': 0.95,         # 效率
+            'initial_state': 0.5,       # 初始SOC
             'param1': 0.1,              # soc_min
             'param2': 0.9,              # soc_max
             'can_interrupt': True,
@@ -44,11 +47,11 @@ class DeviceConfigTemplate:
     
     @staticmethod
     def get_heat_pump_defaults() -> Dict[str, Any]:
-        """Get heat pump default configuration"""
+        """获取热泵默认配置"""
         return {
             'max_power': 3.0,           # kW
             'efficiency': 3.5,          # COP
-            'initial_state': 21.0,      # initial temperature
+            'initial_state': 21.0,      # 初始温度
             'param1': 18.0,             # temp_min
             'param2': 26.0,             # temp_max
             'param3': 0.1,              # heat_loss_coef
@@ -58,12 +61,12 @@ class DeviceConfigTemplate:
     
     @staticmethod
     def get_ev_defaults() -> Dict[str, Any]:
-        """Get electric vehicle default configuration"""
+        """获取电动汽车默认配置"""
         return {
             'capacity': 60.0,           # kWh
             'max_power': 7.0,           # kW
-            'efficiency': 0.9,          # efficiency
-            'initial_state': 0.3,       # initial SOC
+            'efficiency': 0.9,          # 效率
+            'initial_state': 0.3,       # 初始SOC
             'param1': 0.1,              # soc_min
             'param2': 0.95,             # soc_max
             'param3': 20.0,             # departure_hour
@@ -73,10 +76,10 @@ class DeviceConfigTemplate:
     
     @staticmethod
     def get_pv_defaults() -> Dict[str, Any]:
-        """Get PV default configuration"""
+        """获取光伏默认配置"""
         return {
             'max_power': 5.0,           # kW
-            'efficiency': 0.18,         # efficiency
+            'efficiency': 0.18,         # 效率
             'param1': 35.0,             # tilt_angle
             'param2': 180.0,            # azimuth_angle
             'param3': 25.0,             # area
@@ -86,34 +89,34 @@ class DeviceConfigTemplate:
     
     @staticmethod
     def get_dishwasher_defaults() -> Dict[str, Any]:
-        """Get dishwasher default configuration"""
+        """获取洗碗机默认配置"""
         return {
-            'capacity': 3.0,            # total energy demand kWh
+            'capacity': 3.0,            # 总能量需求 kWh
             'max_power': 2.0,           # kW
-            'efficiency': 0.9,          # efficiency
-            'initial_state': 0.0,       # initial state: not deployed
-            'param1': 3.5,              # operation duration hours
-            'param2': 0.5,              # minimum start delay hours
-            'param3': 6.0,              # maximum start delay hours
+            'efficiency': 0.9,          # 效率
+            'initial_state': 0.0,       # 初始状态：未部署
+            'param1': 3.5,              # 运行时长 hours
+            'param2': 0.5,              # 最小启动延迟 hours
+            'param3': 6.0,              # 最大启动延迟 hours
             'can_interrupt': False,
             'priority': 3
         }
 
 
 class DeviceFactory:
-    """Unified device factory"""
+    """统一设备工厂"""
     
     @staticmethod
     def create_device_model(device_type: str, device_config: Dict[str, Any]) -> Any:
         """
-        Create device model
+        创建设备模型
         
         Args:
-            device_type: Device type
-            device_config: Device configuration
+            device_type: 设备类型
+            device_config: 设备配置
             
         Returns:
-            Device model instance
+            设备模型实例
         """
         if device_type == DeviceType.BATTERY:
             return DeviceFactory._create_battery_model(device_config)
@@ -126,19 +129,19 @@ class DeviceFactory:
         elif device_type == DeviceType.DISHWASHER:
             return DeviceFactory._create_dishwasher_model(device_config)
         else:
-            raise ValueError(f"Unsupported device type: {device_type}")
+            raise ValueError(f"不支持的设备类型: {device_type}")
     
     @staticmethod
     def create_device_mdp(device_type: str, device_model: Any) -> DeviceMDPInterface:
         """
-        Create device MDP wrapper
+        创建设备MDP包装器
         
         Args:
-            device_type: Device type
-            device_model: Device model
+            device_type: 设备类型
+            device_model: 设备模型
             
         Returns:
-            Device MDP interface instance
+            设备MDP接口实例
         """
         if device_type == DeviceType.BATTERY:
             return BatteryMDPDevice(device_model)
@@ -151,35 +154,35 @@ class DeviceFactory:
         elif device_type == DeviceType.DISHWASHER:
             return DishwasherMDPDevice(device_model)
         else:
-            raise ValueError(f"Unsupported device type: {device_type}")
+            raise ValueError(f"不支持的设备类型: {device_type}")
     
     @staticmethod
     def create_complete_device(device_type: str, device_config: Dict[str, Any]) -> DeviceMDPInterface:
         """
-        Create complete device (model + MDP wrapper)
+        创建完整的设备（模型+MDP包装器）
         
         Args:
-            device_type: Device type
-            device_config: Device configuration
+            device_type: 设备类型
+            device_config: 设备配置
             
         Returns:
-            Device MDP interface instance
+            设备MDP接口实例
         """
-        # Fill default configuration
+        # 填充默认配置
         config = DeviceFactory._fill_default_config(device_type, device_config)
         
-        # Create device model
+        # 创建设备模型
         device_model = DeviceFactory.create_device_model(device_type, config)
         
-        # Create MDP wrapper
+        # 创建MDP包装器
         device_mdp = DeviceFactory.create_device_mdp(device_type, device_model)
         
-        logger.info(f"Device created successfully: {device_type} - {config.get('device_id', 'unknown')}")
+        logger.info(f"创建设备成功: {device_type} - {config.get('device_id', 'unknown')}")
         return device_mdp
     
     @staticmethod
     def _fill_default_config(device_type: str, user_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Fill default configuration"""
+        """填充默认配置"""
         if device_type == DeviceType.BATTERY:
             defaults = DeviceConfigTemplate.get_battery_defaults()
         elif device_type == DeviceType.HEAT_PUMP:
@@ -193,14 +196,14 @@ class DeviceFactory:
         else:
             defaults = {}
         
-        # Merge user configuration and default configuration
+        # 合并用户配置和默认配置
         config = defaults.copy()
         config.update(user_config)
         return config
     
     @staticmethod
     def _create_battery_model(config: Dict[str, Any]) -> BatteryModel:
-        """Create battery model"""
+        """创建电池模型"""
         params = BatteryParameters(
             battery_id=config.get('device_id', 'battery_default'),
             soc_min=config.get('param1', 0.1),
@@ -216,7 +219,7 @@ class DeviceFactory:
     
     @staticmethod
     def _create_heat_pump_model(config: Dict[str, Any]) -> HeatPumpModel:
-        """Create heat pump model"""
+        """创建热泵模型"""
         params = HeatPumpParameters(
             room_id=config.get('device_id', 'room_default'),
             room_area=30.0,
@@ -236,7 +239,7 @@ class DeviceFactory:
     
     @staticmethod
     def _create_ev_model(config: Dict[str, Any]) -> EVModel:
-        """Create electric vehicle model"""
+        """创建电动汽车模型"""
         params = EVParameters(
             ev_id=config.get('device_id', 'ev_default'),
             battery_capacity=config.get('capacity', 60.0),
@@ -248,7 +251,7 @@ class DeviceFactory:
             fast_charge_capable=True
         )
         
-        # Create user behavior
+        # 创建用户行为
         now = datetime.now()
         departure_hour = config.get('param3', 20.0)
         arrival_time = now.replace(hour=18, minute=0, second=0, microsecond=0)
@@ -260,7 +263,7 @@ class DeviceFactory:
             ev_id=config.get('device_id', 'ev_default'),
             connection_time=arrival_time,
             disconnection_time=departure_time,
-            next_departure_time=departure_time,  # Use departure_time as next departure time
+            next_departure_time=departure_time,  # 使用departure_time作为下次出发时间
             target_soc=0.85,
             min_required_soc=0.6,
             fast_charge_preferred=False,
@@ -272,7 +275,7 @@ class DeviceFactory:
     
     @staticmethod
     def _create_pv_model(config: Dict[str, Any]) -> PVModel:
-        """Create PV model"""
+        """创建光伏模型"""
         params = PVParameters(
             pv_id=config.get('device_id', 'pv_default'),
             max_power=config.get('max_power', 5.0),
@@ -288,7 +291,7 @@ class DeviceFactory:
     
     @staticmethod
     def _create_dishwasher_model(config: Dict[str, Any]) -> DishwasherModel:
-        """Create dishwasher model"""
+        """创建洗碗机模型"""
         params = DishwasherParameters(
             dishwasher_id=config.get('device_id', 'dishwasher_default'),
             total_energy=config.get('capacity', 3.0),
@@ -300,7 +303,7 @@ class DeviceFactory:
             can_interrupt=False
         )
         
-        # Create user behavior
+        # 创建用户行为
         now = datetime.now()
         deployment_time = now + timedelta(hours=np.random.uniform(0, 2))
         
@@ -317,7 +320,7 @@ class DeviceFactory:
     
     @staticmethod
     def create_device_config_from_csv_row(device_type: str, csv_row: Dict[str, Any]) -> Dict[str, Any]:
-        """Create device configuration from CSV row data"""
+        """从CSV行数据创建设备配置"""
         config = {
             'device_id': csv_row.get('device_id', f"{device_type}_default"),
             'device_type': device_type,
@@ -335,32 +338,32 @@ class DeviceFactory:
     
     @staticmethod
     def validate_device_config(device_type: str, config: Dict[str, Any]) -> bool:
-        """Validate device configuration"""
+        """验证设备配置"""
         required_fields = ['device_id', 'max_power', 'efficiency']
         
         for field in required_fields:
             if field not in config:
-                logger.error(f"Device configuration missing required field: {field}")
+                logger.error(f"设备配置缺少必要字段: {field}")
                 return False
         
-        # Type-specific validation
+        # 类型特定验证
         if device_type == DeviceType.BATTERY and config.get('capacity', 0) <= 0:
-            logger.error("Battery capacity must be greater than 0")
+            logger.error("电池容量必须大于0")
             return False
         
         if config.get('max_power', 0) <= 0:
-            logger.error("Maximum power must be greater than 0")
+            logger.error("最大功率必须大于0")
             return False
         
         if not 0 <= config.get('efficiency', 0) <= 1:
-            logger.error("Efficiency must be between 0-1")
+            logger.error("效率必须在0-1之间")
             return False
         
         return True
     
     @staticmethod
     def get_supported_device_types() -> list:
-        """Get list of supported device types"""
+        """获取支持的设备类型列表"""
         return [
             DeviceType.BATTERY,
             DeviceType.HEAT_PUMP,
@@ -371,14 +374,14 @@ class DeviceFactory:
 
 
 class DeviceManager:
-    """Device manager"""
+    """设备管理器"""
     
     def __init__(self):
         self.devices = {}
         self.device_types = {}
     
     def add_device(self, device_id: str, device_type: str, device_config: Dict[str, Any]) -> bool:
-        """Add device"""
+        """添加设备"""
         try:
             if not DeviceFactory.validate_device_config(device_type, device_config):
                 return False
@@ -389,35 +392,35 @@ class DeviceManager:
             self.devices[device_id] = device_mdp
             self.device_types[device_id] = device_type
             
-            logger.info(f"Device added successfully: {device_id} ({device_type})")
+            logger.info(f"设备添加成功: {device_id} ({device_type})")
             return True
         except Exception as e:
-            logger.error(f"Device addition failed: {device_id} - {str(e)}")
+            logger.error(f"设备添加失败: {device_id} - {str(e)}")
             return False
     
     def remove_device(self, device_id: str) -> bool:
-        """Remove device"""
+        """移除设备"""
         if device_id in self.devices:
             del self.devices[device_id]
             del self.device_types[device_id]
-            logger.info(f"Device removed successfully: {device_id}")
+            logger.info(f"设备移除成功: {device_id}")
             return True
         return False
     
     def get_device(self, device_id: str) -> Optional[DeviceMDPInterface]:
-        """Get device"""
+        """获取设备"""
         return self.devices.get(device_id)
     
     def get_device_type(self, device_id: str) -> Optional[str]:
-        """Get device type"""
+        """获取设备类型"""
         return self.device_types.get(device_id)
     
     def list_devices(self) -> Dict[str, str]:
-        """List all devices"""
+        """列出所有设备"""
         return self.device_types.copy()
     
     def get_devices_by_type(self, device_type: str) -> Dict[str, DeviceMDPInterface]:
-        """Get devices by type"""
+        """按类型获取设备"""
         return {
             device_id: device 
             for device_id, device in self.devices.items()
@@ -425,11 +428,11 @@ class DeviceManager:
         }
     
     def get_device_count(self) -> int:
-        """Get device count"""
+        """获取设备数量"""
         return len(self.devices)
     
     def clear_all_devices(self):
-        """Clear all devices"""
+        """清空所有设备"""
         self.devices.clear()
         self.device_types.clear()
-        logger.info("All devices cleared") 
+        logger.info("所有设备已清空") 

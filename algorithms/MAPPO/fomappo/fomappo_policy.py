@@ -3,35 +3,35 @@ import numpy as np
 import sys
 import os
 
-# Add onpolicy module path (fixed version)
+# 添加onpolicy模块路径（修正版）
 current_dir = os.path.dirname(os.path.abspath(__file__))
 mappo_dir = os.path.dirname(current_dir)  # algorithms/MAPPO/
 
-# 🔧 Critical fix: Add the parent directory containing onpolicy, not the onpolicy directory itself
+# 🔧 关键修复：添加包含onpolicy的父目录，而不是onpolicy目录本身
 if mappo_dir not in sys.path:
     sys.path.insert(0, mappo_dir)
 
-# Now we can safely import onpolicy modules
+# 现在可以安全导入onpolicy模块
 from onpolicy.algorithms.r_mappo.algorithm.r_actor_critic import R_Actor, R_Critic
 from onpolicy.utils.util import update_linear_schedule
 
 
 class FOMAPPOPolicy:
     """
-    FlexOffer Multi-Agent PPO Policy class
+    FlexOffer Multi-Agent PPO Policy类
     
-    A policy network specifically designed for the FlexOffer system, supporting:
-    - Manager-level observations and actions
-    - Device-level state awareness
-    - Integration of FlexOffer constraints
-    - Multi-agent collaboration mechanisms
+    专门为FlexOffer系统设计的策略网络，支持：
+    - Manager级别的观测和动作
+    - 设备级别的状态感知
+    - FlexOffer约束的集成
+    - 多智能体协作机制
     
     Args:
-        args: Parameter configuration
-        obs_space: Observation space
-        cent_obs_space: Centralized observation space (for critic)
-        action_space: Action space
-        device: Computation device
+        args: 参数配置
+        obs_space: 观测空间
+        cent_obs_space: 集中式观测空间（用于critic）
+        action_space: 动作空间
+        device: 计算设备
     """
 
     def __init__(self, args, obs_space, cent_obs_space, act_space, device=torch.device("cpu")):
@@ -45,17 +45,17 @@ class FOMAPPOPolicy:
         self.share_obs_space = cent_obs_space
         self.act_space = act_space
         
-        # FlexOffer specific parameters
+        # FlexOffer特定参数
         self.num_managers = getattr(args, 'num_managers', 4)
         self.devices_per_manager = getattr(args, 'devices_per_manager', 10)
         self.use_device_attention = getattr(args, 'use_device_attention', True)
         self.use_manager_coordination = getattr(args, 'use_manager_coordination', True)
 
-        # Create actor and critic networks
+        # 创建actor和critic网络
         self.actor = FOActor(args, self.obs_space, self.act_space, self.device)
         self.critic = FOCritic(args, self.share_obs_space, self.device)
 
-        # Optimizers
+        # 优化器
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),
                                                 lr=self.lr, eps=self.opti_eps,
                                                 weight_decay=self.weight_decay)
@@ -65,55 +65,55 @@ class FOMAPPOPolicy:
                                                  weight_decay=self.weight_decay)
 
     def lr_decay(self, episode, episodes):
-        """Learning rate decay"""
+        """学习率衰减"""
         update_linear_schedule(self.actor_optimizer, episode, episodes, self.lr)
         update_linear_schedule(self.critic_optimizer, episode, episodes, self.critic_lr)
 
     def get_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_critic, masks, available_actions=None,
                     deterministic=False, device_states=None, fo_constraints=None):
         """
-        Calculate actions and value function predictions
+        计算动作和价值函数预测
         
         Args:
-            cent_obs: Centralized observations (for critic)
-            obs: Local observations (for actor)
-            rnn_states_actor: RNN states for actor
-            rnn_states_critic: RNN states for critic
-            masks: RNN state reset masks
-            available_actions: Available actions mask
-            deterministic: Whether to use deterministic actions
-            device_states: Device state information
-            fo_constraints: FlexOffer constraint information
+            cent_obs: 集中式观测（用于critic）
+            obs: 局部观测（用于actor）
+            rnn_states_actor: actor的RNN状态
+            rnn_states_critic: critic的RNN状态
+            masks: RNN状态重置掩码
+            available_actions: 可用动作掩码
+            deterministic: 是否确定性动作
+            device_states: 设备状态信息
+            fo_constraints: FlexOffer约束信息
             
         Returns:
-            values: Value function predictions
-            actions: Selected actions
-            action_log_probs: Action log probabilities
-            rnn_states_actor: Updated actor RNN states
-            rnn_states_critic: Updated critic RNN states
+            values: 价值函数预测
+            actions: 选择的动作
+            action_log_probs: 动作对数概率
+            rnn_states_actor: 更新后的actor RNN状态
+            rnn_states_critic: 更新后的critic RNN状态
         """
-        # Process FlexOffer specific information
+        # 处理FlexOffer特定信息
         enhanced_obs = self._enhance_observation(obs, device_states, fo_constraints)
         enhanced_cent_obs = self._enhance_centralized_observation(cent_obs, device_states, fo_constraints)
         
-        # Actor forward pass
+        # Actor前向传播
         actions, action_log_probs, rnn_states_actor = self.actor(enhanced_obs,
                                                                  rnn_states_actor,
                                                                  masks,
                                                                  available_actions,
                                                                  deterministic)
 
-        # Critic forward pass
+        # Critic前向传播
         values, rnn_states_critic = self.critic(enhanced_cent_obs, rnn_states_critic, masks)
         
-        # Apply FlexOffer constraints
+        # 应用FlexOffer约束
         if fo_constraints is not None:
             actions = self._apply_fo_constraints(actions, fo_constraints)
         
         return values, actions, action_log_probs, rnn_states_actor, rnn_states_critic
 
     def get_values(self, cent_obs, rnn_states_critic, masks, device_states=None, fo_constraints=None):
-        """Get value function predictions"""
+        """获取价值函数预测"""
         enhanced_cent_obs = self._enhance_centralized_observation(cent_obs, device_states, fo_constraints)
         values, _ = self.critic(enhanced_cent_obs, rnn_states_critic, masks)
         return values
@@ -121,15 +121,15 @@ class FOMAPPOPolicy:
     def evaluate_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_critic, action, masks,
                          available_actions=None, active_masks=None, device_states=None, fo_constraints=None):
         """
-        Evaluate action log probabilities, entropy, and value function
+        评估动作的对数概率、熵和价值函数
         
-        Used for calculating gradients during actor updates
+        用于actor更新时计算梯度
         """
-        # Enhance observations
+        # 增强观测
         enhanced_obs = self._enhance_observation(obs, device_states, fo_constraints)
         enhanced_cent_obs = self._enhance_centralized_observation(cent_obs, device_states, fo_constraints)
         
-        # Actor evaluation
+        # Actor评估
         action_log_probs, dist_entropy = self.actor.evaluate_actions(enhanced_obs,
                                                                      rnn_states_actor,
                                                                      action,
@@ -137,32 +137,32 @@ class FOMAPPOPolicy:
                                                                      available_actions,
                                                                      active_masks)
 
-        # Critic evaluation
+        # Critic评估
         values, _ = self.critic(enhanced_cent_obs, rnn_states_critic, masks)
         
         return values, action_log_probs, dist_entropy
 
     def act(self, obs, rnn_states_actor, masks, available_actions=None, deterministic=False, 
             device_states=None, fo_constraints=None):
-        """Calculate actions only (for inference)"""
+        """仅计算动作（用于推理）"""
         enhanced_obs = self._enhance_observation(obs, device_states, fo_constraints)
         actions, _, rnn_states_actor = self.actor(enhanced_obs, rnn_states_actor, masks, 
                                                   available_actions, deterministic)
         
-        # Apply FlexOffer constraints
+        # 应用FlexOffer约束
         if fo_constraints is not None:
             actions = self._apply_fo_constraints(actions, fo_constraints)
             
         return actions, rnn_states_actor
 
     def _enhance_observation(self, obs, device_states=None, fo_constraints=None):
-        """Enhance observation information, integrating device states and FlexOffer constraints"""
+        """增强观测信息，集成设备状态和FlexOffer约束"""
         if device_states is None and fo_constraints is None:
             return obs
         
         enhanced_obs = obs
         
-        # Add device state information
+        # 添加设备状态信息
         if device_states is not None:
             if isinstance(device_states, np.ndarray):
                 device_features = torch.FloatTensor(device_states).to(self.device)
@@ -170,7 +170,7 @@ class FOMAPPOPolicy:
                 device_features = device_states
             enhanced_obs = torch.cat([enhanced_obs, device_features], dim=-1)
         
-        # Add FlexOffer constraint information
+        # 添加FlexOffer约束信息
         if fo_constraints is not None:
             if isinstance(fo_constraints, np.ndarray):
                 constraint_features = torch.FloatTensor(fo_constraints).to(self.device)
@@ -181,26 +181,26 @@ class FOMAPPOPolicy:
         return enhanced_obs
 
     def _enhance_centralized_observation(self, cent_obs, device_states=None, fo_constraints=None):
-        """Enhance centralized observation information"""
+        """增强集中式观测信息"""
         if device_states is None and fo_constraints is None:
             return cent_obs
         
         enhanced_cent_obs = cent_obs
         
-        # Add global device state information
+        # 添加全局设备状态信息
         if device_states is not None:
             if isinstance(device_states, np.ndarray):
                 global_device_features = torch.FloatTensor(device_states).to(self.device)
             else:
                 global_device_features = device_states
             
-            # For centralized observations, we may need to aggregate device states from all Managers
+            # 对于集中式观测，可能需要聚合所有Manager的设备状态
             if len(global_device_features.shape) > 2:
-                global_device_features = global_device_features.mean(dim=1)  # Aggregate Manager dimension
+                global_device_features = global_device_features.mean(dim=1)  # 聚合Manager维度
             
             enhanced_cent_obs = torch.cat([enhanced_cent_obs, global_device_features], dim=-1)
         
-        # Add global FlexOffer constraint information
+        # 添加全局FlexOffer约束信息
         if fo_constraints is not None:
             if isinstance(fo_constraints, np.ndarray):
                 global_constraint_features = torch.FloatTensor(fo_constraints).to(self.device)
@@ -215,29 +215,29 @@ class FOMAPPOPolicy:
         return enhanced_cent_obs
 
     def _apply_fo_constraints(self, actions, fo_constraints):
-        """Apply FlexOffer constraints to actions"""
+        """应用FlexOffer约束到动作"""
         if fo_constraints is None:
             return actions
         
-        # Simplified implementation: limit actions to constraint range
-        # In a real application, more complex constraint handling logic should be implemented here
+        # 简化实现：将动作限制在约束范围内
+        # 在实际应用中，这里应该实现更复杂的约束处理逻辑
         constrained_actions = torch.clamp(actions, 0.0, 1.0)
         
         return constrained_actions
 
 
 class FOActor(R_Actor):
-    """FlexOffer specialized Actor network"""
+    """FlexOffer专用Actor网络"""
     
     def __init__(self, args, obs_space, action_space, device=torch.device("cpu")):
         super(FOActor, self).__init__(args, obs_space, action_space, device)
         
-        # FlexOffer specific network layers
+        # FlexOffer特定的网络层
         self.device_attention_dim = getattr(args, 'device_attention_dim', 64)
         self.use_device_attention = getattr(args, 'use_device_attention', True)
         
         if self.use_device_attention:
-            # Device attention mechanism
+            # 设备注意力机制
             self.device_attention = torch.nn.MultiheadAttention(
                 embed_dim=self.device_attention_dim,
                 num_heads=4,
@@ -246,17 +246,17 @@ class FOActor(R_Actor):
 
 
 class FOCritic(R_Critic):
-    """FlexOffer specialized Critic network"""
+    """FlexOffer专用Critic网络"""
     
     def __init__(self, args, cent_obs_space, device=torch.device("cpu")):
         super(FOCritic, self).__init__(args, cent_obs_space, device)
         
-        # FlexOffer specific network layers
+        # FlexOffer特定的网络层
         self.manager_coordination_dim = getattr(args, 'manager_coordination_dim', 128)
         self.use_manager_coordination = getattr(args, 'use_manager_coordination', True)
         
         if self.use_manager_coordination:
-            # Manager coordination mechanism
+            # Manager协作机制
             self.manager_coordination = torch.nn.MultiheadAttention(
                 embed_dim=self.manager_coordination_dim,
                 num_heads=4,

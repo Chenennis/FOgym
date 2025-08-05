@@ -9,30 +9,30 @@ from dataclasses import dataclass
 import matplotlib.pyplot as plt
 from abc import ABC, abstractmethod
 
-# Add project root directory to system path for imports
+# 添加项目根目录到系统路径以便导入
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import standard FlexOffer structure
+# 导入标准FlexOffer结构
 from fo_common.flexoffer import FlexOffer, FOSlice
 
-# Create logger
+# 创建日志记录器
 logger = logging.getLogger(__name__)
 
 @dataclass
 class AggregatedFlexOffer:
-    """Aggregated FlexOffer (AFO)"""
-    afo_id: str                           # Aggregated FlexOffer ID
-    source_fo_ids: List[str]              # List of FO IDs participating in aggregation
-    aggregated_fo: FlexOffer              # Aggregated FO
-    aggregation_method: str               # Aggregation method ("LP" or "DP")
-    total_energy_min: float = 0.0         # Total minimum energy
-    total_energy_max: float = 0.0         # Total maximum energy
-    power_profile_rmse: float = 0.0       # Power profile RMSE
-    power_profile_cv: float = 0.0         # Power profile coefficient of variation
-    slice_count: int = 0                  # Number of time slices
+    """聚合后的FlexOffer (AFO)"""
+    afo_id: str                           # 聚合FlexOffer ID
+    source_fo_ids: List[str]              # 参与聚合的FO ID列表
+    aggregated_fo: FlexOffer              # 聚合后的FO
+    aggregation_method: str               # 聚合方法 ("LP" 或 "DP")
+    total_energy_min: float = 0.0         # 总最小能量
+    total_energy_max: float = 0.0         # 总最大能量
+    power_profile_rmse: float = 0.0       # 功率轮廓RMSE
+    power_profile_cv: float = 0.0         # 功率轮廓变异系数
+    slice_count: int = 0                  # 时间片数量
     
     def __post_init__(self):
-        """Calculate attributes after initialization"""
+        """初始化后计算属性"""
         if self.aggregated_fo:
             self.total_energy_min = self.aggregated_fo.total_energy_min
             self.total_energy_max = self.aggregated_fo.total_energy_max
@@ -40,45 +40,45 @@ class AggregatedFlexOffer:
             self._calculate_power_metrics()
     
     def _calculate_power_metrics(self):
-        """Calculate power-related metrics"""
+        """计算功率相关指标"""
         if not self.aggregated_fo.slices:
             return
         
-        # Get power profile
+        # 获取功率轮廓
         p_min, p_max = self.aggregated_fo.get_power_profile()
         avg_power = [(p_min[i] + p_max[i]) / 2 for i in range(len(p_min))]
         
-        # Filter out possible NaN values
+        # 过滤掉可能的NaN值
         valid_power = [p for p in avg_power if not np.isnan(p)]
         
-        # If no valid values, set default values
+        # 如果没有有效值，设置默认值
         if not valid_power:
             self.power_profile_rmse = 0.0
             self.power_profile_cv = 0.0
             return
             
-        # Calculate RMSE (relative to target power threshold 100kW)
-        spt = 100.0  # Target power threshold
+        # 计算RMSE（相对于目标功率阈值100kW）
+        spt = 100.0  # 目标功率阈值
         self.power_profile_rmse = float(np.sqrt(np.mean([(p - spt) ** 2 for p in valid_power])))
         
-        # Calculate coefficient of variation CV
+        # 计算变异系数CV
         std_dev = float(np.std(valid_power))
         mean_power = float(np.mean(valid_power))
         self.power_profile_cv = std_dev / mean_power if mean_power != 0 else 0.0
 
 class FOAggregator(ABC):
-    """FlexOffer Aggregator Abstract Base Class"""
+    """FlexOffer聚合器抽象基类"""
     
     def __init__(self, spt: float = 100.0, ppt: int = 23, tf_threshold: float = 1.0, 
                  power_deviation: float = 5.0):
         """
-        Initialize aggregator
+        初始化聚合器
         
         Args:
-            spt: Slice Power Threshold (kW)
-            ppt: Power Profile Threshold (hours)
-            tf_threshold: Time flexibility threshold
-            power_deviation: Allowed power deviation (kW)
+            spt: 切片功率阈值 (kW)
+            ppt: 功率轮廓阈值 (小时)
+            tf_threshold: 时间灵活性阈值
+            power_deviation: 允许的功率偏差 (kW)
         """
         self.spt = spt  # Slice Power Threshold
         self.ppt = ppt  # Power Profile Threshold  
@@ -89,46 +89,46 @@ class FOAggregator(ABC):
     @abstractmethod
     def initialize(self, flex_offers: List[FlexOffer]) -> Tuple[List[FlexOffer], List[FlexOffer], Optional[FlexOffer], int]:
         """
-        Initialize aggregation process
+        初始化聚合过程
         
         Args:
-            flex_offers: Input FlexOffer list
+            flex_offers: 输入的FlexOffer列表
             
         Returns:
-            Tuple[PF, UF, fini, round]: Processing set, Unprocessed set, Initial FO, Round
+            Tuple[PF, UF, fini, round]: 处理集合, 未处理集合, 初始FO, 轮次
         """
         pass
     
     def binary_aggregation(self, fo1: FlexOffer, fo2: FlexOffer) -> Optional[FlexOffer]:
         """
-        Binary aggregation operation
+        二元聚合操作
         
         Args:
-            fo1: First FlexOffer
-            fo2: Second FlexOffer
+            fo1: 第一个FlexOffer
+            fo2: 第二个FlexOffer
             
         Returns:
-            Aggregated FlexOffer or None
+            聚合后的FlexOffer或None
         """
-        # Check compatibility
+        # 检查兼容性
         if not fo1.is_compatible_with(fo2, self.tf_threshold):
             return None
         
-        # Ensure both FOs have the same number of time slices
+        # 确保两个FO有相同的时间片数量
         max_slices = max(len(fo1.slices), len(fo2.slices))
         
-        # Create aggregated time slices
+        # 创建聚合后的时间片
         aggregated_slices = []
         for i in range(max_slices):
-            # Get energy from both FOs at this time slice
+            # 获取两个FO在该时间片的能量
             e1_min, e1_max = fo1.get_energy_bounds(i) if i < len(fo1.slices) else (0.0, 0.0)
             e2_min, e2_max = fo2.get_energy_bounds(i) if i < len(fo2.slices) else (0.0, 0.0)
             
-            # Aggregate energy (simple addition)
+            # 聚合能量（简单相加）
             agg_e_min = e1_min + e2_min
             agg_e_max = e1_max + e2_max
             
-            # Use time information from the first FO as reference
+            # 使用第一个FO的时间信息作为基准
             base_slice = fo1.slices[i] if i < len(fo1.slices) else fo2.slices[i]
             
             aggregated_slice = FOSlice(
@@ -143,7 +143,7 @@ class FOAggregator(ABC):
             )
             aggregated_slices.append(aggregated_slice)
         
-        # Create aggregated FlexOffer
+        # 创建聚合的FlexOffer
         aggregated_fo = FlexOffer(
             fo_id=f"agg_{fo1.fo_id}_{fo2.fo_id}",
             hour=fo1.hour,
@@ -157,11 +157,11 @@ class FOAggregator(ABC):
         return aggregated_fo
     
     def calculate_rmse(self, fo: FlexOffer) -> float:
-        """Calculate FlexOffer RMSE relative to target power"""
+        """计算FlexOffer相对于目标功率的RMSE"""
         p_min, p_max = fo.get_power_profile()
         avg_power = [(p_min[i] + p_max[i]) / 2 for i in range(len(p_min))]
         
-        # Filter out possible NaN or infinite values
+        # 过滤掉可能的NaN或无穷大值
         valid_power = [p for p in avg_power if not np.isnan(p) and np.isfinite(p)]
         
         if not valid_power:
@@ -170,11 +170,11 @@ class FOAggregator(ABC):
         return np.sqrt(np.mean([(p - self.spt) ** 2 for p in valid_power]))
     
     def calculate_cv(self, fo: FlexOffer) -> float:
-        """Calculate coefficient of variation for FlexOffer power profile"""
+        """计算FlexOffer功率轮廓的变异系数"""
         p_min, p_max = fo.get_power_profile()
         avg_power = [(p_min[i] + p_max[i]) / 2 for i in range(len(p_min))]
         
-        # Filter out possible NaN or infinite values
+        # 过滤掉可能的NaN或无穷大值
         valid_power = [p for p in avg_power if not np.isnan(p) and np.isfinite(p)]
         
         if not valid_power:
@@ -190,76 +190,76 @@ class FOAggregator(ABC):
     
     def process(self, PF: List[FlexOffer], fini: FlexOffer) -> FlexOffer:
         """
-        Processing stage - Execute binary aggregation operations
+        处理阶段 - 执行二元聚合操作
         
         Args:
-            PF: Processing set
-            fini: Initial FlexOffer
+            PF: 处理集合
+            fini: 初始FlexOffer
             
         Returns:
-            Final aggregated FlexOffer
+            最终聚合的FlexOffer
         """
         current_fo = fini
         used_fos = [fini.fo_id]
         
-        # Sort PF by time flexibility in descending order
+        # 按时间灵活性降序排列PF
         PF_sorted = sorted(PF, key=lambda fo: fo.tf(), reverse=True)
         
         for candidate_fo in PF_sorted:
             if candidate_fo.fo_id in used_fos:
                 continue
                 
-            # Try binary aggregation
+            # 尝试二元聚合
             aggregated = self.binary_aggregation(current_fo, candidate_fo)
             
             if aggregated:
-                # Calculate quality metrics after aggregation
+                # 计算聚合后的质量指标
                 new_rmse = self.calculate_rmse(aggregated)
                 current_rmse = self.calculate_rmse(current_fo)
                 
-                # Accept aggregation if RMSE improves
+                # 如果RMSE改善，接受聚合
                 if new_rmse < current_rmse:
                     new_cv = self.calculate_cv(aggregated)
                     current_cv = self.calculate_cv(current_fo)
                     
-                    # Further check if CV improves
+                    # 进一步检查CV是否改善
                     if new_cv <= current_cv:
                         current_fo = aggregated
                         used_fos.append(candidate_fo.fo_id)
-                        logger.debug(f"Aggregation successful: {candidate_fo.fo_id}, RMSE: {new_rmse:.2f}, CV: {new_cv:.2f}")
+                        logger.debug(f"聚合成功: {candidate_fo.fo_id}, RMSE: {new_rmse:.2f}, CV: {new_cv:.2f}")
         
         return current_fo
     
     def aggregate(self, flex_offers: List[FlexOffer]) -> List[AggregatedFlexOffer]:
         """
-        Aggregate FlexOffer list
+        聚合FlexOffer列表
         
         Args:
-            flex_offers: Input FlexOffer list
+            flex_offers: 输入的FlexOffer列表
             
         Returns:
-            List of aggregation results
+            聚合结果列表
         """
         self.results = []
         
         if not flex_offers:
             return self.results
         
-        # Enhanced logging: record aggregation start information
-        logger.info(f"Starting aggregation - Method: {self.__class__.__name__}, Input FO count: {len(flex_offers)}")
-        logger.info(f"Input FO characteristics - Average profile size: {sum(fo.profile_size() for fo in flex_offers) / len(flex_offers):.2f}, "
-                   f"Average time flexibility: {sum(fo.tf() for fo in flex_offers) / len(flex_offers):.2f}")
+        # 增强日志：记录聚合开始信息
+        logger.info(f"开始聚合 - 方法: {self.__class__.__name__}, 输入FO数量: {len(flex_offers)}")
+        logger.info(f"输入FO特征 - 平均轮廓尺寸: {sum(fo.profile_size() for fo in flex_offers) / len(flex_offers):.2f}, "
+                   f"平均时间灵活性: {sum(fo.tf() for fo in flex_offers) / len(flex_offers):.2f}")
         
-        # Initialization
+        # 初始化
         PF, UF, fini, round_num = self.initialize(flex_offers)
         
-        logger.info(f"Aggregation initialization complete: PF={len(PF)}, UF={len(UF)}, Algorithm={self.__class__.__name__}")
+        logger.info(f"聚合初始化完成: PF={len(PF)}, UF={len(UF)}, 算法={self.__class__.__name__}")
         
-        # Processing stage - only process when fini is not None and PF is not empty
+        # 处理阶段 - 只有当fini不为None且PF不为空时才处理
         if fini is not None and PF:
             aggregated_fo = self.process(PF, fini)
             
-            # Create aggregation result
+            # 创建聚合结果
             source_fo_ids = [fini.fo_id] + [fo.fo_id for fo in PF]
             afo = AggregatedFlexOffer(
                 afo_id=f"AFO_{round_num}_{self.__class__.__name__}",
@@ -269,15 +269,15 @@ class FOAggregator(ABC):
             )
             
             self.results.append(afo)
-            # Enhanced logging: record detailed aggregation result information
-            logger.info(f"Aggregation complete: Method={self.__class__.__name__}, AFO contains {len(source_fo_ids)} FOs, "
-                       f"Total energy range [{afo.total_energy_min:.2f}, {afo.total_energy_max:.2f}], "
-                       f"Profile size={afo.aggregated_fo.profile_size()}, "
-                       f"Time flexibility={afo.aggregated_fo.tf():.2f}, "
-                       f"Power RMSE={afo.power_profile_rmse:.2f}, "
-                       f"Power CV={afo.power_profile_cv:.2f}")
+            # 增强日志：记录详细的聚合结果信息
+            logger.info(f"聚合完成: 方法={self.__class__.__name__}, AFO包含{len(source_fo_ids)}个FO, "
+                       f"总能量范围[{afo.total_energy_min:.2f}, {afo.total_energy_max:.2f}], "
+                       f"轮廓尺寸={afo.aggregated_fo.profile_size()}, "
+                       f"时间灵活性={afo.aggregated_fo.tf():.2f}, "
+                       f"功率RMSE={afo.power_profile_rmse:.2f}, "
+                       f"功率CV={afo.power_profile_cv:.2f}")
         elif fini is not None:
-            # If only fini exists, with no PF, use fini directly as result
+            # 如果只有fini，没有PF，直接使用fini作为结果
             afo = AggregatedFlexOffer(
                 afo_id=f"AFO_{round_num}_{self.__class__.__name__}_single",
                 source_fo_ids=[fini.fo_id],
@@ -285,12 +285,12 @@ class FOAggregator(ABC):
                 aggregation_method=self.__class__.__name__
             )
             self.results.append(afo)
-            # Enhanced logging: record single FO aggregation result
-            logger.info(f"Single FO aggregation: Method={self.__class__.__name__}, FO_ID={fini.fo_id}, "
-                       f"Total energy range [{afo.total_energy_min:.2f}, {afo.total_energy_max:.2f}], "
-                       f"Profile size={afo.aggregated_fo.profile_size()}")
+            # 增强日志：记录单个FO聚合结果
+            logger.info(f"单个FO聚合: 方法={self.__class__.__name__}, FO_ID={fini.fo_id}, "
+                       f"总能量范围[{afo.total_energy_min:.2f}, {afo.total_energy_max:.2f}], "
+                       f"轮廓尺寸={afo.aggregated_fo.profile_size()}")
         
-        # Process unprocessed FOs in UF
+        # 处理未处理集合中的FO
         for unused_fo in UF:
             afo = AggregatedFlexOffer(
                 afo_id=f"AFO_unused_{unused_fo.fo_id}",
@@ -300,94 +300,94 @@ class FOAggregator(ABC):
             )
             self.results.append(afo)
         
-        # Enhanced logging: record final aggregation results
-        logger.info(f"Aggregation result statistics: Method={self.__class__.__name__}, Result count={len(self.results)}, "
-                   f"Processed FO count={len(flex_offers) - len(UF)}, Unprocessed FO count={len(UF)}")
+        # 增强日志：记录聚合最终结果
+        logger.info(f"聚合结果统计: 方法={self.__class__.__name__}, 结果数量={len(self.results)}, "
+                   f"处理FO数量={len(flex_offers) - len(UF)}, 未处理FO数量={len(UF)}")
         
         return self.results
 
 class LongestProfileAggregator(FOAggregator):
-    """Longest Profile (LP) Aggregation Algorithm"""
+    """Longest Profile (LP) 聚合算法"""
     
     def initialize(self, flex_offers: List[FlexOffer]) -> Tuple[List[FlexOffer], List[FlexOffer], Optional[FlexOffer], int]:
         """
-        LP initialization method
+        LP初始化方法
         
-        Implementation based on Algorithm 2:
-        1. Find all FOs with maximum profile size
-        2. Select the FO with highest time flexibility as fini from the longest FOs
-        3. Add all other FOs to processing set PF
+        基于算法2的实现：
+        1. 找出所有具有最大轮廓尺寸的FO
+        2. 在最长FO中选择时间灵活性最高的作为fini
+        3. 所有其他FO加入处理集合PF
         """
         if not flex_offers:
             return [], [], None, 1
         
-        # Step 1: Find maximum profile size
+        # 步骤1：找出最大轮廓尺寸
         max_profile_size = max(fo.profile_size() for fo in flex_offers)
         longest_fos = [fo for fo in flex_offers if fo.profile_size() == max_profile_size]
         
-        logger.info(f"LP initialization: Max profile size={max_profile_size}, Longest FO count={len(longest_fos)}")
+        logger.info(f"LP初始化: 最大轮廓尺寸={max_profile_size}, 最长FO数量={len(longest_fos)}")
         
-        # Step 2: Select FO with highest time flexibility as fini from longest FOs
+        # 步骤2：在最长FO中选择时间灵活性最高的作为fini
         fini = max(longest_fos, key=lambda fo: fo.tf())
         
-        # Step 3: Add all other FOs to processing set PF
+        # 步骤3：所有其他FO加入处理集合PF
         PF = [fo for fo in flex_offers if fo.fo_id != fini.fo_id]
-        UF = []  # Unprocessed set is empty in LP method
+        UF = []  # LP方法中未处理集合为空
         
-        logger.info(f"LP initialization complete: fini={fini.fo_id}(profile_size={fini.profile_size()}, tf={fini.tf():.2f})")
+        logger.info(f"LP初始化完成: fini={fini.fo_id}(profile_size={fini.profile_size()}, tf={fini.tf():.2f})")
         
         return PF, UF, fini, 1
 
 class DynamicProfileAggregator(FOAggregator):
-    """Dynamic Profile (DP) Aggregation Algorithm"""
+    """Dynamic Profile (DP) 聚合算法"""
     
     def initialize(self, flex_offers: List[FlexOffer]) -> Tuple[List[FlexOffer], List[FlexOffer], Optional[FlexOffer], int]:
         """
-        DP initialization method
+        DP初始化方法
         
-        Implementation based on Algorithm 3:
-        1. Calculate profile size upper fence
-        2. Filter FO set, exclude outliers
-        3. Select the longest and most flexible FO from filtered set
+        基于算法3的实现：
+        1. 计算轮廓尺寸的上围栏
+        2. 过滤FO集合，排除异常值
+        3. 在过滤后的集合中选择最长且最灵活的FO
         """
         if not flex_offers:
             return [], [], None, 1
         
-        # Step 1: Calculate upper fence
+        # 步骤1：计算上围栏
         profile_sizes = [fo.profile_size() for fo in flex_offers]
         uf = self._upper_fence_profile_size(profile_sizes)
         
-        logger.info(f"DP initialization: Profile size range [{min(profile_sizes)}, {max(profile_sizes)}], Upper fence={uf:.2f}")
+        logger.info(f"DP初始化: 轮廓尺寸范围[{min(profile_sizes)}, {max(profile_sizes)}], 上围栏={uf:.2f}")
         
-        # Step 2: Filter FO set
+        # 步骤2：过滤FO集合
         PF_candidates = [fo for fo in flex_offers if fo.profile_size() <= uf]
-        UF = [fo for fo in flex_offers if fo.profile_size() > uf]  # Outliers
+        UF = [fo for fo in flex_offers if fo.profile_size() > uf]  # 异常值
         
-        logger.info(f"DP filtering: Candidate FOs={len(PF_candidates)}, Outlier FOs={len(UF)}")
+        logger.info(f"DP过滤: 候选FO={len(PF_candidates)}, 异常值FO={len(UF)}")
         
         if not PF_candidates:
-            # If all FOs are filtered out, fall back to the smallest FO
+            # 如果所有FO都被过滤掉，回退到最小的FO
             fini = min(flex_offers, key=lambda fo: fo.profile_size())
             PF = [fo for fo in flex_offers if fo.fo_id != fini.fo_id]
             UF = []
-            logger.warning("DP initialization: All FOs filtered out, falling back to smallest profile FO")
+            logger.warning("DP初始化: 所有FO都被过滤，回退到最小轮廓FO")
             return PF, UF, fini, 1
         
-        # Step 3: Select the longest and most flexible FO from filtered set
+        # 步骤3：在过滤后的集合中选择最长且最灵活的FO
         max_size_in_pf = max(fo.profile_size() for fo in PF_candidates)
         longest_in_pf = [fo for fo in PF_candidates if fo.profile_size() == max_size_in_pf]
         fini = max(longest_in_pf, key=lambda fo: fo.tf())
         
-        # Step 4: Remove fini from processing set
+        # 步骤4：从处理集合中移除fini
         PF = [fo for fo in PF_candidates if fo.fo_id != fini.fo_id]
         
-        logger.info(f"DP initialization complete: fini={fini.fo_id}(profile_size={fini.profile_size()}, tf={fini.tf():.2f})")
+        logger.info(f"DP初始化完成: fini={fini.fo_id}(profile_size={fini.profile_size()}, tf={fini.tf():.2f})")
         
         return PF, UF, fini, 1
     
     def _upper_fence_profile_size(self, sizes: List[int]) -> float:
         """
-        Calculate upper fence using quartile method
+        使用四分位数方法计算上围栏
         Upper Fence = Q3 + 1.5 * IQR
         """
         if not sizes:
@@ -396,7 +396,7 @@ class DynamicProfileAggregator(FOAggregator):
         sorted_sizes = sorted(sizes)
         n = len(sorted_sizes)
         
-        # Calculate quartiles
+        # 计算四分位数
         q1_idx = n // 4
         q3_idx = 3 * n // 4
         
@@ -406,49 +406,49 @@ class DynamicProfileAggregator(FOAggregator):
         iqr = q3 - q1
         upper_fence = q3 + 1.5 * iqr
         
-        logger.debug(f"Quartile calculation: Q1={q1}, Q3={q3}, IQR={iqr}, Upper Fence={upper_fence}")
+        logger.debug(f"四分位数计算: Q1={q1}, Q3={q3}, IQR={iqr}, Upper Fence={upper_fence}")
         
         return upper_fence
 
 class FOAggregatorFactory:
-    """FlexOffer Aggregator Factory"""
+    """FlexOffer聚合器工厂"""
     
     @staticmethod
     def create_aggregator(method: str, **kwargs) -> FOAggregator:
         """
-        Create aggregator
+        创建聚合器
         
         Args:
-            method: Aggregation method ("LP" or "DP")
-            **kwargs: Aggregator parameters
+            method: 聚合方法 ("LP" 或 "DP")
+            **kwargs: 聚合器参数
             
         Returns:
-            Aggregator instance
+            聚合器实例
         """
         if method.upper() == "LP":
             return LongestProfileAggregator(**kwargs)
         elif method.upper() == "DP":
             return DynamicProfileAggregator(**kwargs)
         else:
-            raise ValueError(f"Unsupported aggregation method: {method}. Supported methods: LP, DP")
+            raise ValueError(f"不支持的聚合方法: {method}. 支持的方法: LP, DP")
     
     @staticmethod
     def get_available_methods() -> List[str]:
-        """Get list of available aggregation methods"""
+        """获取可用的聚合方法列表"""
         return ["LP", "DP"]
 
-# Convenience function
+# 便利函数
 def aggregate_flex_offers(flex_offers: List[FlexOffer], method: str = "DP", **kwargs) -> List[AggregatedFlexOffer]:
     """
-    Convenience function for aggregating FlexOffers
+    聚合FlexOffer的便利函数
     
     Args:
-        flex_offers: List of FlexOffers
-        method: Aggregation method ("LP" or "DP")
-        **kwargs: Aggregator parameters
+        flex_offers: FlexOffer列表
+        method: 聚合方法 ("LP" 或 "DP")
+        **kwargs: 聚合器参数
         
     Returns:
-        List of aggregation results
+        聚合结果列表
     """
     aggregator = FOAggregatorFactory.create_aggregator(method, **kwargs)
     return aggregator.aggregate(flex_offers) 

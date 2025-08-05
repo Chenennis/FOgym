@@ -8,57 +8,57 @@ import logging
 logger = logging.getLogger(__name__)
 
 class PriceLoader:
-    """Price loader - Prioritizes reading from Danish price file, predicts when not available"""
+    """电价加载器 - 优先从丹麦电价文件读取，不存在时进行预测"""
     
     def __init__(self, data_dir: str = "data"):
         """
-        Initialize price loader
+        初始化电价加载器
         
         Args:
-            data_dir: Data directory path
+            data_dir: 数据目录路径
         """
         self.data_dir = data_dir
         self.grid_price_file = os.path.join(data_dir, "grid_price.csv")
         self.price_data = None
         
-        # Try to load Danish price data
+        # 尝试加载丹麦电价数据
         self._load_grid_price_data()
     
     def _load_grid_price_data(self):
-        """Load Danish grid price data"""
+        """加载丹麦电网电价数据"""
         if os.path.exists(self.grid_price_file):
             try:
                 self.price_data = pd.read_csv(self.grid_price_file)
                 self.price_data['timestamp'] = pd.to_datetime(self.price_data['timestamp'])
-                logger.info(f"Successfully loaded Danish price data: {self.grid_price_file}")
-                logger.info(f"Price data range: {self.price_data['timestamp'].min()} to {self.price_data['timestamp'].max()}")
+                logger.info(f"成功加载丹麦电价数据: {self.grid_price_file}")
+                logger.info(f"电价数据范围: {self.price_data['timestamp'].min()} 到 {self.price_data['timestamp'].max()}")
                 
-                # Validate data format
+                # 验证数据格式
                 required_columns = ['timestamp', 'hour', 'day_type', 'price_usd_kwh']
                 missing_columns = [col for col in required_columns if col not in self.price_data.columns]
                 if missing_columns:
-                    logger.warning(f"Price data missing columns: {missing_columns}")
+                    logger.warning(f"电价数据缺少列: {missing_columns}")
                     self.price_data = None
                 else:
-                    logger.info(f"Price data column validation passed: {list(self.price_data.columns)}")
+                    logger.info(f"电价数据列验证通过: {list(self.price_data.columns)}")
                     
             except Exception as e:
-                logger.error(f"Failed to load Danish price data: {e}")
+                logger.error(f"加载丹麦电价数据失败: {e}")
                 self.price_data = None
         else:
-            logger.info(f"Danish price file does not exist: {self.grid_price_file}, will use price prediction")
+            logger.info(f"丹麦电价文件不存在: {self.grid_price_file}，将使用电价预测")
             self.price_data = None
     
     def get_price_data(self, start_time: datetime, time_horizon: int) -> pd.DataFrame:
         """
-        Get price data for specified time range
+        获取指定时间范围的电价数据
         
         Args:
-            start_time: Start time
-            time_horizon: Time range (hours)
+            start_time: 开始时间
+            time_horizon: 时间范围（小时）
             
         Returns:
-            DataFrame containing price data
+            包含电价数据的DataFrame
         """
         if self.price_data is not None:
             return self._get_grid_price_data(start_time, time_horizon)
@@ -66,9 +66,9 @@ class PriceLoader:
             return self._generate_predicted_price_data(start_time, time_horizon)
     
     def _get_grid_price_data(self, start_time: datetime, time_horizon: int) -> pd.DataFrame:
-        """Get prices for specified time range from Danish price data"""
-        # Ensure price_data is not None (this method is only called when price_data exists)
-        assert self.price_data is not None, "price_data should not be None"
+        """从丹麦电价数据中获取指定时间范围的价格"""
+        # 确保price_data不为None（此方法只在price_data存在时调用）
+        assert self.price_data is not None, "price_data不应为None"
         
         timestamps = [start_time + timedelta(hours=i) for i in range(time_horizon)]
         result_data = []
@@ -77,14 +77,14 @@ class PriceLoader:
             hour = timestamp.hour
             day_type = 'weekday' if timestamp.weekday() < 5 else 'weekend'
             
-            # Find matching price data
+            # 查找匹配的电价数据
             matching_prices = self.price_data[
                 (self.price_data['hour'] == hour) & 
                 (self.price_data['day_type'] == day_type)
             ]
             
             if not matching_prices.empty:
-                # Use the latest matching data
+                # 使用最新的匹配数据
                 price_row = matching_prices.iloc[-1]
                 result_data.append({
                     'timestamp': timestamp,
@@ -96,7 +96,7 @@ class PriceLoader:
                     'source': 'grid_data'
                 })
             else:
-                # If no matching data, use predicted price
+                # 如果没有匹配数据，使用预测价格
                 predicted_price = self._predict_price_for_hour(hour, day_type)
                 result_data.append({
                     'timestamp': timestamp,
@@ -109,11 +109,13 @@ class PriceLoader:
                 })
         
         result_df = pd.DataFrame(result_data)
-        logger.debug(f"Retrieved price data: {len(result_df)} records, time range {start_time} to {timestamps[-1]}")
+        # 改为DEBUG级别，避免重复日志输出（缓存机制已有合适的日志）
+        logger.debug(f"获取电价数据: {len(result_df)}条记录，时间范围 {start_time} 到 {timestamps[-1]}")
         return result_df
     
     def _generate_predicted_price_data(self, start_time: datetime, time_horizon: int) -> pd.DataFrame:
-        logger.info("Using price prediction model to generate data")
+        """生成预测的电价数据（基于丹麦电价模式）"""
+        logger.info("使用电价预测模型生成数据")
         
         timestamps = [start_time + timedelta(hours=i) for i in range(time_horizon)]
         result_data = []
@@ -135,29 +137,29 @@ class PriceLoader:
             })
         
         result_df = pd.DataFrame(result_data)
-        logger.info(f"Generated predicted price data: {len(result_df)} records")
+        logger.info(f"生成预测电价数据: {len(result_df)}条记录")
         return result_df
     
     def _predict_price_for_hour(self, hour: int, day_type: str) -> float:
         """
-        Predict price for specified hour based on Danish price patterns
+        基于丹麦电价模式预测指定小时的电价
         
         Args:
-            hour: Hour (0-23)
-            day_type: Day type ('weekday' or 'weekend')
+            hour: 小时 (0-23)
+            day_type: 日期类型 ('weekday' 或 'weekend')
             
         Returns:
-            Predicted price (USD/kWh)
+            预测的电价 (USD/kWh)
         """
-        base_price = 0.12  # Base price USD/kWh
+        base_price = 0.12  # 基础电价 USD/kWh
         
         if day_type == 'weekday':
-            # Weekday price pattern
+            # 工作日电价模式
             if 0 <= hour <= 5:
-                # 0:00-5:00 Lower
+                # 0:00-5:00 较低
                 price_multiplier = np.random.uniform(0.7, 0.95)
             elif 6 <= hour <= 9:
-                # 6:00-9:00 Rising to higher
+                # 6:00-9:00 上升到较高
                 if hour == 6:
                     price_multiplier = np.random.uniform(1.3, 1.4)
                 elif hour in [7, 8]:
@@ -165,47 +167,47 @@ class PriceLoader:
                 else:  # hour == 9
                     price_multiplier = np.random.uniform(1.7, 1.9)
             elif 10 <= hour <= 16:
-                # 10:00-16:00 Price valley
+                # 10:00-16:00 电价低谷
                 price_multiplier = np.random.uniform(1.0, 1.2)
             elif 17 <= hour <= 21:
-                # 17:00-21:00 Peak
+                # 17:00-21:00 高峰
                 if hour in [18, 19]:
-                    price_multiplier = np.random.uniform(2.1, 2.3)  # Highest peak
+                    price_multiplier = np.random.uniform(2.1, 2.3)  # 最高峰
                 else:
                     price_multiplier = np.random.uniform(1.9, 2.1)
             else:  # 22-23
-                # 22:00-23:00 Decreasing
+                # 22:00-23:00 下降
                 price_multiplier = np.random.uniform(1.1, 1.4)
         else:
-            # Weekend price pattern (generally lower)
+            # 休息日电价模式（总体较低）
             if 0 <= hour <= 5:
-                # 0:00-5:00 Lower
+                # 0:00-5:00 较低
                 price_multiplier = np.random.uniform(0.6, 0.9)
             elif 6 <= hour <= 9:
-                # 6:00-9:00 Slowly rising
+                # 6:00-9:00 缓慢上升
                 price_multiplier = np.random.uniform(1.0, 1.35)
             elif 10 <= hour <= 16:
-                # 10:00-16:00 Medium-low
+                # 10:00-16:00 中等偏低
                 price_multiplier = np.random.uniform(1.2, 1.4)
             elif 17 <= hour <= 21:
-                # 17:00-21:00 Peak (but lower than weekdays)
+                # 17:00-21:00 高峰（但比工作日低）
                 if hour in [18, 19]:
                     price_multiplier = np.random.uniform(1.8, 2.0)
                 else:
                     price_multiplier = np.random.uniform(1.6, 1.8)
             else:  # 22-23
-                # 22:00-23:00 Decreasing
+                # 22:00-23:00 下降
                 price_multiplier = np.random.uniform(1.0, 1.3)
         
-        # Add random fluctuation
-        noise = np.random.normal(0, 0.02)  # 2% random fluctuation
+        # 添加随机波动
+        noise = np.random.normal(0, 0.02)  # 2%的随机波动
         predicted_price = base_price * price_multiplier * (1 + noise)
         
-        # Ensure price is within reasonable range
+        # 确保价格在合理范围内
         return max(0.08, min(0.35, predicted_price))
     
     def _get_price_level(self, price: float) -> str:
-        """Determine price level based on price"""
+        """根据价格确定价格水平"""
         if price < 0.12:
             return 'low'
         elif price < 0.16:
@@ -218,28 +220,28 @@ class PriceLoader:
     def get_price_forecast(self, start_time: datetime, time_horizon: int, 
                           confidence_level: float = 0.9) -> Dict:
         """
-        Get price forecast (including uncertainty information)
+        获取电价预测（包含不确定性信息）
         
         Args:
-            start_time: Start time
-            time_horizon: Time range (hours)
-            confidence_level: Confidence level
+            start_time: 开始时间
+            time_horizon: 时间范围（小时）
+            confidence_level: 置信水平
             
         Returns:
-            Dictionary containing forecast prices and uncertainty information
+            包含预测价格和不确定性信息的字典
         """
         price_data = self.get_price_data(start_time, time_horizon)
         
         if self.price_data is not None:
-            # Uncertainty based on historical data
-            uncertainty = 0.05  # 5% uncertainty
+            # 基于历史数据的不确定性
+            uncertainty = 0.05  # 5%的不确定性
         else:
-            # Higher uncertainty for predicted data
-            uncertainty = 0.15  # 15% uncertainty
+            # 预测数据的不确定性更高
+            uncertainty = 0.15  # 15%的不确定性
         
-        # Calculate confidence interval
+        # 计算置信区间
         alpha = 1 - confidence_level
-        z_score = 1.96  # For 95% confidence interval
+        z_score = 1.96  # 对于95%置信区间
         
         forecast_result = {
             'timestamps': price_data['timestamp'].tolist(),
@@ -255,13 +257,13 @@ class PriceLoader:
     
     def get_current_price(self, current_time: datetime) -> Dict:
         """
-        Get price information for current time
+        获取当前时间的电价信息
         
         Args:
-            current_time: Current time
+            current_time: 当前时间
             
         Returns:
-            Dictionary with current price information
+            当前电价信息字典
         """
         price_data = self.get_price_data(current_time, 1)
         
@@ -276,7 +278,7 @@ class PriceLoader:
                 'source': current_price_info.get('source', 'unknown')
             }
         else:
-            # Fallback price
+            # 备用价格
             return {
                 'price': 0.15,
                 'price_dkk': 1.05,
@@ -287,26 +289,26 @@ class PriceLoader:
             }
     
     def is_peak_hour(self, current_time: datetime) -> bool:
-        """Determine if current time is peak price period"""
+        """判断当前时间是否为电价高峰期"""
         current_price_info = self.get_current_price(current_time)
         return current_price_info['price_level'] in ['high', 'peak']
     
     def get_cheapest_hours(self, start_time: datetime, time_horizon: int, 
                           num_hours: int = 1) -> List[Dict]:
         """
-        Get the cheapest hours within specified time range
+        获取指定时间范围内最便宜的几个小时
         
         Args:
-            start_time: Start time
-            time_horizon: Time range (hours)
-            num_hours: Number of hours needed
+            start_time: 开始时间
+            time_horizon: 时间范围（小时）
+            num_hours: 需要的小时数
             
         Returns:
-            List of information about cheapest hours
+            最便宜小时的信息列表
         """
         price_data = self.get_price_data(start_time, time_horizon)
         
-        # Sort by price
+        # 按价格排序
         sorted_data = price_data.sort_values('price').head(num_hours)
         
         result = []

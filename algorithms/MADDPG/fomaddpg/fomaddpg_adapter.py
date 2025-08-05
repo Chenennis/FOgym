@@ -1,8 +1,8 @@
 """
-FOMADDPG Adapter - FlexOffer multi-agent algorithm adapter based on MADDPG
+FOMADDPG Adapter - 基于MADDPG的FlexOffer多智能体算法适配器
 
-Provides the same interface as FOMAPPO, but internally uses MADDPG's off-policy learning mechanism.
-Supports seamless integration with the FO Pipeline.
+提供与FOMAPPO相同的接口，但内部使用MADDPG的off-policy学习机制。
+支持与FO Pipeline的无缝集成。
 
 Algorithm: FOMADDPG (FlexOffer Multi-Agent Deep Deterministic Policy Gradient)
 Base: MADDPG (Multi-Agent Deep Deterministic Policy Gradient)
@@ -13,6 +13,8 @@ Key Features:
 - Multi-agent coordination
 - FlexOffer constraint awareness
 
+创建日期: 2025-01-13
+作者: AI Assistant
 """
 
 import numpy as np
@@ -29,27 +31,27 @@ from .fomaddpg import FOMADDPG
 logger = logging.getLogger(__name__)
 
 class FOMAddpgArgs:
-    """FOMADDPG parameter configuration class - inherits MADDPG parameters and adds FlexOffer specific parameters"""
+    """FOMADDPG参数配置类 - 继承MADDPG参数并添加FlexOffer特定参数"""
     
     def __init__(self, **kwargs):
-        # ========== Core MADDPG parameters ==========
+        # ========== 核心MADDPG参数 ==========
         self.episode_length = kwargs.get('episode_length', 24)
         self.n_rollout_threads = kwargs.get('n_rollout_threads', 1)
         self.buffer_capacity = kwargs.get('buffer_capacity', 100000)
         self.batch_size = kwargs.get('batch_size', 64)
         
-        # Learning rate parameters - 🔧 Use stable learning rates
+        # 学习率参数 - 🔧 使用稳定的学习率
         self.lr = kwargs.get('lr_actor', 1e-4)
         self.lr_actor = kwargs.get('lr_actor', 1e-4)
         self.critic_lr = kwargs.get('lr_critic', 1e-3)
-        self.tau = kwargs.get('tau', 0.005)  # Soft update parameter
+        self.tau = kwargs.get('tau', 0.005)  # 软更新参数
         
-        # DDPG specific parameters
+        # DDPG特定参数
         self.gamma = kwargs.get('gamma', 0.99)
         self.noise_scale = kwargs.get('noise_scale', 0.1)
         self.max_action = kwargs.get('max_action', 1.0)
         
-        # Network parameters
+        # 网络参数
         self.hidden_dim = kwargs.get('hidden_dim', 256)
         self.layer_N = kwargs.get('layer_N', 2)
         self.use_orthogonal = kwargs.get('use_orthogonal', True)
@@ -58,40 +60,40 @@ class FOMAddpgArgs:
         self.activation_id = kwargs.get('activation_id', 1)
         self.use_ReLU = kwargs.get('use_ReLU', False)
         
-        # Training options
+        # 训练选项
         self.use_max_grad_norm = kwargs.get('use_max_grad_norm', True)
         self.max_grad_norm = kwargs.get('max_grad_norm', 0.5)
         
-        # Algorithm name
+        # 算法名称
         self.algorithm_name = kwargs.get('algorithm_name', 'fomaddpg')
         
-        # ========== FOMADDPG specific parameters ==========
+        # ========== FOMADDPG特定参数 ==========
         self.use_device_coordination = kwargs.get('use_device_coordination', True)
         self.device_coordination_weight = kwargs.get('device_coordination_weight', 0.1)
         self.fo_constraint_weight = kwargs.get('fo_constraint_weight', 0.2)
         self.use_manager_coordination = kwargs.get('use_manager_coordination', True)
         self.manager_coordination_weight = kwargs.get('manager_coordination_weight', 0.05)
         
-        # Network architecture specific parameters
+        # 网络架构特定参数
         self.num_managers = kwargs.get('num_managers', 4)
         self.devices_per_manager = kwargs.get('devices_per_manager', 10)
 
 class FOMAddpgAdapter:
     """
-    FOMADDPG Adapter - Multi-agent reinforcement learning based on MADDPG (FlexOffer Multi-Agent DDPG)
+    FOMADDPG适配器 - 基于MADDPG的多智能体强化学习 (FlexOffer Multi-Agent DDPG)
     
-    Core design principles:
-    1. Off-policy algorithm architecture based on MADDPG
-    2. Uses experience replay buffer for training
-    3. Supports continuous action spaces
-    4. Retains FOMADDPG's special FlexOffer features
-    5. Seamless integration with FO Pipeline
+    核心设计原则：
+    1. 基于MADDPG的off-policy算法架构
+    2. 使用经验回放缓冲区进行训练
+    3. 支持连续动作空间
+    4. 保留FOMADDPG的FlexOffer特殊功能
+    5. 与FO Pipeline无缝集成
     
-    Advantages:
-    - Off-policy learning: Higher sample efficiency
-    - Continuous actions: Suitable for continuous parameter adjustment in FlexOffer
-    - Experience replay: More stable training process
-    - Actor-Critic: Separate optimization of policy and value function
+    优势：
+    - Off-policy学习：更高的样本效率
+    - 连续动作：适合FlexOffer的连续参数调节
+    - 经验回放：更稳定的训练过程
+    - Actor-Critic：策略和价值函数分离优化
     """
     
     def __init__(self, 
@@ -179,7 +181,8 @@ class FOMAddpgAdapter:
     def select_actions(self, obs: Dict[str, np.ndarray], deterministic: bool = False) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray]]:
         """
         为所有Manager选择FlexOffer参数生成动作（MADDPG连续动作）
-    
+        
+        🔧 重构后的环境适配：
         - 动作现在对应FlexOffer参数：[start_flex, end_flex, energy_min_factor, energy_max_factor, priority_weight] × 设备数量
         - MADDPG适合连续动作空间，非常适合FlexOffer参数的连续调节
         - 使用经验回放和off-policy学习，样本效率更高

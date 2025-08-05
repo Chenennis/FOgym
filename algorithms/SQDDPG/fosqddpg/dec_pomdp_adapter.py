@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-FOSQDDPG Dec-POMDP Observation Space Adapter
+FOSQDDPG Dec-POMDP观测空间适配器
 
-Provides Dec-POMDP observation space processing capabilities for the FOSQDDPG algorithm.
-Specifically designed for Shapley value fairness allocation and FlexOffer constraint-based observation space management.
+为FOSQDDPG算法提供Dec-POMDP观测空间的处理能力。
+专门针对Shapley值公平分配和FlexOffer约束的观测空间管理。
 
-Core Features:
-1. Hierarchical observation space parsing (reuse Dec-POMDP architecture)
-2. Observation enhancement with Shapley value calculation
-3. Fairness-aware observation processing
-4. FlexOffer constraint-based observation integration
-5. Fairness weight allocation for coalition information
+核心功能：
+1. 观测空间分层解析（复用Dec-POMDP架构）
+2. Shapley值计算的观测增强
+3. 公平性感知的观测处理
+4. FlexOffer约束的观测集成
+5. 协作信息的公平性权重分配
 """
 
 import numpy as np
@@ -20,50 +20,50 @@ from typing import Dict, Tuple, Optional, List, Union, Any
 import sys
 import os
 
-# Add project path
+# 添加项目路径
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 
 from fo_common.dec_pomdp_config import DecPOMDPConfig
 
 class FOSqddpgDecPOMDPAdapter:
     """
-    FOSQDDPG Dec-POMDP Observation Space Adapter
+    FOSQDDPG Dec-POMDP观测空间适配器
     
-    Dec-POMDP observation processor specifically designed for FOSQDDPG algorithm,
-    supporting Shapley value fairness allocation and FlexOffer constraint-based observation space management.
+    专门为FOSQDDPG算法设计的Dec-POMDP观测处理器，
+    支持Shapley值公平分配和FlexOffer约束的观测空间管理。
     """
     
     def __init__(self, dec_pomdp_config: DecPOMDPConfig, device=torch.device("cpu")):
         self.config = dec_pomdp_config
         self.device = device
         
-        # Dec-POMDP observation space dimensions
-        self.private_dim = 39      # Private observation base dimension
-        self.public_dim = 18       # Public observation dimension
-        self.others_dim = 15       # Others observation dimension
-        self.total_obs_dim = 72    # Total observation dimension
+        # Dec-POMDP观测空间维度
+        self.private_dim = 39      # 私有观测基础维度
+        self.public_dim = 18       # 公共观测维度
+        self.others_dim = 15       # 他者观测维度
+        self.total_obs_dim = 72    # 总观测维度
         
-        # FOSQDDPG specific parameters
+        # FOSQDDPG特定参数
         self.shapley_mode = True
-        self.fairness_weight = 0.3              # Fairness weight
-        self.credit_assignment_factor = 0.2     # Credit assignment factor
-        self.coalition_history_length = 5       # Coalition history length
+        self.fairness_weight = 0.3              # 公平性权重
+        self.credit_assignment_factor = 0.2     # 信用分配因子
+        self.coalition_history_length = 5       # 联盟历史长度
         
-        # FlexOffer constraint integration (enhanced version)
-        self.fo_constraint_dim = 36             # FlexOffer constraint dimension
-        self.fo_fairness_weight = 0.25          # FlexOffer fairness weight
-        self.fo_shapley_integration = True      # Shapley value integration switch
+        # FlexOffer约束集成（增强版）
+        self.fo_constraint_dim = 36             # FlexOffer约束维度
+        self.fo_fairness_weight = 0.25          # FlexOffer公平性权重
+        self.fo_shapley_integration = True      # Shapley值集成开关
         
-        # Observation processing cache
+        # 观测处理缓存
         self._observation_cache = {}
         self._coalition_history = {}
         self._fairness_scores = {}
         
-        # Initialize history buffers
+        # 初始化历史缓存
         self._init_history_buffers()
     
     def _init_history_buffers(self):
-        """Initialize observation history buffers"""
+        """初始化观测历史缓冲区"""
         for manager_id in [f"manager_{i}" for i in range(4)]:
             self._coalition_history[manager_id] = {
                 'private': [],
@@ -73,7 +73,7 @@ class FOSqddpgDecPOMDPAdapter:
                 'shapley_values': [],
                 'fairness_scores': []
             }
-            self._fairness_scores[manager_id] = 1.0  # Initial fairness score
+            self._fairness_scores[manager_id] = 1.0  # 初始公平性得分
     
     def adapt_observation_for_fosqddpg(self, 
                                       observation: np.ndarray, 
@@ -82,42 +82,42 @@ class FOSqddpgDecPOMDPAdapter:
                                       fo_satisfaction: Optional[float] = None,
                                       coalition_info: Optional[Dict] = None) -> Dict[str, torch.Tensor]:
         """
-        Adapt observation space for FOSQDDPG
+        为FOSQDDPG适配观测空间
         
         Args:
-            observation: Raw observation [obs_dim]
+            observation: 原始观测 [obs_dim]
             manager_id: Manager ID (e.g., "manager_0")
-            fo_constraints: FlexOffer constraints [constraint_dim]
-            fo_satisfaction: FlexOffer satisfaction scalar
-            coalition_info: Coalition information dictionary
+            fo_constraints: FlexOffer约束 [constraint_dim]
+            fo_satisfaction: FlexOffer满意度标量
+            coalition_info: 联盟信息字典
             
         Returns:
-            Adapted hierarchical observation dictionary, including Shapley value information
+            适配后的分层观测字典，包含Shapley值信息
         """
-        # Parse Dec-POMDP observation
+        # 解析Dec-POMDP观测
         private_obs, public_obs, others_obs = self._parse_dec_pomdp_observation(observation)
         
-        # FlexOffer constraint integration (Shapley value aware)
+        # FlexOffer约束集成（Shapley值感知）
         if fo_constraints is not None:
             private_obs = self._integrate_fo_constraints_with_shapley(
                 private_obs, fo_constraints, fo_satisfaction, manager_id
             )
         else:
-            # If no FlexOffer constraints, pad to 40 dimensions
+            # 如果没有FlexOffer约束，填充到40维
             private_obs = np.pad(private_obs, (0, 1), mode='constant', constant_values=0.0)
         
-        # FOSQDDPG specific observation enhancement
+        # FOSQDDPG特定观测增强
         enhanced_private = self._enhance_private_obs_for_fosqddpg(private_obs, manager_id)
         enhanced_public = self._enhance_public_obs_for_fosqddpg(public_obs, coalition_info)
         enhanced_others = self._enhance_others_obs_for_fosqddpg(others_obs, manager_id, coalition_info)
         
-        # Observation noise processing (fairness weighted)
+        # 观测噪声处理（公平性权重）
         if self.config.enable_observation_noise:
             enhanced_private = self._add_observation_noise(enhanced_private, noise_type='private', manager_id=manager_id)
             enhanced_public = self._add_observation_noise(enhanced_public, noise_type='public', manager_id=manager_id)
             enhanced_others = self._add_observation_noise(enhanced_others, noise_type='others', manager_id=manager_id)
         
-        # Convert to tensors
+        # 转换为张量
         adapted_obs = {
             'private': torch.FloatTensor(enhanced_private).to(self.device),
             'public': torch.FloatTensor(enhanced_public).to(self.device),
@@ -127,21 +127,21 @@ class FOSqddpgDecPOMDPAdapter:
             'shapley_weight': torch.FloatTensor([self._compute_shapley_weight(manager_id)]).to(self.device)
         }
         
-        # Update history cache (including Shapley value information)
+        # 更新历史缓存（包含Shapley值信息）
         self._update_coalition_history(manager_id, adapted_obs, coalition_info)
         
         return adapted_obs
     
     def _parse_dec_pomdp_observation(self, observation: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Parse Dec-POMDP observation structure"""
+        """解析Dec-POMDP观测结构"""
         if len(observation) < self.total_obs_dim:
-            # Pad insufficient dimensions
+            # 填充不足的维度
             observation = np.pad(observation, (0, self.total_obs_dim - len(observation)))
         elif len(observation) > self.total_obs_dim:
-            # Truncate excess dimensions
+            # 截断多余的维度
             observation = observation[:self.total_obs_dim]
         
-        # Hierarchical parsing
+        # 分层解析
         private_start = 0
         private_end = self.private_dim
         public_start = private_end
@@ -160,16 +160,16 @@ class FOSqddpgDecPOMDPAdapter:
                                               fo_constraints: np.ndarray,
                                               fo_satisfaction: Optional[float] = None,
                                               manager_id: str = None) -> np.ndarray:
-        """Integrate FlexOffer constraints into private observation (Shapley value aware)"""
-        # FlexOffer constraint feature extraction
+        """集成FlexOffer约束到私有观测（Shapley值感知）"""
+        # FlexOffer约束特征提取
         constraint_features = self._extract_fo_constraint_features(fo_constraints)
         
-        # FlexOffer satisfaction processing (fairness weighted)
+        # FlexOffer满意度处理（公平性加权）
         satisfaction_feature = fo_satisfaction if fo_satisfaction is not None else 0.8
         fairness_score = self._fairness_scores.get(manager_id, 1.0)
         weighted_satisfaction = satisfaction_feature * fairness_score
         
-        # Shapley value integrated constraint trend
+        # Shapley值集成的约束趋势
         if self.fo_shapley_integration:
             shapley_weight = self._compute_shapley_weight(manager_id)
             constraint_trend = (np.mean(constraint_features) * shapley_weight - 
@@ -177,41 +177,41 @@ class FOSqddpgDecPOMDPAdapter:
         else:
             constraint_trend = np.mean(constraint_features) - np.mean(private_obs[:10])
         
-        # Extend private observation: 39 + 1(Shapley trend) = 40 dimensions
+        # 扩展私有观测：39 + 1(Shapley趋势) = 40维
         enhanced_private = np.concatenate([private_obs, [constraint_trend]])
         
-        return enhanced_private[:40]  # Ensure consistent dimensions
+        return enhanced_private[:40]  # 确保维度一致
     
     def _extract_fo_constraint_features(self, fo_constraints: np.ndarray) -> np.ndarray:
-        """Extract FlexOffer constraint features (fairness aware)"""
+        """提取FlexOffer约束特征（公平性感知）"""
         if len(fo_constraints) == 0:
-            return np.zeros(5)  # Default constraint features
+            return np.zeros(5)  # 默认约束特征
         
-        # Statistical features
+        # 统计特征
         constraint_features = np.array([
-            np.mean(fo_constraints),     # Mean constraint value
-            np.std(fo_constraints),      # Constraint variance
-            np.min(fo_constraints),      # Minimum constraint
-            np.max(fo_constraints),      # Maximum constraint
-            np.sum(fo_constraints > 0.5) / len(fo_constraints)  # Activation ratio
+            np.mean(fo_constraints),     # 平均约束值
+            np.std(fo_constraints),      # 约束方差
+            np.min(fo_constraints),      # 最小约束
+            np.max(fo_constraints),      # 最大约束
+            np.sum(fo_constraints > 0.5) / len(fo_constraints)  # 激活比例
         ])
         
         return constraint_features
     
     def _enhance_private_obs_for_fosqddpg(self, private_obs: np.ndarray, manager_id: str) -> np.ndarray:
-        """Enhance private observation for FOSQDDPG (Shapley value integration)"""
-        # Get historical observations for Shapley value calculation
+        """为FOSQDDPG增强私有观测（Shapley值集成）"""
+        # 获取历史观测用于Shapley值计算
         history = self._coalition_history[manager_id]['private']
         
         if len(history) > 0:
-            # Shapley value weighted historical information
+            # Shapley值加权的历史信息
             shapley_values = self._coalition_history[manager_id]['shapley_values']
             if shapley_values:
                 recent_shapley = np.mean(shapley_values[-3:]) if len(shapley_values) >= 3 else np.mean(shapley_values)
                 recent_history = history[-2:] if len(history) >= 2 else history
                 if recent_history:
                     avg_history = np.mean(recent_history, axis=0)
-                    # Shapley value weighted fusion
+                    # Shapley值加权融合
                     shapley_enhanced_obs = (recent_shapley * private_obs + 
                                           (1 - recent_shapley) * avg_history)
                     return shapley_enhanced_obs
@@ -219,13 +219,13 @@ class FOSqddpgDecPOMDPAdapter:
         return private_obs
     
     def _enhance_public_obs_for_fosqddpg(self, public_obs: np.ndarray, coalition_info: Optional[Dict] = None) -> np.ndarray:
-        """Enhance public observation for FOSQDDPG (coalition aware)"""
-        # Coalition information integration
+        """为FOSQDDPG增强公共观测（联盟感知）"""
+        # 联盟信息集成
         if coalition_info and self.shapley_mode:
             coalition_strength = coalition_info.get('coalition_strength', 1.0)
             coalition_fairness = coalition_info.get('fairness_index', 1.0)
             
-            # Coalition adjustment for public observation
+            # 公共观测的联盟调整
             coalition_factor = 0.1 * coalition_strength * coalition_fairness
             enhanced_obs = public_obs * (1 + coalition_factor)
             return enhanced_obs
@@ -233,96 +233,96 @@ class FOSqddpgDecPOMDPAdapter:
         return public_obs
     
     def _enhance_others_obs_for_fosqddpg(self, others_obs: np.ndarray, manager_id: str, coalition_info: Optional[Dict] = None) -> np.ndarray:
-        """Enhance others observation for FOSQDDPG (fairness weighted)"""
+        """为FOSQDDPG增强他者观测（公平性加权）"""
         if not self.config.enable_other_manager_info:
             return np.zeros(self.others_dim)
         
-        # Apply fairness weight
+        # 公平性权重应用
         fairness_weight = self.fairness_weight
         
-        # Adjust fairness weight if coalition information is available
+        # 如果有联盟信息，调整公平性权重
         if coalition_info:
             member_fairness = coalition_info.get('member_fairness', {})
             if manager_id in member_fairness:
                 individual_fairness = member_fairness[manager_id]
                 fairness_weight *= individual_fairness
         
-        # Get historical others observations
+        # 获取历史他者观测
         history = self._coalition_history[manager_id]['others']
         
         if len(history) > 0:
             recent_avg = np.mean(history[-self.coalition_history_length:], axis=0) if len(history) >= self.coalition_history_length else np.mean(history, axis=0)
-            # Fairness weighted update
+            # 公平性加权更新
             fair_weighted_obs = fairness_weight * others_obs + (1 - fairness_weight) * recent_avg
             return fair_weighted_obs
         
         return others_obs * fairness_weight
     
     def _add_observation_noise(self, observation: np.ndarray, noise_type: str = 'default', manager_id: str = None) -> np.ndarray:
-        """Add observation noise (fairness adjusted)"""
+        """添加观测噪声（公平性调整）"""
         if not self.config.enable_observation_noise:
             return observation
         
-        # FOSQDDPG specific noise settings (fairness adjusted)
+        # FOSQDDPG特定噪声设置（公平性调整）
         fairness_factor = self._fairness_scores.get(manager_id, 1.0) if manager_id else 1.0
         
         noise_scales = {
-            'private': self.config.noise_level * 0.7 * fairness_factor,     # Private observation noise (fairness adjusted)
-            'public': self.config.noise_level * 0.4,                        # Public observation noise is smaller
-            'others': self.config.noise_level * 1.1 * (2 - fairness_factor) # Others observation noise (inverse fairness adjusted)
+            'private': self.config.noise_level * 0.7 * fairness_factor,     # 私有观测噪声（公平性调整）
+            'public': self.config.noise_level * 0.4,                        # 公共观测噪声较小
+            'others': self.config.noise_level * 1.1 * (2 - fairness_factor) # 他者观测噪声（反向公平性调整）
         }
         
         noise_scale = noise_scales.get(noise_type, self.config.noise_level)
         
-        # Generate noise
+        # 生成噪声
         noise = np.random.normal(0, noise_scale, observation.shape)
         
-        # Add noise
+        # 添加噪声
         noisy_obs = observation + noise
         
         return noisy_obs
     
     def _compute_shapley_weight(self, manager_id: str) -> float:
-        """Compute Shapley value weight"""
+        """计算Shapley值权重"""
         history = self._coalition_history[manager_id]['shapley_values']
         if not history:
-            return 0.25  # Default Shapley weight
+            return 0.25  # 默认Shapley权重
         
-        # Use recent Shapley values
+        # 使用最近的Shapley值
         recent_values = history[-3:] if len(history) >= 3 else history
         return np.mean(recent_values)
     
     def _update_coalition_history(self, manager_id: str, adapted_obs: Dict[str, torch.Tensor], coalition_info: Optional[Dict]):
-        """Update coalition history buffer"""
+        """更新联盟历史缓冲区"""
         history = self._coalition_history[manager_id]
         
-        # Convert to numpy and add to history
+        # 转换为numpy并添加到历史
         history['private'].append(adapted_obs['private'].cpu().numpy())
         history['public'].append(adapted_obs['public'].cpu().numpy())
         history['others'].append(adapted_obs['others'].cpu().numpy())
         history['full_obs'].append(adapted_obs['full_obs'].cpu().numpy())
         
-        # Add Shapley values and fairness information
+        # 添加Shapley值和公平性信息
         if coalition_info:
             history['shapley_values'].append(coalition_info.get('shapley_value', 0.25))
             fairness_score = coalition_info.get('fairness_score', 1.0)
             history['fairness_scores'].append(fairness_score)
-            # Update current fairness score
+            # 更新当前公平性得分
             self._fairness_scores[manager_id] = fairness_score
         else:
-            # Default values
+            # 默认值
             history['shapley_values'].append(0.25)
             history['fairness_scores'].append(1.0)
         
-        # Maintain history length
+        # 维持历史长度
         for key in history:
             if len(history[key]) > self.coalition_history_length:
                 history[key].pop(0)
     
     def get_adapted_dimensions(self) -> Dict[str, int]:
-        """Get adapted observation dimension information"""
+        """获取适配后的观测维度信息"""
         return {
-            'private_dim': 40,  # 39 + 1(Shapley trend)
+            'private_dim': 40,  # 39 + 1(Shapley趋势)
             'public_dim': self.public_dim,
             'others_dim': self.others_dim,
             'total_dim': 40 + self.public_dim + self.others_dim,  # 73
@@ -332,7 +332,7 @@ class FOSqddpgDecPOMDPAdapter:
         }
     
     def get_fosqddpg_specific_info(self) -> Dict[str, Any]:
-        """Get FOSQDDPG specific adaptation information"""
+        """获取FOSQDDPG特定的适配信息"""
         return {
             'shapley_mode': self.shapley_mode,
             'fairness_weight': self.fairness_weight,
@@ -344,7 +344,7 @@ class FOSqddpgDecPOMDPAdapter:
         }
     
     def reset_history(self, manager_id: Optional[str] = None):
-        """Reset coalition history"""
+        """重置联盟历史"""
         if manager_id is None:
             self._init_history_buffers()
         else:
@@ -354,10 +354,10 @@ class FOSqddpgDecPOMDPAdapter:
                 self._fairness_scores[manager_id] = 1.0
     
     def update_fairness_scores(self, fairness_updates: Dict[str, float]):
-        """Update fairness scores"""
+        """更新公平性得分"""
         for manager_id, score in fairness_updates.items():
             if manager_id in self._fairness_scores:
-                # Smooth update of fairness score
+                # 平滑更新公平性得分
                 self._fairness_scores[manager_id] = (0.7 * self._fairness_scores[manager_id] + 
                                                    0.3 * score)
     
@@ -366,21 +366,21 @@ class FOSqddpgDecPOMDPAdapter:
                                           current_obs: Dict[str, torch.Tensor],
                                           coalition_members: List[str],
                                           coalition_strength: float = 1.0) -> Dict[str, torch.Tensor]:
-        """Get coalition enhanced observation (FOSQDDPG feature)"""
+        """获取联盟增强观测（FOSQDDPG特色功能）"""
         enhanced_obs = current_obs.copy()
         
-        # Coalition strength weighting
+        # 联盟强度加权
         coalition_factor = coalition_strength * self.credit_assignment_factor
         
-        # Enhance private observation (coalition influence)
+        # 增强私有观测（联盟影响）
         enhanced_obs['private'] = enhanced_obs['private'] * (1 + coalition_factor * 0.1)
         
-        # Enhance others observation (coalition member information)
+        # 增强他者观测（联盟成员信息）
         if len(coalition_members) > 1:
-            coalition_size_factor = len(coalition_members) / 4.0  # Maximum 4 Managers
+            coalition_size_factor = len(coalition_members) / 4.0  # 最大4个Manager
             enhanced_obs['others'] = enhanced_obs['others'] * (1 + coalition_size_factor * 0.05)
         
-        # Add coalition specific information
+        # 添加联盟特定信息
         enhanced_obs['coalition_strength'] = torch.FloatTensor([coalition_strength]).to(self.device)
         enhanced_obs['coalition_size'] = torch.FloatTensor([len(coalition_members)]).to(self.device)
         

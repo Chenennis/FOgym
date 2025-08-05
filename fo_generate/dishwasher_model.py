@@ -8,46 +8,46 @@ from fo_generate.dfo import DFOSystem, DFOSlice
 
 @dataclass
 class DishwasherParameters:
-    """Dishwasher parameters"""
-    dishwasher_id: str           # Dishwasher ID
-    total_energy: float          # Total energy required (kWh) fixed value
-    power_rating: float          # Rated power (kW)
-    operation_hours: float       # Operation duration (hours) typically 3-4 hours
-    min_start_delay: float       # Minimum start delay (hours) to avoid immediate start
-    max_start_delay: float       # Maximum start delay (hours) to avoid waiting too long
-    efficiency: float            # Energy efficiency ratio
-    can_interrupt: bool          # Whether it can be interrupted (usually False)
-    behavior: Optional['DishwasherUserBehavior'] = None  # User behavior
+    """洗碗机参数"""
+    dishwasher_id: str           # 洗碗机ID
+    total_energy: float          # 总需要能量 (kWh) 固定值
+    power_rating: float          # 额定功率 (kW)
+    operation_hours: float       # 运行时长 (小时) 通常3-4小时
+    min_start_delay: float       # 最小启动延迟 (小时) 避免立即启动
+    max_start_delay: float       # 最大启动延迟 (小时) 避免等待太久
+    efficiency: float            # 能效比
+    can_interrupt: bool          # 是否可中断（通常为False）
+    behavior: Optional['DishwasherUserBehavior'] = None  # 用户行为
     
 @dataclass
 class DishwasherUserBehavior:
-    """Dishwasher user behavior model"""
-    dishwasher_id: str           # Dishwasher ID
-    deployment_time: datetime    # Deployment completion time (when user presses start)
-    preferred_start_time: Optional[datetime] = None  # Preferred start time
-    latest_completion_time: Optional[datetime] = None  # Latest completion time
-    priority: int = 3            # Priority (1-5, 5 highest)
-    user_tolerance: float = 2.0  # User tolerance for delay (hours)
+    """洗碗机用户行为模型"""
+    dishwasher_id: str           # 洗碗机ID
+    deployment_time: datetime    # 部署完毕时刻（用户按start时间）
+    preferred_start_time: Optional[datetime] = None  # 优选启动时间
+    latest_completion_time: Optional[datetime] = None  # 最晚完成时间
+    priority: int = 3            # 优先级 (1-5，5最高)
+    user_tolerance: float = 2.0  # 用户容忍延迟时间(小时)
 
 class DishwasherModel:
-    """Dishwasher model class"""
+    """洗碗机模型类"""
     def __init__(self, params: DishwasherParameters, user_behavior: Optional[DishwasherUserBehavior] = None):
         self.params = params
         self.user_behavior = user_behavior
         
-        # Dishwasher status
-        self.is_deployed = False      # Whether deployed (user pressed start)
-        self.is_running = False       # Whether currently running
-        self.is_completed = False     # Whether completed
-        self.current_cycle_step = 0   # Current operation step
-        self.total_cycle_steps = int(params.operation_hours)  # Total operation steps
-        self.deployment_time = None   # Actual deployment time
-        self.start_time = None        # Actual start time
-        self.completion_time = None   # Actual completion time
-        self.energy_consumed = 0.0    # Energy consumed
+        # 洗碗机状态
+        self.is_deployed = False      # 是否已部署（用户按了start）
+        self.is_running = False       # 是否正在运行
+        self.is_completed = False     # 是否已完成
+        self.current_cycle_step = 0   # 当前运行步骤
+        self.total_cycle_steps = int(params.operation_hours)  # 总运行步骤数
+        self.deployment_time = None   # 实际部署时间
+        self.start_time = None        # 实际启动时间
+        self.completion_time = None   # 实际完成时间
+        self.energy_consumed = 0.0    # 已消耗能量
         
     def deploy(self, current_time: datetime):
-        """Deploy dishwasher (user presses start button)"""
+        """部署洗碗机（用户按下start按钮）"""
         if not self.is_deployed:
             self.is_deployed = True
             self.deployment_time = current_time
@@ -55,37 +55,37 @@ class DishwasherModel:
                 self.user_behavior.deployment_time = current_time
             
     def can_start(self, current_time: datetime) -> bool:
-        """Check if it can start"""
+        """检查是否可以启动"""
         if not self.is_deployed or self.is_running or self.is_completed:
             return False
             
-        # Check minimum delay
+        # 检查最小延迟
         if self.deployment_time:
             time_since_deployment = (current_time - self.deployment_time).total_seconds() / 3600
             if time_since_deployment < self.params.min_start_delay:
                 return False
         
-        # Check maximum delay
+        # 检查最大延迟
         if self.user_behavior and self.deployment_time:
             time_since_deployment = (current_time - self.deployment_time).total_seconds() / 3600
             if time_since_deployment > self.params.max_start_delay:
-                return True  # Must start, can't wait anymore
+                return True  # 必须启动了，不能再等
                 
         return True
     
     def must_start(self, current_time: datetime) -> bool:
-        """Check if it must start (can't be delayed anymore)"""
+        """检查是否必须启动（不能再延迟）"""
         if not self.is_deployed or self.is_running or self.is_completed:
             return False
             
         if self.user_behavior and self.deployment_time:
             time_since_deployment = (current_time - self.deployment_time).total_seconds() / 3600
             
-            # If exceeds maximum delay time, must start
+            # 如果超过最大延迟时间，必须启动
             if time_since_deployment >= self.params.max_start_delay:
                 return True
                 
-            # If there's a latest completion time constraint
+            # 如果有最晚完成时间约束
             if self.user_behavior.latest_completion_time:
                 time_to_deadline = (self.user_behavior.latest_completion_time - current_time).total_seconds() / 3600
                 if time_to_deadline <= self.params.operation_hours:
@@ -94,7 +94,7 @@ class DishwasherModel:
         return False
     
     def start_operation(self, current_time: datetime) -> bool:
-        """Start dishwasher operation"""
+        """启动洗碗机运行"""
         if self.can_start(current_time) and not self.is_running:
             self.is_running = True
             self.start_time = current_time
@@ -103,26 +103,26 @@ class DishwasherModel:
         return False
     
     def step_operation(self, current_time: datetime, available_power: float) -> Tuple[float, bool]:
-        """Run one time step
+        """运行一个时间步
         
         Returns:
-            required_power: Power required
-            is_completed: Whether completed
+            required_power: 需要的功率
+            is_completed: 是否完成
         """
         if not self.is_running or self.is_completed:
             return 0.0, self.is_completed
             
-        # Dishwasher needs fixed power to run
+        # 洗碗机需要固定功率运行
         required_power = self.params.power_rating
         
-        # Check if there's enough power
+        # 检查是否有足够功率
         if available_power >= required_power:
-            # Consume energy
-            energy_step = required_power * 1.0  # Assume 1 hour time step
+            # 消耗能量
+            energy_step = required_power * 1.0  # 假设1小时时间步
             self.energy_consumed += energy_step
             self.current_cycle_step += 1
             
-            # Check if completed
+            # 检查是否完成
             if self.current_cycle_step >= self.total_cycle_steps:
                 self.is_completed = True
                 self.is_running = False
@@ -131,26 +131,26 @@ class DishwasherModel:
             
             return required_power, False
         else:
-            # Not enough power, dishwasher can't run (this situation should be avoided)
-            # When generating FlexOffer, should ensure enough continuous power when starting
+            # 功率不足，洗碗机无法运行（这种情况应该避免）
+            # 在实际FlexOffer生成时，应该确保启动时有足够的连续功率
             return required_power, False
     
     def get_required_power_profile(self, start_time: datetime) -> List[float]:
-        """Get power demand curve from given start time"""
+        """获取从给定启动时间开始的功率需求曲线"""
         power_profile = []
         for i in range(self.total_cycle_steps):
             power_profile.append(self.params.power_rating)
         return power_profile
     
     def get_flexibility_window(self, current_time: datetime) -> Tuple[datetime, datetime]:
-        """Get flexibility time window"""
+        """获取灵活性时间窗口"""
         if not self.is_deployed:
             return current_time, current_time
             
         earliest_start = self.deployment_time + timedelta(hours=self.params.min_start_delay)
         latest_start = self.deployment_time + timedelta(hours=self.params.max_start_delay)
         
-        # Consider latest completion time constraint
+        # 考虑最晚完成时间约束
         if self.user_behavior and self.user_behavior.latest_completion_time:
             latest_by_completion = self.user_behavior.latest_completion_time - timedelta(hours=self.params.operation_hours)
             latest_start = min(latest_start, latest_by_completion)
@@ -158,17 +158,17 @@ class DishwasherModel:
         return max(earliest_start, current_time), latest_start
     
     def calculate_urgency(self, current_time: datetime) -> float:
-        """Calculate urgency (0-1, 1 most urgent)"""
+        """计算紧急度（0-1，1最紧急）"""
         if not self.is_deployed or self.is_completed:
             return 0.0
             
         if self.is_running:
-            return 1.0  # Running, most urgent
+            return 1.0  # 正在运行，最紧急
             
         earliest_start, latest_start = self.get_flexibility_window(current_time)
         
         if current_time >= latest_start:
-            return 1.0  # Must start immediately
+            return 1.0  # 必须立即启动
             
         total_window = (latest_start - earliest_start).total_seconds() / 3600
         elapsed_time = (current_time - earliest_start).total_seconds() / 3600
@@ -183,32 +183,32 @@ class DishwasherModel:
                      start_time=None, 
                      time_horizon: int = None, 
                      time_step: float = 1.0) -> DFOSystem:
-        """Generate DFO system
+        """生成DFO系统
         
         Args:
-            start_time: Optional, start time, if None, use current time.
-                        If integer and time_horizon is None, used as time_horizon
-            time_horizon: Time range, if None and first parameter is integer, use first parameter
-            time_step: Time step length, default is 1 hour
+            start_time: 可选，起始时间，如果为None，使用当前时间。
+                        如果是整数且time_horizon为None，则作为time_horizon使用
+            time_horizon: 时间范围，如果为None且第一个参数为整数，则使用第一个参数
+            time_step: 时间步长，默认为1小时
             
         Returns:
-            DFO system object
+            DFO系统对象
         """
-        # Compatible with old calling method
+        # 兼容旧的调用方式
         if isinstance(start_time, int) and time_horizon is None:
             time_horizon = start_time
             start_time = None
             
-        # If start_time is None, use current time
+        # 如果start_time为None，使用当前时间
         current_time = start_time if start_time is not None and not isinstance(start_time, int) else datetime.now()
         
-        # Ensure time_horizon has value
+        # 确保time_horizon有值
         if time_horizon is None:
-            time_horizon = 24  # Default value is 24 hours
+            time_horizon = 24  # 默认值为24小时
         
         dfo = DFOSystem(time_horizon)
         
-        # If not yet deployed, power demand for all time steps is 0
+        # 如果还未部署，所有时间步的功率需求都是0
         if not self.is_deployed:
             for t in range(time_horizon):
                 slice = DFOSlice(
@@ -220,7 +220,7 @@ class DishwasherModel:
                 dfo.add_slice(slice)
             return dfo
         
-        # If completed, power demand for all time steps is 0
+        # 如果已完成，所有时间步的功率需求都是0
         if self.is_completed:
             for t in range(time_horizon):
                 slice = DFOSlice(
@@ -232,12 +232,12 @@ class DishwasherModel:
                 dfo.add_slice(slice)
             return dfo
         
-        # If running, must continue to provide power
+        # 如果正在运行，必须持续提供功率
         if self.is_running:
             remaining_steps = self.total_cycle_steps - self.current_cycle_step
             for t in range(time_horizon):
                 if t < remaining_steps:
-                    # Must run
+                    # 必须运行
                     energy_required = self.params.power_rating
                     slice = DFOSlice(
                         time_step=t,
@@ -246,7 +246,7 @@ class DishwasherModel:
                         constraints=[]
                     )
                 else:
-                    # Operation completed
+                    # 运行完成
                     slice = DFOSlice(
                         time_step=t,
                         energy_min=0.0,
@@ -256,46 +256,46 @@ class DishwasherModel:
                 dfo.add_slice(slice)
             return dfo
         
-        # Deployed but not running: generate flexibility offer
+        # 已部署但未运行：生成灵活性报价
         earliest_start, latest_start = self.get_flexibility_window(current_time)
         
-        # Calculate time steps corresponding to start window
+        # 计算时间步对应的启动窗口
         earliest_step = max(0, int((earliest_start - current_time).total_seconds() / 3600 / time_step))
         latest_step = min(time_horizon - self.total_cycle_steps, 
                          int((latest_start - current_time).total_seconds() / 3600 / time_step))
         
         for t in range(time_horizon):
-            # Check if this time step could be a start time
+            # 检查这个时间步是否可能是启动时间
             can_start_at_t = earliest_step <= t <= latest_step
             
             if can_start_at_t:
-                # This time step could start, need to check if there's enough continuous time to complete operation
+                # 这个时间步可能启动，需要检查是否有足够的连续时间完成运行
                 remaining_time_steps = time_horizon - t
                 if remaining_time_steps >= self.total_cycle_steps:
-                    # Enough time to complete operation
-                    energy_min = 0.0  # Can choose not to start at this time step
-                    energy_max = self.params.power_rating  # If starting, need this power
+                    # 有足够时间完成运行
+                    energy_min = 0.0  # 可以选择不在这个时间步启动
+                    energy_max = self.params.power_rating  # 如果启动，需要此功率
                 else:
-                    # Not enough time to complete operation, can't start at this time step
+                    # 没有足够时间完成运行，不能在这个时间步启动
                     energy_min = 0.0
                     energy_max = 0.0
             else:
-                # Can't start at this time step
+                # 不能在这个时间步启动
                 energy_min = 0.0
                 energy_max = 0.0
             
-            # If current time has already reached must-start moment
+            # 如果当前时间已经到了必须启动的时刻
             current_step_time = current_time + timedelta(hours=t * time_step)
             if self.must_start(current_step_time) and t == 0:
-                # Must start immediately
+                # 必须立即启动
                 energy_min = self.params.power_rating
                 energy_max = self.params.power_rating
             
-            # Create constraints
+            # 创建约束
             constraints = []
             
-            # Add operation continuity constraints (if started, must run continuously)
-            # This constraint is complex, handled in DFO aggregation phase
+            # 添加运行连续性约束（如果启动，必须连续运行）
+            # 这个约束比较复杂，在DFO聚合阶段处理
             
             slice = DFOSlice(
                 time_step=t,
@@ -309,11 +309,11 @@ class DishwasherModel:
 
     @classmethod
     def from_csv(cls, params_file: str, behavior_file: str = None, dishwasher_id: str = None) -> 'DishwasherModel':
-        """Create dishwasher model from CSV file"""
-        # Read parameter file
+        """从CSV文件创建洗碗机模型"""
+        # 读取参数文件
         params_df = pd.read_csv(params_file, comment='#')
         
-        # If dishwasher_id specified, find corresponding row; otherwise use first row
+        # 如果指定了dishwasher_id，查找对应数据；否则使用第一行
         if dishwasher_id:
             device_data = params_df[params_df['dishwasher_id'] == dishwasher_id]
             if device_data.empty:
@@ -323,7 +323,7 @@ class DishwasherModel:
             device_data = params_df.iloc[0]
             dishwasher_id = device_data['dishwasher_id']
         
-        # Create parameter object
+        # 创建参数对象
         params = DishwasherParameters(
             dishwasher_id=dishwasher_id,
             total_energy=float(device_data['total_energy']),
@@ -335,7 +335,7 @@ class DishwasherModel:
             can_interrupt=device_data['can_interrupt'] == 'True'
         )
         
-        # If behavior file provided, read user behavior
+        # 如果提供了行为文件，读取用户行为
         user_behavior = None
         if behavior_file:
             behavior_df = pd.read_csv(behavior_file, comment='#')
@@ -356,16 +356,16 @@ class DishwasherModel:
 
     @classmethod
     def get_all_dishwasher_ids(cls, params_file: str) -> List[str]:
-        """Get all dishwasher IDs from parameter file"""
+        """获取参数文件中的所有洗碗机ID"""
         try:
             params_df = pd.read_csv(params_file, comment='#')
             return params_df['dishwasher_id'].tolist()
         except Exception as e:
-            print(f"Failed to read dishwasher parameter file: {e}")
+            print(f"读取洗碗机参数文件失败: {e}")
             return []
 
     def get_status_summary(self) -> Dict:
-        """Get status summary"""
+        """获取状态摘要"""
         return {
             'dishwasher_id': self.params.dishwasher_id,
             'is_deployed': self.is_deployed,

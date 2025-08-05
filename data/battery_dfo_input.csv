@@ -1,14 +1,14 @@
-# Battery DFO Generation Input Parameter File
-# Purpose: Used for the generate_dfo method, defines time range and constraints for DFO generation
-# Related code: BatteryModel.generate_dfo method in fo_generate/battery_model.py
-# Update frequency: Updated each time DFO is generated
+# 电池DFO生成输入参数文件
+# 用途：用于generate_dfo方法，定义DFO生成的时间范围和约束条件
+# 相关代码：fo_generate/battery_model.py中的BatteryModel.generate_dfo方法
+# 更新频率：每次生成DFO时更新
 
-battery_id,time_horizon,start_time,end_time,schedule_type,priority,available_period,required_SOC,location,description
-BAT001,24,2024-03-20 00:00:00,2024-03-20 23:00:00,Peak-Valley Arbitrage,2,All day,0.3,Commercial Area Building A,Commercial area daily scheduling
-BAT002,24,2024-03-20 00:00:00,2024-03-20 23:00:00,Demand Response,1,All day,0.3,Industrial Park Zone B,Industrial park high priority response
-BAT003,24,2024-03-20 00:00:00,2024-03-20 23:00:00,Community Peak Shaving,3,All day,0.3,Residential Area Zone C,Residential area load balancing
-EV001,24,2024-03-20 00:00:00,2024-03-20 23:00:00,V2G Frequency Regulation,2,19:00-07:00,0.85,Charging Station A01,Commuter vehicle
-EV002,24,2024-03-20 00:00:00,2024-03-20 23:00:00,V2G Peak Shaving,3,20:00-06:00,0.80,Charging Station B03,Resident private car
-EV003,24,2024-03-20 00:00:00,2024-03-20 23:00:00,V2G Backup,2,18:00-08:00,0.90,Charging Station C02,Business vehicle
-EV004,24,2024-03-20 00:00:00,2024-03-20 23:00:00,One-way Charging,4,22:00-06:00,0.95,Charging Station D05,Night slow charging vehicle
-EV005,24,2024-03-20 00:00:00,2024-03-20 23:00:00,V2G Frequency Regulation,2,19:30-07:30,0.85,Charging Station E04,Commuter vehicle
+battery_id,time_horizon,start_time,end_time,调度类型,优先级,可用时段,所需SOC,位置,说明
+BAT001,24,2024-03-20 00:00:00,2024-03-20 23:00:00,峰谷套利,2,全天,0.3,商业区A栋,商业区日常调度
+BAT002,24,2024-03-20 00:00:00,2024-03-20 23:00:00,需求响应,1,全天,0.3,工业园区B区,工业园区高优先级响应
+BAT003,24,2024-03-20 00:00:00,2024-03-20 23:00:00,社区调峰,3,全天,0.3,居民区C区,居民区负荷平衡
+EV001,24,2024-03-20 00:00:00,2024-03-20 23:00:00,V2G调频,2,19:00-07:00,0.85,充电桩A01,上班通勤车辆
+EV002,24,2024-03-20 00:00:00,2024-03-20 23:00:00,V2G调峰,3,20:00-06:00,0.80,充电桩B03,居民私家车
+EV003,24,2024-03-20 00:00:00,2024-03-20 23:00:00,V2G备用,2,18:00-08:00,0.90,充电桩C02,商务用车
+EV004,24,2024-03-20 00:00:00,2024-03-20 23:00:00,单向充电,4,22:00-06:00,0.95,充电桩D05,夜间慢充车辆
+EV005,24,2024-03-20 00:00:00,2024-03-20 23:00:00,V2G调频,2,19:30-07:30,0.85,充电桩E04,通勤用车

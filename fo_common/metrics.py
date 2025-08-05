@@ -1,97 +1,97 @@
-"""Global performance metrics calculation"""
+"""全局性能指标计算"""
 
 import numpy as np
 from typing import Dict, List, Any, Optional, Union
 import logging
 
-# Create logger
+# 创建日志记录器
 logger = logging.getLogger(__name__)
 
 def calculate_system_efficiency(observations: Dict[str, Any]) -> float:
     """
-    Calculate system efficiency metric
+    计算系统效率指标
     
     Args:
-        observations: Observation dictionary from various modules
+        observations: 各模块的观测字典
         
     Returns:
-        System efficiency score (0-1)
+        系统效率分数 (0-1)
     """
     efficiency_values = []
     
-    # Get efficiency from generation module
+    # 从生成模块获取效率
     if "generate" in observations:
         gen_obs = observations["generate"]
-        gen_efficiency = 0.8  # Default value
+        gen_efficiency = 0.8  # 默认值
         
         if isinstance(gen_obs, np.ndarray) and len(gen_obs) > 30:
-            # Calculate generation efficiency based on device states
+            # 根据设备状态计算生成效率
             device_states = gen_obs[30:]
-            # Simplified: use mean of device states as efficiency indicator
+            # 简化：使用设备状态的均值作为效率指标
             gen_efficiency = min(max(np.mean(device_states), 0.0), 1.0)
             
         efficiency_values.append(gen_efficiency)
     
-    # Get efficiency from trading module
+    # 从交易模块获取效率
     if "trading" in observations:
         trade_obs = observations["trading"]
-        trade_efficiency = 0.7  # Default value
+        trade_efficiency = 0.7  # 默认值
         
         if isinstance(trade_obs, dict) and 'trades' in trade_obs:
             trades = trade_obs['trades']
-            # Use trade success rate as efficiency indicator
+            # 使用交易成功率作为效率指标
             trade_efficiency = min(max(trades.get('success_rate', 0.7), 0.0), 1.0)
             
         efficiency_values.append(trade_efficiency)
     
-    # Get efficiency from scheduling module
+    # 从调度模块获取效率
     if "schedule" in observations:
         sched_obs = observations["schedule"]
-        sched_efficiency = 0.9  # Default value
+        sched_efficiency = 0.9  # 默认值
         
         if isinstance(sched_obs, dict) and 'efficiency' in sched_obs:
             sched_efficiency = min(max(sched_obs['efficiency'], 0.0), 1.0)
             
         efficiency_values.append(sched_efficiency)
     
-    # Calculate overall efficiency
+    # 计算整体效率
     if efficiency_values:
-        # Simple average
+        # 简单平均
         system_efficiency = sum(efficiency_values) / len(efficiency_values)
     else:
-        system_efficiency = 0.8  # Default value
+        system_efficiency = 0.8  # 默认值
         
     return system_efficiency
 
 def calculate_economic_score(observations: Dict[str, Any]) -> float:
     """
-    Calculate economic score
+    计算经济性得分
     
     Args:
-        observations: Observation dictionary from various modules
+        observations: 各模块的观测字典
         
     Returns:
-        Economic score (0-1)
+        经济性得分 (0-1)
     """
     costs = []
     revenues = []
     
-    # Get costs from generation module
+    # 从生成模块获取成本
     if "generate" in observations:
         gen_obs = observations["generate"]
         
         if isinstance(gen_obs, np.ndarray) and len(gen_obs) > 24:
-            # Assume index 24 is electricity price, used as cost indicator
-            costs.append(gen_obs[24] * 100)  # Scaling assumption
+            # 假设索引24是电价，用作成本指标
+            costs.append(gen_obs[24] * 100)  # 缩放假设
     
-    # Get revenue from trading module
+    # 从交易模块获取收益
     if "trading" in observations:
         trade_obs = observations["trading"]
         
         if isinstance(trade_obs, dict) and 'price' in trade_obs:
             revenues.append(trade_obs['price'])
     
-    # Get costs from scheduling module
+    # 从调度模块获取成本
     if "schedule" in observations:
         sched_obs = observations["schedule"]
         
@@ -99,44 +99,44 @@ def calculate_economic_score(observations: Dict[str, Any]) -> float:
             if isinstance(sched_obs['cost'], dict) and 'value' in sched_obs['cost']:
                 costs.append(sched_obs['cost']['value'])
     
-    # Calculate economic score
+    # 计算经济性得分
     if costs and revenues:
         total_cost = sum(costs)
         total_revenue = sum(revenues)
         
-        # Calculate profit margin
+        # 计算利润率
         profit_margin = (total_revenue - total_cost) / max(total_revenue, 0.01)
         
-        # Normalize to [0,1]
+        # 归一化到[0,1]
         economic_score = min(max((profit_margin + 1.0) / 2.0, 0.0), 1.0)
     else:
-        economic_score = 0.6  # Default medium-high
+        economic_score = 0.6  # 默认中等偏上
         
     return economic_score
 
 def calculate_reliability_score(observations: Dict[str, Any]) -> float:
     """
-    Calculate system reliability score
+    计算系统可靠性得分
     
     Args:
-        observations: Observation dictionary from various modules
+        observations: 各模块的观测字典
         
     Returns:
-        Reliability score (0-1)
+        可靠性得分 (0-1)
     """
     reliability_factors = []
     
-    # Get reliability from generation module
+    # 从生成模块获取可靠性
     if "generate" in observations:
         gen_obs = observations["generate"]
         
         if isinstance(gen_obs, np.ndarray) and len(gen_obs) > 30:
-            # Assume device state stability reflects reliability
+            # 假设设备状态稳定性反映可靠性
             device_states = gen_obs[30:]
             device_reliability = 1.0 - min(np.std(device_states) / 2.0, 1.0)
             reliability_factors.append(device_reliability)
     
-    # Get reliability from trading module
+    # 从交易模块获取可靠性
     if "trading" in observations:
         trade_obs = observations["trading"]
         
@@ -145,62 +145,62 @@ def calculate_reliability_score(observations: Dict[str, Any]) -> float:
             trade_reliability = min(max(trades.get('success_rate', 0.7), 0.0), 1.0)
             reliability_factors.append(trade_reliability)
     
-    # Calculate overall reliability
+    # 计算整体可靠性
     if reliability_factors:
         reliability_score = sum(reliability_factors) / len(reliability_factors)
     else:
-        reliability_score = 0.75  # Default high reliability
+        reliability_score = 0.75  # 默认较高可靠性
         
     return reliability_score
 
 def calculate_environmental_score(observations: Dict[str, Any]) -> float:
     """
-    Calculate environmental friendliness score
+    计算环境友好性得分
     
     Args:
-        observations: Observation dictionary from various modules
+        observations: 各模块的观测字典
         
     Returns:
-        Environmental friendliness score (0-1)
+        环境友好性得分 (0-1)
     """
-    # Default medium-high environmental score
+    # 默认中等偏上环保性
     environmental_score = 0.7
     
-    # Get environmental score from generation module
+    # 从生成模块获取环保性
     if "generate" in observations:
         gen_obs = observations["generate"]
         
         if isinstance(gen_obs, np.ndarray) and len(gen_obs) > 28:
-            # Assume index 28 is environmental preference
+            # 假设索引28是环保性偏好
             environmental_score = min(max(gen_obs[28], 0.0), 1.0)
             
     return environmental_score
 
 def calculate_cross_module_consistency(observations: Dict[str, Any]) -> float:
     """
-    Calculate cross-module consistency score
+    计算跨模块一致性得分
     
     Args:
-        observations: Observation dictionary from various modules
+        observations: 各模块的观测字典
         
     Returns:
-        Consistency score (0-1)
+        一致性得分 (0-1)
     """
-    # Default medium consistency
+    # 默认为中等一致性
     consistency_score = 0.5
     
-    # If more than one module, calculate inter-module consistency
+    # 如果多于一个模块，计算模块间一致性
     if len(observations) > 1:
-        # This is just a simplified example, actual calculation should be based on specific module states
-        # For example, calculate consistency of electricity price, time, etc.
+        # 这里只是一个简化的示例，实际应该基于具体的模块状态计算
+        # 例如，计算电价、时间等信息的一致性
         
-        # Check time consistency
+        # 检查时间一致性
         time_values = []
         
         if "generate" in observations:
             gen_obs = observations["generate"]
             if isinstance(gen_obs, np.ndarray) and len(gen_obs) >= 24:
-                # Get hour (from one-hot encoding)
+                # 获取小时（从one-hot编码）
                 gen_hour = np.argmax(gen_obs[:24])
                 time_values.append(gen_hour)
                 
@@ -210,24 +210,24 @@ def calculate_cross_module_consistency(observations: Dict[str, Any]) -> float:
                 if hasattr(trade_obs['time'], 'hour'):
                     time_values.append(trade_obs['time'].hour)
         
-        # If multiple time values, calculate consistency
+        # 如果有多个时间值，计算一致性
         if len(time_values) > 1:
-            # Calculate standard deviation and normalize
+            # 计算标准差并归一化
             time_std = np.std(time_values)
-            time_consistency = max(0.0, 1.0 - time_std / 12.0)  # Maximum 12 hour difference considered completely inconsistent
+            time_consistency = max(0.0, 1.0 - time_std / 12.0)  # 最多12小时差异视为完全不一致
             consistency_score = time_consistency
             
     return consistency_score
 
 def calculate_global_metrics(observations: Dict[str, Any]) -> Dict[str, float]:
     """
-    Calculate all global metrics
+    计算所有全局指标
     
     Args:
-        observations: Observation dictionary from various modules
+        observations: 各模块的观测字典
         
     Returns:
-        Dictionary containing all metrics
+        包含所有指标的字典
     """
     try:
         metrics = {
@@ -238,7 +238,7 @@ def calculate_global_metrics(observations: Dict[str, Any]) -> Dict[str, float]:
             "consistency": calculate_cross_module_consistency(observations)
         }
         
-        # Add composite score (weighted average)
+        # 添加综合得分（加权平均）
         weights = {
             "efficiency": 0.25,
             "economic": 0.25,
@@ -254,8 +254,8 @@ def calculate_global_metrics(observations: Dict[str, Any]) -> Dict[str, float]:
         return metrics
         
     except Exception as e:
-        logger.error(f"Error calculating global metrics: {e}")
-        # Return default values
+        logger.error(f"计算全局指标时出错: {e}")
+        # 返回默认值
         return {
             "efficiency": 0.8,
             "economic": 0.6,

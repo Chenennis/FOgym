@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Dec-POMDP Specific Loss Functions
+Dec-POMDP特定损失函数
 
-Loss functions specially designed for Dec-POMDP environments, considering:
-1. Uncertainty from partial observability
-2. Impact of information asymmetry
-3. Reliability of information from other agents
-4. Balance between cooperation and competition
-5. Information quality-aware reward design
+专门为Dec-POMDP环境设计的损失函数，考虑：
+1. 部分可观测性带来的不确定性
+2. 信息不对称的影响
+3. 他者信息的可靠性
+4. 协作与竞争的平衡
+5. 信息质量感知的奖励设计
 """
 
 import torch
@@ -17,68 +17,68 @@ import numpy as np
 import sys
 import os
 
-# Add project path
+# 添加项目路径
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 
 from fo_common.dec_pomdp_config import DecPOMDPConfig
 
 class DecPOMDPLossComputer:
     """
-    Dec-POMDP Loss Function Calculator
+    Dec-POMDP损失函数计算器
     
-    Integrates multiple loss functions:
-    - Basic PPO loss (policy loss + value loss)
-    - Information uncertainty loss
-    - Collaborative consistency loss
-    - Information quality-aware loss
-    - Exploration encouragement loss
+    集成多种损失函数：
+    - 基础PPO损失（策略损失 + 价值损失）
+    - 信息不确定性损失
+    - 协作一致性损失
+    - 信息质量感知损失
+    - 探索鼓励损失
     """
     
     def __init__(self, dec_pomdp_config: DecPOMDPConfig, device=torch.device("cpu")):
         self.config = dec_pomdp_config
         self.device = device
         
-        # Loss function weights
-        self.uncertainty_weight = 0.1        # Uncertainty loss weight
-        self.collaboration_weight = 0.05     # Collaboration consistency loss weight
-        self.information_quality_weight = 0.03  # Information quality loss weight
-        self.exploration_weight = 0.02       # Exploration encouragement loss weight
+        # 损失函数权重
+        self.uncertainty_weight = 0.1        # 不确定性损失权重
+        self.collaboration_weight = 0.05     # 协作一致性损失权重
+        self.information_quality_weight = 0.03  # 信息质量损失权重
+        self.exploration_weight = 0.02       # 探索鼓励损失权重
         
-        # Parameters
-        self.clip_param = 0.2               # PPO clipping parameter
-        self.entropy_coef = 0.01            # Entropy coefficient
-        self.value_loss_coef = 0.5          # Value loss coefficient
+        # 参数
+        self.clip_param = 0.2               # PPO裁剪参数
+        self.entropy_coef = 0.01            # 熵系数
+        self.value_loss_coef = 0.5          # 价值损失系数
         
     def compute_ppo_loss(self, action_log_probs, old_action_log_probs, advantages, 
                          values, returns, active_masks=None):
         """
-        Calculate basic PPO loss
+        计算基础PPO损失
         
         Args:
-            action_log_probs: Action log probabilities of current policy
-            old_action_log_probs: Action log probabilities of old policy
-            advantages: Advantage function values
-            values: Value function predictions
-            returns: Returns
-            active_masks: Active masks
+            action_log_probs: 当前策略的动作对数概率
+            old_action_log_probs: 旧策略的动作对数概率
+            advantages: 优势函数值
+            values: 价值函数预测
+            returns: 回报
+            active_masks: 激活掩码
             
         Returns:
-            dict: Dictionary containing various loss components
+            dict: 包含各项损失的字典
         """
-        # Importance sampling ratio
+        # 重要性采样比率
         ratio = torch.exp(action_log_probs - old_action_log_probs)
         
-        # PPO clipping objective
+        # PPO裁剪目标
         surr1 = ratio * advantages
         surr2 = torch.clamp(ratio, 1.0 - self.clip_param, 1.0 + self.clip_param) * advantages
         
-        # Policy loss
+        # 策略损失
         if active_masks is not None:
             policy_loss = -(torch.min(surr1, surr2) * active_masks).sum() / active_masks.sum()
         else:
             policy_loss = -torch.min(surr1, surr2).mean()
         
-        # Value function loss
+        # 价值函数损失
         value_loss = F.mse_loss(values, returns)
         
         return {
@@ -90,156 +90,131 @@ class DecPOMDPLossComputer:
     
     def compute_uncertainty_loss(self, private_features, public_features, others_features):
         """
-        Calculate information uncertainty loss
+        计算信息不确定性损失
         
-        Encourages agents to maintain appropriate caution regarding uncertain information in partially observable environments
+        在部分可观测环境中，鼓励智能体对不确定信息保持适当的谨慎
         
         Args:
-            private_features: Private information features
-            public_features: Public information features
-            others_features: Other agents' information features
+            private_features: 私有信息特征
+            public_features: 公共信息特征  
+            others_features: 他者信息特征
             
         Returns:
-            uncertainty_loss: Information uncertainty loss
+            torch.Tensor: 不确定性损失
         """
-        # Calculate uncertainty based on feature variance
-        if others_features is None:
+        if not self.config.enable_observation_noise:
             return torch.tensor(0.0, device=self.device)
         
-        # Calculate variance of other agents' features as a measure of uncertainty
-        if len(others_features.shape) > 2:
-            others_variance = torch.var(others_features, dim=1).mean()
-        else:
-            others_variance = torch.var(others_features, dim=0).mean()
+        # 计算不同信息源的可靠性权重
+        private_reliability = 1.0  # 私有信息最可靠
+        public_reliability = 0.8   # 公共信息较可靠
+        others_reliability = 0.5 if self.config.enable_other_manager_info else 0.0  # 他者信息不太可靠
         
-        # Calculate variance of private features
-        if len(private_features.shape) > 2:
-            private_variance = torch.var(private_features, dim=1).mean()
-        else:
-            private_variance = torch.var(private_features, dim=0).mean()
+        # 根据噪声水平调整可靠性
+        noise_factor = 1.0 - self.config.noise_level
+        others_reliability *= noise_factor
         
-        # Uncertainty loss: penalize high variance in private features and low variance in others' features
-        # This encourages confidence in private information and caution with others' information
-        uncertainty_loss = private_variance + 1.0 / (others_variance + 1e-8)
+        # 计算信息特征的方差（不确定性指标）
+        private_var = torch.var(private_features, dim=-1).mean() if private_features is not None else 0.0
+        public_var = torch.var(public_features, dim=-1).mean() if public_features is not None else 0.0
+        others_var = torch.var(others_features, dim=-1).mean() if others_features is not None else 0.0
         
-        return uncertainty_loss
+        # 加权不确定性
+        weighted_uncertainty = (
+            private_var * (1.0 - private_reliability) +
+            public_var * (1.0 - public_reliability) +
+            others_var * (1.0 - others_reliability)
+        )
+        
+        return weighted_uncertainty
     
     def compute_collaboration_loss(self, actions, others_actions=None):
         """
-        Calculate collaboration consistency loss
+        计算协作一致性损失
         
-        Encourages consistent and coordinated actions among agents
+        鼓励Manager之间的协作，特别是在有他者信息时
         
         Args:
-            actions: Agent's actions
-            others_actions: Other agents' actions
+            actions: 当前Manager的动作
+            others_actions: 其他Manager的动作（如果可获得）
             
         Returns:
-            collaboration_loss: Collaboration consistency loss
+            torch.Tensor: 协作损失
         """
-        if others_actions is None:
+        if not self.config.enable_other_manager_info or others_actions is None:
             return torch.tensor(0.0, device=self.device)
         
-        # Calculate action diversity
-        if len(actions.shape) > 2:
-            # Batch of actions for multiple agents
-            action_diversity = torch.var(actions, dim=1).mean()
-        else:
-            # Single agent actions
-            action_diversity = torch.var(actions, dim=0).mean()
+        # 动作一致性损失：鼓励相似的动作策略
+        action_consistency = torch.norm(actions - others_actions, dim=-1).mean()
         
-        # Calculate coordination loss
-        if len(others_actions.shape) > 2:
-            # Calculate difference between agent's actions and others' actions
-            action_diff = torch.mean(torch.abs(actions.unsqueeze(1) - others_actions), dim=2).mean()
-        else:
-            # Simple case
-            action_diff = torch.mean(torch.abs(actions - others_actions))
+        # 避免过度一致（保持多样性）
+        diversity_threshold = 0.5
+        consistency_loss = torch.relu(diversity_threshold - action_consistency)
         
-        # Balance between diversity (for exploration) and coordination (for collaboration)
-        # We want moderate diversity but also coordination with others
-        target_diversity = 0.5  # Target diversity level
-        collaboration_loss = torch.abs(action_diversity - target_diversity) + 0.5 * action_diff
-        
-        return collaboration_loss
+        return consistency_loss
     
     def compute_information_quality_loss(self, predicted_others_info, actual_others_info=None,
                                          information_attention_weights=None):
         """
-        Calculate information quality-aware loss
+        计算信息质量感知损失
         
-        Encourages accurate modeling of other agents' information and appropriate attention allocation
+        鼓励智能体正确评估和利用不同质量的信息
         
         Args:
-            predicted_others_info: Predicted information about other agents
-            actual_others_info: Actual information about other agents
-            information_attention_weights: Attention weights for different information sources
+            predicted_others_info: 预测的他者信息
+            actual_others_info: 实际的他者信息（如果可获得）
+            information_attention_weights: 信息注意力权重
             
         Returns:
-            information_quality_loss: Information quality loss
+            torch.Tensor: 信息质量损失
         """
-        if actual_others_info is None or predicted_others_info is None:
+        if not self.config.enable_other_manager_info:
             return torch.tensor(0.0, device=self.device)
         
-        # Calculate prediction error
-        prediction_error = F.mse_loss(predicted_others_info, actual_others_info)
-        
-        # If attention weights are provided, calculate attention allocation loss
-        attention_loss = torch.tensor(0.0, device=self.device)
-        if information_attention_weights is not None:
-            # Encourage sparse attention (focus on important information)
-            attention_entropy = -(information_attention_weights * 
-                                torch.log(information_attention_weights + 1e-8)).sum(dim=-1).mean()
+        # 如果有实际他者信息，计算预测误差
+        if actual_others_info is not None:
+            prediction_error = F.mse_loss(predicted_others_info, actual_others_info)
             
-            # Penalize uniform attention
-            uniform_attention = torch.ones_like(information_attention_weights) / information_attention_weights.shape[-1]
-            uniform_distance = F.kl_div(
-                F.log_softmax(information_attention_weights, dim=-1),
-                uniform_attention,
-                reduction='batchmean'
-            )
-            
-            # We want low entropy (focused attention) but also distance from uniform
-            attention_loss = attention_entropy - 0.1 * uniform_distance
+            # 根据噪声水平调整期望误差
+            expected_error = self.config.noise_level ** 2
+            quality_loss = torch.abs(prediction_error - expected_error)
+        else:
+            # 没有真实标签时，鼓励注意力权重的合理性
+            if information_attention_weights is not None:
+                # 鼓励注意力权重与信息可靠性相符
+                expected_weights = torch.tensor([0.6, 0.3, 0.1], device=self.device)  # 私有>公共>他者
+                quality_loss = F.mse_loss(information_attention_weights, expected_weights)
+            else:
+                quality_loss = torch.tensor(0.0, device=self.device)
         
-        # Combine prediction error and attention loss
-        information_quality_loss = prediction_error + 0.1 * attention_loss
-        
-        return information_quality_loss
+        return quality_loss
     
     def compute_exploration_loss(self, action_distributions, exploration_bonus=None):
         """
-        Calculate exploration encouragement loss
+        计算探索鼓励损失
         
-        Encourages appropriate exploration in Dec-POMDP settings
+        在部分可观测环境中，适当的探索特别重要
         
         Args:
-            action_distributions: Action probability distributions
-            exploration_bonus: Optional exploration bonus based on state visitation
+            action_distributions: 动作分布
+            exploration_bonus: 探索奖励（可选）
             
         Returns:
-            exploration_loss: Exploration encouragement loss
+            torch.Tensor: 探索损失
         """
-        # Calculate entropy of action distributions
+        # 计算动作分布的熵
         if hasattr(action_distributions, 'entropy'):
-            # If distribution object with entropy method is provided
             entropy = action_distributions.entropy().mean()
         else:
-            # If logits or probabilities are provided
-            if len(action_distributions.shape) > 2:
-                # Batch of distributions
-                entropy = -(F.softmax(action_distributions, dim=-1) * 
-                          F.log_softmax(action_distributions, dim=-1)).sum(dim=-1).mean()
-            else:
-                # Single distribution
-                entropy = -(F.softmax(action_distributions, dim=-1) * 
-                          F.log_softmax(action_distributions, dim=-1)).sum(dim=-1)
+            # 对于连续动作，假设正态分布
+            entropy = 0.5 * torch.log(2 * np.pi * np.e * torch.var(action_distributions))
         
-        # Apply exploration bonus if provided
+        # 探索损失：负熵（鼓励探索）
+        exploration_loss = -entropy
+        
+        # 如果有探索奖励，加入考虑
         if exploration_bonus is not None:
-            exploration_loss = -entropy - exploration_bonus.mean()
-        else:
-            exploration_loss = -entropy
+            exploration_loss -= exploration_bonus.mean()
         
         return exploration_loss
     
@@ -247,77 +222,64 @@ class DecPOMDPLossComputer:
                            values, returns, private_features=None, public_features=None, 
                            others_features=None, others_actions=None, active_masks=None):
         """
-        Calculate total loss for Dec-POMDP setting
-        
-        Combines all loss components with appropriate weights
+        计算总损失
         
         Args:
-            action_log_probs: Current policy action log probabilities
-            old_action_log_probs: Old policy action log probabilities
-            advantages: Advantage function values
-            values: Value function predictions
-            returns: Returns
-            private_features: Private information features
-            public_features: Public information features
-            others_features: Other agents' information features
-            others_actions: Other agents' actions
-            active_masks: Active masks
+            action_log_probs: 当前策略的动作对数概率
+            old_action_log_probs: 旧策略的动作对数概率
+            advantages: 优势函数值
+            values: 价值函数预测
+            returns: 回报
+            private_features: 私有信息特征
+            public_features: 公共信息特征
+            others_features: 他者信息特征
+            others_actions: 他者动作
+            active_masks: 激活掩码
             
         Returns:
-            dict: Dictionary containing all loss components and total loss
+            dict: 包含所有损失的详细字典
         """
-        # Compute basic PPO loss
-        ppo_loss_dict = self.compute_ppo_loss(
+        # 基础PPO损失
+        ppo_losses = self.compute_ppo_loss(
             action_log_probs, old_action_log_probs, advantages, values, returns, active_masks
         )
         
-        # Extract policy and value losses
-        policy_loss = ppo_loss_dict['policy_loss']
-        value_loss = ppo_loss_dict['value_loss']
-        
-        # Initialize additional losses
-        uncertainty_loss = torch.tensor(0.0, device=self.device)
-        collaboration_loss = torch.tensor(0.0, device=self.device)
-        information_quality_loss = torch.tensor(0.0, device=self.device)
-        exploration_loss = torch.tensor(0.0, device=self.device)
-        
-        # Compute additional losses if features are provided
-        if private_features is not None and public_features is not None and others_features is not None:
-            uncertainty_loss = self.compute_uncertainty_loss(
-                private_features, public_features, others_features
-            )
-        
-        if others_actions is not None:
-            collaboration_loss = self.compute_collaboration_loss(
-                action_log_probs.exp(), others_actions
-            )
-        
-        # Compute total loss
-        total_loss = (
-            policy_loss + 
-            self.value_loss_coef * value_loss +
-            self.uncertainty_weight * uncertainty_loss +
-            self.collaboration_weight * collaboration_loss +
-            self.information_quality_weight * information_quality_loss +
-            self.exploration_weight * exploration_loss
+        # Dec-POMDP特定损失
+        uncertainty_loss = self.compute_uncertainty_loss(
+            private_features, public_features, others_features
         )
         
-        # Return all loss components
+        collaboration_loss = self.compute_collaboration_loss(
+            None, others_actions  # 简化版本，暂时不使用动作
+        )
+        
+        # 计算总损失
+        total_policy_loss = (
+            ppo_losses['policy_loss'] +
+            self.uncertainty_weight * uncertainty_loss +
+            self.collaboration_weight * collaboration_loss
+        )
+        
+        total_value_loss = self.value_loss_coef * ppo_losses['value_loss']
+        total_loss = total_policy_loss + total_value_loss
+        
         return {
             'total_loss': total_loss,
-            'policy_loss': policy_loss,
-            'value_loss': value_loss,
+            'total_policy_loss': total_policy_loss,
+            'total_value_loss': total_value_loss,
+            'ppo_policy_loss': ppo_losses['policy_loss'],
+            'ppo_value_loss': ppo_losses['value_loss'],
             'uncertainty_loss': uncertainty_loss,
             'collaboration_loss': collaboration_loss,
-            'information_quality_loss': information_quality_loss,
-            'exploration_loss': exploration_loss
+            'ratio_mean': ppo_losses['ratio_mean'],
+            'ratio_std': ppo_losses['ratio_std']
         }
 
 class DecPOMDPTrainer:
     """
-    Dec-POMDP Trainer
+    Dec-POMDP训练器
     
-    Integrates Dec-POMDP loss functions with policy optimization
+    集成Dec-POMDP损失函数的训练器
     """
     
     def __init__(self, policy, dec_pomdp_config: DecPOMDPConfig, device=torch.device("cpu")):
@@ -325,100 +287,82 @@ class DecPOMDPTrainer:
         self.config = dec_pomdp_config
         self.device = device
         
-        # Create loss computer
+        # 创建损失计算器
         self.loss_computer = DecPOMDPLossComputer(dec_pomdp_config, device)
         
-        # Optimizer parameters
-        self.max_grad_norm = 0.5
-        
-        # Training statistics
+        # 训练统计
         self.training_stats = {
-            'policy_loss': [],
-            'value_loss': [],
-            'uncertainty_loss': [],
-            'collaboration_loss': [],
-            'total_loss': []
+            'total_updates': 0,
+            'loss_history': [],
+            'uncertainty_history': [],
+            'collaboration_history': []
         }
     
     def update_policy(self, samples, update_actor=True):
         """
-        Update policy using Dec-POMDP loss functions
+        更新策略
         
         Args:
-            samples: Dictionary containing sampled experiences
-            update_actor: Whether to update actor network
+            samples: 训练样本
+            update_actor: 是否更新actor
             
         Returns:
-            dict: Dictionary containing training statistics
+            dict: 训练统计信息
         """
-        # Extract sample data
-        share_obs_batch = samples['share_obs']
-        obs_batch = samples['obs']
-        actions_batch = samples['actions']
-        value_preds_batch = samples['value_preds']
-        return_batch = samples['returns']
-        old_action_log_probs_batch = samples['action_log_probs']
-        adv_targ = samples['advantages']
-        active_masks_batch = samples.get('active_masks', None)
+        # 解析样本数据
+        observations = samples.get('observations')
+        actions = samples.get('actions')
+        old_action_log_probs = samples.get('old_action_log_probs')
+        advantages = samples.get('advantages')
+        values = samples.get('values')
+        returns = samples.get('returns')
         
-        # Extract Dec-POMDP specific data if available
-        private_features = samples.get('private_features', None)
-        public_features = samples.get('public_features', None)
-        others_features = samples.get('others_features', None)
-        others_actions = samples.get('others_actions', None)
+        # 解析Dec-POMDP特定信息
+        private_features = samples.get('private_features')
+        public_features = samples.get('public_features')
+        others_features = samples.get('others_features')
+        others_actions = samples.get('others_actions')
         
-        # Convert to tensors
-        share_obs_batch = torch.FloatTensor(share_obs_batch).to(self.device)
-        obs_batch = torch.FloatTensor(obs_batch).to(self.device)
-        actions_batch = torch.FloatTensor(actions_batch).to(self.device)
-        value_preds_batch = torch.FloatTensor(value_preds_batch).to(self.device)
-        return_batch = torch.FloatTensor(return_batch).to(self.device)
-        old_action_log_probs_batch = torch.FloatTensor(old_action_log_probs_batch).to(self.device)
-        adv_targ = torch.FloatTensor(adv_targ).to(self.device)
-        
-        if active_masks_batch is not None:
-            active_masks_batch = torch.FloatTensor(active_masks_batch).to(self.device)
-        
-        # Evaluate actions
-        values, action_log_probs, dist_entropy = self.policy.evaluate_actions(
-            share_obs_batch, obs_batch, actions_batch
+        # 前向传播
+        current_policy_outputs = self.policy.evaluate_actions(
+            observations, actions
         )
         
-        # Compute Dec-POMDP losses
+        old_policy_outputs = {
+            'action_log_probs': old_action_log_probs
+        }
+        
+        # 计算损失
         loss_dict = self.loss_computer.compute_total_loss(
-            action_log_probs, old_action_log_probs_batch, adv_targ,
-            values, return_batch, private_features, public_features,
-            others_features, others_actions, active_masks_batch
+            current_policy_outputs.get('action_log_probs'),
+            old_policy_outputs.get('action_log_probs'),
+            advantages,
+            values,
+            returns,
+            private_features,
+            public_features,
+            others_features,
+            others_actions
         )
         
-        # Extract losses
-        total_loss = loss_dict['total_loss']
-        policy_loss = loss_dict['policy_loss']
-        value_loss = loss_dict['value_loss']
-        uncertainty_loss = loss_dict['uncertainty_loss']
-        collaboration_loss = loss_dict['collaboration_loss']
-        
-        # Update actor
+        # 更新网络
         if update_actor:
-            self.policy.optimizer.zero_grad()
-            total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
-            self.policy.optimizer.step()
+            self.policy.actor_optimizer.zero_grad()
+            loss_dict['total_policy_loss'].backward(retain_graph=True)
+            self.policy.actor_optimizer.step()
         
-        # Update training statistics
-        self.training_stats['policy_loss'].append(policy_loss.item())
-        self.training_stats['value_loss'].append(value_loss.item())
-        self.training_stats['uncertainty_loss'].append(uncertainty_loss.item())
-        self.training_stats['collaboration_loss'].append(collaboration_loss.item())
-        self.training_stats['total_loss'].append(total_loss.item())
+        self.policy.critic_optimizer.zero_grad()
+        loss_dict['total_value_loss'].backward()
+        self.policy.critic_optimizer.step()
+        
+        # 更新训练统计
+        self.training_stats['total_updates'] += 1
+        self.training_stats['loss_history'].append(loss_dict['total_loss'].item())
+        self.training_stats['uncertainty_history'].append(loss_dict['uncertainty_loss'].item())
+        self.training_stats['collaboration_history'].append(loss_dict['collaboration_loss'].item())
         
         return loss_dict
     
     def get_training_stats(self):
-        """
-        Get training statistics
-        
-        Returns:
-            dict: Dictionary containing training statistics
-        """
-        return {k: np.mean(v) if v else 0.0 for k, v in self.training_stats.items()} 
+        """获取训练统计信息"""
+        return self.training_stats.copy() 

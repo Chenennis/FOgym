@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-FOSQDDPG Dec-POMDP Policy Network
+FOSQDDPG Dec-POMDP策略网络
 
-Provides Dec-POMDP-aware Actor-Critic networks for FOSQDDPG algorithm
+为FOSQDDPG算法提供Dec-POMDP感知的Actor-Critic网络
 """
 
 import torch
@@ -12,7 +12,7 @@ from typing import Dict, Optional, Any
 
 
 class DecPOMDPFOSQDDPGActor(nn.Module):
-    """FOSQDDPG Actor network, supporting Shapley value fairness allocation"""
+    """FOSQDDPG Actor网络，支持Shapley值公平分配"""
     
     def __init__(self, private_dim=40, public_dim=18, others_dim=15, 
                  action_dim=36, hidden_dim=256, max_action=1.0,
@@ -22,7 +22,7 @@ class DecPOMDPFOSQDDPGActor(nn.Module):
         self.enable_other_manager_info = enable_other_manager_info
         self.max_action = max_action
         
-        # Encoder networks
+        # 编码器网络
         self.private_encoder = nn.Sequential(
             nn.Linear(private_dim, 128), nn.ReLU(),
             nn.Linear(128, 64), nn.ReLU()
@@ -42,25 +42,25 @@ class DecPOMDPFOSQDDPGActor(nn.Module):
         else:
             fusion_dim = 64 + 16  # 80
         
-        # Shapley feature encoder
+        # Shapley特征编码器
         self.shapley_encoder = nn.Sequential(
             nn.Linear(2, 8), nn.ReLU(),
             nn.Linear(8, 4), nn.ReLU()
         )
         
-        # Fusion network
+        # 融合网络
         self.fusion_network = nn.Sequential(
             nn.Linear(fusion_dim + 4, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.ReLU()
         )
         
-        # Action head
+        # 动作头
         self.action_head = nn.Sequential(
             nn.Linear(hidden_dim, action_dim),
             nn.Tanh()
         )
         
-        # Fairness adjustment layer
+        # 公平性调整层
         self.fairness_adjustment = nn.Sequential(
             nn.Linear(hidden_dim + 4, action_dim),
             nn.Tanh()
@@ -68,10 +68,10 @@ class DecPOMDPFOSQDDPGActor(nn.Module):
     
     def forward(self, private_obs, public_obs, others_obs=None, 
                 fairness_score=None, shapley_weight=None):
-        """Forward pass"""
+        """前向传播"""
         batch_size = private_obs.size(0)
         
-        # Encode each observation layer
+        # 编码各层观测
         private_features = self.private_encoder(private_obs)
         public_features = self.public_encoder(public_obs)
         
@@ -81,25 +81,25 @@ class DecPOMDPFOSQDDPGActor(nn.Module):
         else:
             combined_features = torch.cat([private_features, public_features], dim=1)
         
-        # Process Shapley features
+        # 处理Shapley特征
         if fairness_score is not None and shapley_weight is not None:
             shapley_features = torch.cat([fairness_score, shapley_weight], dim=1)
             shapley_encoded = self.shapley_encoder(shapley_features)
         else:
             shapley_encoded = torch.zeros(batch_size, 4, device=private_obs.device)
         
-        # Fuse all features
+        # 融合所有特征
         total_features = torch.cat([combined_features, shapley_encoded], dim=1)
         fused_features = self.fusion_network(total_features)
         
-        # Generate base actions
+        # 生成基础动作
         base_actions = self.action_head(fused_features)
         
-        # Fairness adjustment
+        # 公平性调整
         fairness_input = torch.cat([fused_features, shapley_encoded], dim=1)
         fairness_adjustment = self.fairness_adjustment(fairness_input)
         
-        # Fairness weighting
+        # 公平性加权
         fairness_factor = fairness_score.mean() if fairness_score is not None else 1.0
         adjusted_actions = (fairness_factor * base_actions + 
                           (1 - fairness_factor) * fairness_adjustment * 0.3)
@@ -108,7 +108,7 @@ class DecPOMDPFOSQDDPGActor(nn.Module):
 
 
 class DecPOMDPFOSQDDPGCritic(nn.Module):
-    """FOSQDDPG Critic network, supporting Shapley value decomposition"""
+    """FOSQDDPG Critic网络，支持Shapley值分解"""
     
     def __init__(self, n_agents=4, private_dim=40, public_dim=18, others_dim=15,
                  action_dim=36, hidden_dim=256, enable_other_manager_info=True):
@@ -116,12 +116,12 @@ class DecPOMDPFOSQDDPGCritic(nn.Module):
         
         self.n_agents = n_agents
         
-        # Calculate total dimensions
+        # 计算总维度
         others_dim_actual = others_dim if enable_other_manager_info else 0
         total_state_dim = n_agents * (private_dim + public_dim + others_dim_actual)
         total_action_dim = n_agents * action_dim
         
-        # Global encoder
+        # 全局编码器
         self.global_state_encoder = nn.Sequential(
             nn.Linear(total_state_dim, hidden_dim * 2), nn.ReLU(),
             nn.Linear(hidden_dim * 2, hidden_dim), nn.ReLU()
@@ -132,13 +132,13 @@ class DecPOMDPFOSQDDPGCritic(nn.Module):
             nn.Linear(hidden_dim, hidden_dim // 2), nn.ReLU()
         )
         
-        # Fairness encoder
+        # 公平性编码器
         self.fairness_encoder = nn.Sequential(
             nn.Linear(n_agents * 2, 32), nn.ReLU(),
             nn.Linear(32, 16), nn.ReLU()
         )
         
-        # Q network
+        # Q网络
         q_input_dim = hidden_dim + hidden_dim // 2 + 16
         self.q_network = nn.Sequential(
             nn.Linear(q_input_dim, hidden_dim), nn.ReLU(),
@@ -146,7 +146,7 @@ class DecPOMDPFOSQDDPGCritic(nn.Module):
             nn.Linear(hidden_dim // 2, 1)
         )
         
-        # Shapley decomposition network
+        # Shapley分解网络
         self.shapley_decomposition = nn.Sequential(
             nn.Linear(q_input_dim, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, n_agents),
@@ -154,23 +154,23 @@ class DecPOMDPFOSQDDPGCritic(nn.Module):
         )
     
     def forward(self, global_states, global_actions, fairness_features=None):
-        """Forward pass"""
+        """前向传播"""
         batch_size = global_states.size(0)
         
-        # Encode global features
+        # 编码全局特征
         state_features = self.global_state_encoder(global_states)
         action_features = self.global_action_encoder(global_actions)
         
-        # Process fairness features
+        # 处理公平性特征
         if fairness_features is not None:
             fairness_encoded = self.fairness_encoder(fairness_features)
         else:
             fairness_encoded = torch.zeros(batch_size, 16, device=global_states.device)
         
-        # Feature fusion
+        # 特征融合
         combined_features = torch.cat([state_features, action_features, fairness_encoded], dim=1)
         
-        # Calculate Q-value and Shapley decomposition
+        # 计算Q值和Shapley分解
         q_value = self.q_network(combined_features)
         shapley_contributions = self.shapley_decomposition(combined_features)
         
@@ -183,7 +183,7 @@ class DecPOMDPFOSQDDPGCritic(nn.Module):
 
 
 class DecPOMDPFOSQDDPGPolicy:
-    """FOSQDDPG Policy Manager"""
+    """FOSQDDPG策略管理器"""
     
     def __init__(self, n_agents=4, private_dim=40, public_dim=18, others_dim=15,
                  action_dim=36, hidden_dim=256, max_action=1.0, device="cpu",
@@ -192,7 +192,7 @@ class DecPOMDPFOSQDDPGPolicy:
         self.device = torch.device(device)
         self.enable_other_manager_info = enable_other_manager_info
         
-        # Create networks
+        # 创建网络
         self.actor = DecPOMDPFOSQDDPGActor(
             private_dim, public_dim, others_dim, action_dim, 
             hidden_dim, max_action, enable_other_manager_info
@@ -213,17 +213,17 @@ class DecPOMDPFOSQDDPGPolicy:
             action_dim, hidden_dim, enable_other_manager_info
         ).to(self.device)
         
-        # Copy parameters
+        # 复制参数
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.critic_target.load_state_dict(self.critic.state_dict())
         
-        # Optimizers
+        # 优化器
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=1e-4)
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=1e-3)
     
     def select_action(self, adapted_obs: Dict[str, torch.Tensor], 
                      deterministic=False) -> np.ndarray:
-        """Select action"""
+        """选择动作"""
         self.actor.eval()
         
         with torch.no_grad():
@@ -240,7 +240,7 @@ class DecPOMDPFOSQDDPGPolicy:
         return action.cpu().numpy().flatten()
     
     def update_target_networks(self):
-        """Update target networks"""
+        """更新目标网络"""
         tau = 0.005
         
         for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
@@ -250,7 +250,7 @@ class DecPOMDPFOSQDDPGPolicy:
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
     
     def get_network_info(self) -> Dict[str, Any]:
-        """Get network information"""
+        """获取网络信息"""
         actor_params = sum(p.numel() for p in self.actor.parameters())
         critic_params = sum(p.numel() for p in self.critic.parameters())
         
