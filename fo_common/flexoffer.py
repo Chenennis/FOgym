@@ -5,92 +5,92 @@ import numpy as np
 
 @dataclass
 class FOSlice:
-    """FlexOffer时间片 - 代表特定时间段内的能量需求/提供"""
-    slice_id: int                    # 时间片ID (在小时内的序号)
-    start_time: datetime            # 开始时间
-    end_time: datetime              # 结束时间  
-    energy_min: float               # 最小能量需求/提供 (kWh)
-    energy_max: float               # 最大能量需求/提供 (kWh)
-    duration_minutes: float         # 时间片长度(分钟)
-    device_type: str = "unknown"    # 设备类型
-    device_id: str = ""             # 设备ID
-    priority: int = 3               # 优先级 (1-5, 1最高)
-    flexibility_factor: float = 0.5 # 灵活性因子 [0, 1]
+    """FlexOffer slice - represents energy demand/supply within a specific time period"""
+    slice_id: int                    # slice ID (number in hour)
+    start_time: datetime            # start time
+    end_time: datetime              # end time  
+    energy_min: float               # minimum energy demand/supply (kWh)
+    energy_max: float               # maximum energy demand/supply (kWh)
+    duration_minutes: float         # slice duration (minutes)
+    device_type: str = "unknown"    # device type
+    device_id: str = ""             # device ID
+    priority: int = 3               # priority (1-5, 1 highest)
+    flexibility_factor: float = 0.5 # flexibility factor [0, 1]
     
     def get_duration_hours(self) -> float:
-        """获取时间片长度（小时）"""
+        """get slice duration (hours)"""
         return self.duration_minutes / 60.0
     
     def get_energy_range(self) -> float:
-        """获取能量范围"""
+        """get energy range"""
         return self.energy_max - self.energy_min
     
     def get_average_energy(self) -> float:
-        """获取平均能量"""
+        """get average energy"""
         return (self.energy_min + self.energy_max) / 2.0
 
 @dataclass  
 class FlexOffer:
-    """标准FlexOffer (FO) - 代表一小时内的能量需求/提供配置文件"""
+    """standard FlexOffer (FO) - represents energy demand/supply profile within an hour"""
     fo_id: str                      # FlexOffer ID
-    hour: int                       # 小时 (0-23)
-    start_time: datetime            # 开始时间
-    end_time: datetime              # 结束时间
-    device_id: str                  # 设备ID
-    device_type: str                # 设备类型
-    slices: List[FOSlice]           # 时间片列表
-    total_energy_min: float = 0.0   # 总最小能量
-    total_energy_max: float = 0.0   # 总最大能量
-    profile_length: int = 0         # 轮廓长度(非零slice数量)
-    time_flexibility: float = 0.0   # 时间灵活性
+    hour: int                       # hour (0-23)
+    start_time: datetime            # start time
+    end_time: datetime              # end time
+    device_id: str                  # device ID
+    device_type: str                # device type
+    slices: List[FOSlice]           # slice list
+    total_energy_min: float = 0.0   # total minimum energy
+    total_energy_max: float = 0.0   # total maximum energy
+    profile_length: int = 0         # profile length (non-zero slice count)
+    time_flexibility: float = 0.0   # time flexibility
     
     def __post_init__(self):
-        """初始化后处理"""
+        """post-initialization processing"""
         self._calculate_properties()
     
     def _calculate_properties(self):
-        """计算FO的基本属性"""
+        """calculate FO basic properties"""
         if self.slices:
             self.total_energy_min = sum(s.energy_min for s in self.slices)
             self.total_energy_max = sum(s.energy_max for s in self.slices)
             
-            # 计算轮廓长度（非零能量的slice数量）
+            # calculate profile length (non-zero energy slice count)
             self.profile_length = sum(1 for s in self.slices 
                                     if s.energy_min != 0 or s.energy_max != 0)
             
-            # 计算时间灵活性（平均能量范围）
+            # calculate time flexibility (average energy range)
             if self.profile_length > 0:
                 self.time_flexibility = sum(s.get_energy_range() for s in self.slices) / self.profile_length
             else:
                 self.time_flexibility = 0.0
     
     def add_slice(self, slice: FOSlice):
-        """添加时间片"""
+        """add slice"""
         self.slices.append(slice)
         self._calculate_properties()
     
     def get_slice(self, slice_id: int) -> Optional[FOSlice]:
-        """获取指定ID的时间片"""
+        """get slice by ID"""
         for slice in self.slices:
             if slice.slice_id == slice_id:
                 return slice
         return None
     
     def get_energy_bounds(self, slice_id: int) -> Tuple[float, float]:
-        """获取指定时间片的能量边界"""
+        """get energy bounds of the slice"""
         slice = self.get_slice(slice_id)
         if slice:
             return slice.energy_min, slice.energy_max
         return 0.0, 0.0
     
     def get_energy_profile(self) -> Tuple[List[float], List[float]]:
-        """获取能量轮廓"""
+        """get energy profile"""
         e_min = [s.energy_min for s in self.slices]
         e_max = [s.energy_max for s in self.slices]
         return e_min, e_max
     
     def get_power_profile(self) -> Tuple[List[float], List[float]]:
-        """获取功率轮廓 (kW)"""
+        """get power profile (kW)"""
         p_min = []
         p_max = []
         for s in self.slices:
@@ -99,34 +99,34 @@ class FlexOffer:
                 p_min.append(s.energy_min / duration_hours)
                 p_max.append(s.energy_max / duration_hours)
             else:
-                # 处理持续时间为0的情况
+                # handle zero duration
                 p_min.append(0.0)
                 p_max.append(0.0)
         return p_min, p_max
     
     def profile_size(self) -> int:
-        """获取轮廓尺寸"""
+        """get profile size"""
         return self.profile_length
     
     def tf(self) -> float:
-        """获取时间灵活性"""
+        """get time flexibility"""
         return self.time_flexibility
     
     def is_compatible_with(self, other: 'FlexOffer', tf_threshold: float = 1.0) -> bool:
-        """检查与另一个FO的兼容性"""
+        """check compatibility with another FO"""
         if not isinstance(other, FlexOffer):
             return False
         
-        # 检查时间范围是否一致
+        # check time range consistency
         if len(self.slices) != len(other.slices):
             return False
         
-        # 检查时间灵活性是否在阈值内
+        # check time flexibility within threshold
         tf_diff = abs(self.time_flexibility - other.time_flexibility)
         return tf_diff <= tf_threshold
     
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典格式"""
+        """convert to dictionary format"""
         return {
             'fo_id': self.fo_id,
             'hour': self.hour,
@@ -157,8 +157,8 @@ class FlexOffer:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'FlexOffer':
-        """从字典创建FlexOffer"""
-        # 恢复时间片
+        """create FlexOffer from dictionary"""
+        # restore slices
         slices = []
         for slice_data in data['slices']:
             slice = FOSlice(
@@ -186,28 +186,28 @@ class FlexOffer:
         )
 
 class FOFactory:
-    """FlexOffer工厂类 - 用于创建标准化的FlexOffer"""
+    """FlexOffer factory class - for creating standardized FlexOffer"""
     
     @staticmethod
     def create_hourly_fo(device_id: str, device_type: str, hour: int, 
                         base_time: datetime, slices_per_hour: int = 30,
                         energy_profile: Optional[List[Tuple[float, float]]] = None) -> FlexOffer:
         """
-        创建小时级FlexOffer
+        create hourly FlexOffer
         
         Args:
-            device_id: 设备ID
-            device_type: 设备类型
-            hour: 小时 (0-23)
-            base_time: 基准时间
-            slices_per_hour: 每小时的时间片数量（默认30，每片2分钟）
-            energy_profile: 能量轮廓 [(e_min, e_max), ...]
+            device_id: device ID
+            device_type: device type
+            hour: hour (0-23)
+            base_time: base time
+            slices_per_hour: number of slices per hour (default 30, 2 minutes per slice)
+            energy_profile: energy profile [(e_min, e_max), ...]
         """
         fo_id = f"{device_id}_fo_h{hour}"
         start_time = base_time.replace(hour=hour, minute=0, second=0, microsecond=0)
         end_time = start_time + timedelta(hours=1)
         
-        # 计算每个时间片的长度
+        # calculate slice duration
         slice_duration_minutes = 60.0 / slices_per_hour
         
         slices = []
@@ -215,11 +215,11 @@ class FOFactory:
             slice_start = start_time + timedelta(minutes=i * slice_duration_minutes)
             slice_end = slice_start + timedelta(minutes=slice_duration_minutes)
             
-            # 获取能量值
+            # get energy value
             if energy_profile and i < len(energy_profile):
                 e_min, e_max = energy_profile[i]
             else:
-                # 默认值
+                # default value
                 e_min, e_max = 0.0, 0.0
             
             slice = FOSlice(
@@ -247,12 +247,12 @@ class FOFactory:
     @staticmethod
     def convert_from_sfo(sfo_data: Dict[str, Any], device_id: str, 
                         device_type: str, hour: int, base_time: datetime) -> FlexOffer:
-        """从SFO数据转换为标准FO"""
-        # 假设SFO数据包含时间序列的能量边界
+        """convert SFO data to standard FO"""
+        # assume SFO data contains energy boundaries of time series
         e_min_list = sfo_data.get('e_min', [])
         e_max_list = sfo_data.get('e_max', [])
         
-        # 创建能量轮廓
+        # create energy profile
         energy_profile = [(e_min_list[i] if i < len(e_min_list) else 0.0,
                           e_max_list[i] if i < len(e_max_list) else 0.0)
                          for i in range(max(len(e_min_list), len(e_max_list), 30))]

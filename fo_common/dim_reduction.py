@@ -1,4 +1,4 @@
-"""维度降低功能"""
+"""dimension reduction"""
 
 import numpy as np
 from typing import Dict, List, Any, Optional, Union
@@ -8,15 +8,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 class FeatureProcessor:
-    """特征处理器，提供归一化和降维功能"""
+    """feature processor, provide normalization and dimension reduction"""
     
     def __init__(self, method: str = "none", n_components: int = None):
         """
-        初始化特征处理器
+        initialize feature processor
         
         Args:
-            method: 处理方法，可选："none", "pca", "autoencoder"
-            n_components: 降维后的维度，None表示自动决定
+            method: processing method, optional: "none", "pca", "autoencoder"
+            n_components: dimension after reduction, None means automatic decision
         """
         self.method = method
         self.n_components = n_components
@@ -27,10 +27,10 @@ class FeatureProcessor:
         
     def fit(self, features: np.ndarray) -> None:
         """
-        训练特征处理器
+        train feature processor
         
         Args:
-            features: 特征矩阵，形状为 [n_samples, n_features]
+            features: feature matrix, shape: [n_samples, n_features]
         """
         if len(features.shape) == 1:
             features = features.reshape(1, -1)
@@ -46,32 +46,32 @@ class FeatureProcessor:
             try:
                 from sklearn.decomposition import PCA
                 
-                # 确定组件数量
+                # determine the number of components
                 if self.n_components is None:
-                    # 自动选择能够解释95%方差的组件数量
+                    # automatically select the number of components that can explain 95% of the variance
                     self.n_components = min(features.shape[0], features.shape[1])
                     
                 self.processor = PCA(n_components=self.n_components)
                 self.processor.fit(features)
                 
-                # 计算实际输出维度
+                # calculate the actual output dimension
                 explained_variance_ratio = self.processor.explained_variance_ratio_
                 cumulative_variance = np.cumsum(explained_variance_ratio)
                 self.output_dim = np.sum(cumulative_variance <= 0.95) + 1
                 self.output_dim = min(self.output_dim, self.input_dim)
                 
                 self.is_fitted = True
-                logger.info(f"PCA拟合成功，输入维度: {self.input_dim}, 输出维度: {self.output_dim}")
+                logger.info(f"PCA fit successfully, input dimension: {self.input_dim}, output dimension: {self.output_dim}")
                 
             except Exception as e:
-                logger.error(f"PCA拟合失败: {e}")
+                logger.error(f"PCA fit failed: {e}")
                 self.method = "none"
                 self.output_dim = self.input_dim
                 self.is_fitted = True
                 
         elif self.method == "autoencoder":
             try:
-                # 简单自编码器实现
+                # autoencoder implementation
                 import torch
                 import torch.nn as nn
                 import torch.optim as optim
@@ -96,11 +96,11 @@ class FeatureProcessor:
                     def encode(self, x):
                         return self.encoder(x)
                 
-                # 确定隐藏层维度
+                # determine the hidden layer dimension
                 if self.n_components is None:
                     self.n_components = max(1, self.input_dim // 2)
                 
-                # 创建和训练自编码器
+                # create and train autoencoder
                 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
                 
                 self.processor = Autoencoder(self.input_dim, self.n_components).to(device)
@@ -109,45 +109,45 @@ class FeatureProcessor:
                 criterion = nn.MSELoss()
                 optimizer = optim.Adam(self.processor.parameters(), lr=0.001)
                 
-                # 简单训练
+                # training
                 for epoch in range(100):
-                    # 前向传播
+                    # forward propagation
                     outputs = self.processor(features_tensor)
                     loss = criterion(outputs, features_tensor)
                     
-                    # 反向传播和优化
+                    # backward propagation and optimization
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
                 
                 self.output_dim = self.n_components
                 self.is_fitted = True
-                logger.info(f"自编码器拟合成功，输入维度: {self.input_dim}, 输出维度: {self.output_dim}")
+                logger.info(f"autoencoder fit successfully, input dimension: {self.input_dim}, output dimension: {self.output_dim}")
                 
             except Exception as e:
-                logger.error(f"自编码器拟合失败: {e}")
-                logger.warning("回退到不进行降维")
+                logger.error(f"autoencoder fit failed: {e}")
+                logger.warning("fallback to no dimension reduction")
                 self.method = "none"
                 self.output_dim = self.input_dim
                 self.is_fitted = True
         else:
-            logger.warning(f"未知的降维方法: {self.method}，将不进行降维")
+            logger.warning(f"unknown dimension reduction method: {self.method}, will not perform dimension reduction")
             self.method = "none"
             self.output_dim = self.input_dim
             self.is_fitted = True
             
     def transform(self, features: np.ndarray) -> np.ndarray:
         """
-        转换特征
+        transform features
         
         Args:
-            features: 输入特征，形状为 [n_samples, n_features] 或 [n_features]
+            features: input features, shape: [n_samples, n_features] or [n_features]
             
         Returns:
-            转换后的特征
+            transformed features
         """
         if not self.is_fitted:
-            logger.warning("处理器未拟合，返回原始特征")
+            logger.warning("processor not fitted, return original features")
             return features
             
         single_sample = False
@@ -155,17 +155,17 @@ class FeatureProcessor:
             features = features.reshape(1, -1)
             single_sample = True
             
-        # 确保输入维度正确
+        # ensure the input dimension is correct
         if features.shape[1] != self.input_dim:
-            logger.error(f"输入维度不匹配，期望 {self.input_dim}，实际 {features.shape[1]}")
-            # 尝试通过零填充或截断修复
+            logger.error(f"input dimension mismatch, expected {self.input_dim}, actual {features.shape[1]}")
+            # try to fix by zero padding or truncation
             if features.shape[1] < self.input_dim:
-                # 零填充
+                # zero padding
                 padded = np.zeros((features.shape[0], self.input_dim))
                 padded[:, :features.shape[1]] = features
                 features = padded
             else:
-                # 截断
+                # truncation
                 features = features[:, :self.input_dim]
                 
         if self.method == "none":
@@ -173,10 +173,10 @@ class FeatureProcessor:
         elif self.method == "pca":
             try:
                 result = self.processor.transform(features)
-                # 只保留解释95%方差的组件
+                # only keep the components that can explain 95% of the variance
                 result = result[:, :self.output_dim]
             except Exception as e:
-                logger.error(f"PCA转换失败: {e}")
+                logger.error(f"PCA transform failed: {e}")
                 result = features
         elif self.method == "autoencoder":
             try:
@@ -188,7 +188,7 @@ class FeatureProcessor:
                     encoded = self.processor.encode(features_tensor)
                     result = encoded.cpu().numpy()
             except Exception as e:
-                logger.error(f"自编码器转换失败: {e}")
+                logger.error(f"autoencoder transform failed: {e}")
                 result = features
                 
         if single_sample:
@@ -197,7 +197,7 @@ class FeatureProcessor:
         return result
     
     def get_output_dim(self) -> int:
-        """获取输出维度"""
+        """get output dimension"""
         if not self.is_fitted:
-            raise ValueError("处理器未拟合，无法获取输出维度")
+            raise ValueError("processor not fitted, cannot get output dimension")
         return self.output_dim 

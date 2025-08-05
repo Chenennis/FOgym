@@ -1,6 +1,5 @@
 """
-动态观测质量管理模块
-实现观测质量的动态变化机制，包括网络状况模拟、质量评估等
+dynamic observation quality management module
 """
 
 import numpy as np
@@ -10,7 +9,7 @@ from enum import Enum
 import math
 
 class NetworkCondition(Enum):
-    """网络状况枚举"""
+    """network condition enumeration"""
     EXCELLENT = "excellent"
     GOOD = "good"
     FAIR = "fair"
@@ -19,7 +18,7 @@ class NetworkCondition(Enum):
 
 @dataclass
 class ObservationQualityMetrics:
-    """观测质量指标"""
+    """observation quality metrics"""
     accuracy: float = 1.0          # 准确度 [0,1]
     completeness: float = 1.0      # 完整性 [0,1]
     timeliness: float = 1.0        # 及时性 [0,1]
@@ -27,7 +26,7 @@ class ObservationQualityMetrics:
     consistency: float = 1.0       # 一致性 [0,1]
     
     def overall_quality(self) -> float:
-        """计算总体质量得分"""
+        """calculate overall quality score"""
         return float(np.mean([
             self.accuracy,
             self.completeness,
@@ -37,43 +36,43 @@ class ObservationQualityMetrics:
         ]))
 
 class DynamicObservationQuality:
-    """动态观测质量管理器"""
+    """dynamic observation quality manager"""
     
     def __init__(self):
-        # 网络状况历史
+        # network condition history
         self.network_history: List[NetworkCondition] = []
         
-        # Manager间的通信质量
+        # communication quality between managers
         self.communication_quality: Dict[str, float] = {}
         
-        # 观测质量历史
+        # observation quality history
         self.quality_history: Dict[str, List[ObservationQualityMetrics]] = {}
         
-        # 时间步数
+        # time step
         self.current_step = 0
         
-        # 质量变化参数
+        # quality change parameters
         self.quality_params = {
-            'network_volatility': 0.1,      # 网络状况波动性
-            'degradation_rate': 0.02,       # 质量降级速率
-            'recovery_rate': 0.05,          # 质量恢复速率
-            'baseline_quality': 0.85,       # 基线质量
-            'min_quality': 0.3,             # 最低质量
-            'max_quality': 1.0,             # 最高质量
+            'network_volatility': 0.1,      # network condition volatility
+            'degradation_rate': 0.02,       # quality degradation rate
+            'recovery_rate': 0.05,          # quality recovery rate
+            'baseline_quality': 0.85,       # baseline quality
+            'min_quality': 0.3,             # minimum quality
+            'max_quality': 1.0,             # maximum quality
         }
     
     def update_network_condition(self) -> NetworkCondition:
         """
-        更新网络状况
-        基于马尔可夫链模拟网络状况变化
+        update network condition
+        based on Markov chain to simulate network condition change
         """
-        # 获取当前网络状况
+        # get current network condition
         if len(self.network_history) == 0:
             current_condition = NetworkCondition.GOOD
         else:
             current_condition = self.network_history[-1]
         
-        # 网络状况转移概率矩阵
+        # network condition transition probability matrix
         transition_probs = {
             NetworkCondition.EXCELLENT: {
                 NetworkCondition.EXCELLENT: 0.7,
@@ -112,15 +111,15 @@ class DynamicObservationQuality:
             }
         }
         
-        # 基于转移概率选择下一个状态
+        # based on transition probability to select the next state
         probs = transition_probs[current_condition]
         states = list(probs.keys())
         probabilities = list(probs.values())
         
-        # 使用随机数选择状态
+        # use random number to select the state
         random_value = np.random.random()
         cumulative_prob = 0.0
-        next_condition = states[0]  # 默认值
+        next_condition = states[0]  # default value
         
         for state, prob in zip(states, probabilities):
             cumulative_prob += prob
@@ -129,7 +128,7 @@ class DynamicObservationQuality:
                 break
         self.network_history.append(next_condition)
         
-        # 限制历史长度
+        # limit the history length
         if len(self.network_history) > 100:
             self.network_history = self.network_history[-100:]
         
@@ -137,13 +136,13 @@ class DynamicObservationQuality:
     
     def calculate_communication_quality(self, manager_i: str, manager_j: str) -> float:
         """
-        计算Manager间的通信质量
-        基于距离、网络状况、负载等因素
+        calculate communication quality between managers
+        based on distance, network condition, load, etc.
         """
-        # 获取当前网络状况
+        # get current network condition
         current_network = self.network_history[-1] if self.network_history else NetworkCondition.GOOD
         
-        # 网络状况对通信质量的影响
+        # network condition impact on communication quality
         network_impact = {
             NetworkCondition.EXCELLENT: 1.0,
             NetworkCondition.GOOD: 0.9,
@@ -152,29 +151,29 @@ class DynamicObservationQuality:
             NetworkCondition.CRITICAL: 0.3
         }
         
-        # 基础通信质量（模拟Manager间的地理距离和基础设施）
+        # base communication quality (simulate the geographic distance and infrastructure between managers)
         manager_ids = sorted([manager_i, manager_j])
         manager_pair_key = f"{manager_ids[0]}_{manager_ids[1]}"
         
         if manager_pair_key not in self.communication_quality:
-            # 初始化通信质量（基于Manager ID差异模拟距离）
+            # initialize communication quality (simulate the distance based on the difference of Manager ID)
             id_diff = abs(int(manager_i.split('_')[-1]) - int(manager_j.split('_')[-1]))
-            distance_factor = max(0.5, 1.0 - id_diff * 0.1)  # 距离越远质量越低
+            distance_factor = max(0.5, 1.0 - id_diff * 0.1)  # the lower the distance, the lower the quality
             
-            # 添加随机性
+            # add randomness
             random_factor = np.random.uniform(0.8, 1.2)
             
             base_quality = distance_factor * random_factor
             self.communication_quality[manager_pair_key] = np.clip(base_quality, 0.3, 1.0)
         
-        # 获取基础质量
+        # get base quality
         base_quality = self.communication_quality[manager_pair_key]
         
-        # 应用网络状况影响
+        # apply network condition impact
         current_quality = base_quality * network_impact[current_network]
         
-        # 添加时间变化（模拟网络拥塞）
-        time_factor = 1.0 + 0.1 * math.sin(self.current_step * 0.1)  # 周期性变化
+        # add time change (simulate network congestion)
+        time_factor = 1.0 + 0.1 * math.sin(self.current_step * 0.1)  # periodic change
         
         final_quality = current_quality * time_factor
         
@@ -183,9 +182,9 @@ class DynamicObservationQuality:
     def calculate_observation_quality(self, manager_id: str, 
                                     other_manager_ids: List[str]) -> ObservationQualityMetrics:
         """
-        计算Manager的观测质量指标
+        calculate observation quality metrics for a manager
         """
-        # 准确度：基于网络状况和噪声水平
+        # accuracy: based on network condition and noise level
         current_network = self.network_history[-1] if self.network_history else NetworkCondition.GOOD
         network_accuracy = {
             NetworkCondition.EXCELLENT: 0.98,
@@ -196,7 +195,7 @@ class DynamicObservationQuality:
         }
         accuracy = network_accuracy[current_network]
         
-        # 完整性：基于与其他Manager的通信质量
+        # completeness: based on communication quality with other managers
         communication_qualities = []
         for other_id in other_manager_ids:
             if other_id != manager_id:
@@ -208,21 +207,21 @@ class DynamicObservationQuality:
         else:
             completeness = 1.0
         
-        # 及时性：基于网络延迟和系统负载
+        # timeliness: based on network delay and system load
         timeliness = network_accuracy[current_network] * np.random.uniform(0.9, 1.0)
         
-        # 可靠性：基于历史观测质量的一致性
+        # reliability: based on consistency of historical observation quality
         if manager_id in self.quality_history and len(self.quality_history[manager_id]) > 0:
             recent_qualities = [q.overall_quality() for q in self.quality_history[manager_id][-10:]]
             quality_variance = np.var(recent_qualities)
-            reliability = max(0.5, 1.0 - quality_variance * 2)  # 方差越大可靠性越低
+            reliability = max(0.5, 1.0 - quality_variance * 2)  # the higher the variance, the lower the reliability
         else:
             reliability = 0.9
         
-        # 一致性：基于观测值的时间一致性
-        consistency = np.random.uniform(0.85, 0.98)  # 模拟数据一致性
+        # consistency: based on time consistency of observation values
+        consistency = np.random.uniform(0.85, 0.98)  # simulate data consistency
         
-        # 应用随机波动
+        # apply random volatility
         volatility = self.quality_params['network_volatility']
         accuracy *= np.random.uniform(1 - volatility, 1 + volatility)
         completeness *= np.random.uniform(1 - volatility, 1 + volatility)
@@ -230,7 +229,7 @@ class DynamicObservationQuality:
         reliability *= np.random.uniform(1 - volatility, 1 + volatility)
         consistency *= np.random.uniform(1 - volatility, 1 + volatility)
         
-        # 确保在合理范围内
+        # ensure within reasonable range
         quality_metrics = ObservationQualityMetrics(
             accuracy=np.clip(accuracy, 0.3, 1.0),
             completeness=np.clip(completeness, 0.3, 1.0),
@@ -244,34 +243,34 @@ class DynamicObservationQuality:
     def apply_quality_degradation(self, observation: np.ndarray, 
                                 quality_metrics: ObservationQualityMetrics) -> np.ndarray:
         """
-        根据质量指标对观测应用降级效果
+        apply degradation effect to observation based on quality metrics
         """
         degraded_obs = observation.copy()
         
-        # 1. 准确度影响：添加噪声
+        # 1. accuracy impact: add noise
         if quality_metrics.accuracy < 1.0:
             noise_std = (1.0 - quality_metrics.accuracy) * 0.2
             noise = np.random.normal(0, noise_std, size=observation.shape)
             degraded_obs += noise
         
-        # 2. 完整性影响：随机置零部分观测
+        # 2. completeness impact: randomly set zero for some observations
         if quality_metrics.completeness < 1.0:
             missing_prob = (1.0 - quality_metrics.completeness) * 0.3
             missing_mask = np.random.random(observation.shape) < missing_prob
             degraded_obs[missing_mask] = 0.0
         
-        # 3. 及时性影响：使用历史观测值
+        # 3. timeliness impact: use historical observation values
         if quality_metrics.timeliness < 0.9:
-            # 这里简化处理，在实际环境中会使用历史观测
+            # here is a simplified processing, in the actual environment, historical observation will be used
             delay_factor = 1.0 - quality_metrics.timeliness
             degraded_obs *= (1.0 - delay_factor * 0.1)
         
-        # 4. 可靠性影响：添加系统性偏差
+        # 4. reliability impact: add systematic bias
         if quality_metrics.reliability < 0.9:
             bias = (1.0 - quality_metrics.reliability) * 0.1
             degraded_obs += bias
         
-        # 5. 一致性影响：添加随机扰动
+        # 5. consistency impact: add random perturbation
         if quality_metrics.consistency < 0.9:
             inconsistency = (1.0 - quality_metrics.consistency) * 0.15
             perturbation = np.random.uniform(-inconsistency, inconsistency, size=observation.shape)
@@ -280,26 +279,26 @@ class DynamicObservationQuality:
         return degraded_obs
     
     def update_quality_history(self, manager_id: str, quality_metrics: ObservationQualityMetrics):
-        """更新观测质量历史"""
+        """update observation quality history"""
         if manager_id not in self.quality_history:
             self.quality_history[manager_id] = []
         
         self.quality_history[manager_id].append(quality_metrics)
         
-        # 限制历史长度
+        # limit the history length
         if len(self.quality_history[manager_id]) > 50:
             self.quality_history[manager_id] = self.quality_history[manager_id][-50:]
     
     def step(self):
-        """执行一步更新"""
+        """execute one step update"""
         self.current_step += 1
         self.update_network_condition()
     
     def get_quality_report(self) -> Dict[str, Any]:
-        """获取质量报告"""
+        """get quality report"""
         current_network = self.network_history[-1] if self.network_history else NetworkCondition.GOOD
         
-        # 计算平均质量
+        # calculate average quality
         average_qualities = {}
         for manager_id, qualities in self.quality_history.items():
             if qualities:
@@ -316,7 +315,7 @@ class DynamicObservationQuality:
         }
     
     def reset(self):
-        """重置质量管理器"""
+        """reset quality manager"""
         self.network_history.clear()
         self.communication_quality.clear()
         self.quality_history.clear()

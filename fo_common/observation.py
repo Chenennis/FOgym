@@ -1,4 +1,4 @@
-"""全局观测空间管理"""
+"""global observation space manager"""
 
 import numpy as np
 from typing import Dict, List, Tuple, Any, Optional, Union, Callable
@@ -8,7 +8,7 @@ import os
 import gymnasium as gym
 from gymnasium import spaces
 
-# 导入相关功能
+# import related functions
 from fo_common.feature_extraction import (
     extract_generate_features,
     extract_aggregate_features,
@@ -20,18 +20,18 @@ from fo_common.feature_extraction import (
 from fo_common.dim_reduction import FeatureProcessor
 from fo_common.config import default_global_observation_config, get_observation_dimension
 
-# 创建日志记录器
+# create logger
 logger = logging.getLogger(__name__)
 
 class GlobalObservationManager:
-    """全局观测管理器，整合各模块观测空间"""
+    """global observation manager, integrate observation spaces of each module"""
     
     def __init__(self, config: Dict[str, Any] = None):
         """
-        初始化全局观测管理器
+        initialize global observation manager
         
         Args:
-            config: 配置字典，指定各模块观测权重和处理方式，如果为None则使用默认配置
+            config: configuration dictionary, specify observation weights and processing methods of each module, if None then use default configuration
         """
         self.config = config or default_global_observation_config
         self.feature_extractors = {
@@ -45,23 +45,23 @@ class GlobalObservationManager:
         self.module_envs = {}
         self.observation_space = None
         
-        # 初始化特征处理器
+        # initialize feature processors
         self._init_feature_processors()
         
-        # 计算观测空间
+        # calculate observation space
         self._init_observation_space()
         
-        logger.info(f"全局观测管理器初始化完成，观测空间维度: {self.get_observation_dim()}")
+        logger.info(f"global observation manager initialized, observation space dimension: {self.get_observation_dim()}")
         
     def _init_feature_processors(self) -> None:
-        """初始化特征处理器"""
+        """initialize feature processors"""
         for module, module_config in self.config.items():
             if module != "global" and module_config.get("enabled", True):
                 dim_reduction_method = module_config.get("dim_reduction", "none")
                 self.feature_processors[module] = FeatureProcessor(method=dim_reduction_method)
                 
     def _init_observation_space(self) -> None:
-        """初始化观测空间"""
+        """initialize observation space"""
         observation_dim = get_observation_dimension(self.config)
         
         self.observation_space = spaces.Box(
@@ -75,16 +75,16 @@ class GlobalObservationManager:
                        feature_extraction_fn: Optional[Callable] = None, 
                        weight: float = 1.0) -> None:
         """
-        注册一个模块及其环境实例
+        register a module and its environment instance
         
         Args:
-            module_name: 模块名称
-            env_instance: 环境实例，可以是gym.Env或其他类型
-            feature_extraction_fn: 特征提取函数，如果None则使用预定义函数
-            weight: 模块权重
+            module_name: module name
+            env_instance: environment instance, can be gym.Env or other types
+            feature_extraction_fn: feature extraction function, if None then use predefined function
+            weight: module weight
         """
         if module_name not in self.config:
-            logger.warning(f"模块 {module_name} 未在配置中定义，将使用默认配置")
+            logger.warning(f"module {module_name} not defined in configuration, using default configuration")
             self.config[module_name] = {
                 "enabled": True,
                 "weight": weight,
@@ -99,34 +99,34 @@ class GlobalObservationManager:
         if feature_extraction_fn is not None:
             self.feature_extractors[module_name] = feature_extraction_fn
             
-        logger.info(f"注册模块 {module_name}，权重: {weight}")
+        logger.info(f"register module {module_name}, weight: {weight}")
         
     def update_observation(self, module_name: str, observation: Union[np.ndarray, Dict[str, Any]]) -> None:
         """
-        更新特定模块的观测
+        update observation of a specific module
         
         Args:
-            module_name: 模块名称
-            observation: 观测数据
+            module_name: module name
+            observation: observation data
         """
         if module_name not in self.config or not self.config[module_name].get("enabled", True):
             return
             
         self.observation_cache[module_name] = observation
-        logger.debug(f"更新模块 {module_name} 的观测")
+        logger.debug(f"update observation of module {module_name}")
         
     def get_global_observation(self) -> np.ndarray:
         """
-        获取全局观测向量
+        get global observation vector
         
         Returns:
-            全局观测向量
+            global observation vector
         """
         if not self.observation_cache:
-            logger.warning("观测缓存为空，返回全零向量")
+            logger.warning("observation cache is empty, return zero vector")
             return np.zeros(self.get_observation_dim(), dtype=np.float32)
             
-        # 提取特征
+        # extract features
         features = {}
         for module_name, observation in self.observation_cache.items():
             if module_name in self.feature_extractors and self.config.get(module_name, {}).get("enabled", True):
@@ -134,14 +134,14 @@ class GlobalObservationManager:
                     extractor = self.feature_extractors[module_name]
                     module_config = self.config[module_name]
                     
-                    # 提取特征
+                    # extract features
                     module_features = extractor(observation, module_config)
                     
-                    # 应用降维（如果已配置）
+                    # apply dimensionality reduction (if configured)
                     if module_name in self.feature_processors:
                         processor = self.feature_processors[module_name]
                         if not processor.is_fitted and len(module_features) > 0:
-                            # 首次拟合处理器
+                            # first fit processor
                             processor.fit(module_features)
                         
                         if processor.is_fitted:
@@ -149,118 +149,116 @@ class GlobalObservationManager:
                             
                     features[module_name] = module_features
                 except Exception as e:
-                    logger.error(f"处理模块 {module_name} 的观测时出错: {e}")
+                    logger.error(f"error processing observation of module {module_name}: {e}")
         
-        # 计算模块间相关性
+        # calculate cross-module correlations
         try:
             correlations = compute_cross_module_correlations(self.observation_cache, self.config)
         except Exception as e:
-            logger.error(f"计算模块间相关性时出错: {e}")
-            # 默认所有相关性为0.5
+            logger.error(f"error calculating cross-module correlations: {e}")
+            # default all correlations are 0.5
             correlations = np.array([0.5] * 6, dtype=np.float32)
         
-        # 计算全局指标
+        # calculate global metrics
         try:
             global_metrics = compute_global_metrics(self.observation_cache, self.config)
         except Exception as e:
-            logger.error(f"计算全局指标时出错: {e}")
-            # 默认所有指标为0.7
+            logger.error(f"error calculating global metrics: {e}")
             global_features_count = len(self.config.get("global", {}).get("features", []))
             global_metrics = np.array([0.7] * global_features_count, dtype=np.float32)
         
-        # 组合所有特征
+        # combine all features
         all_features = []
         
-        # 添加各模块特征（按配置权重）
+        # add features of each module (by configuration weight)
         for module_name, module_config in self.config.items():
             if module_name != "global" and module_config.get("enabled", True):
                 if module_name in features:
-                    # 应用权重
+                    # apply weight
                     weight = module_config.get("weight", 1.0)
                     weighted_features = features[module_name] * weight
                     all_features.append(weighted_features)
         
-        # 添加相关性特征
+        # add correlations
         all_features.append(correlations)
         
-        # 添加全局指标
+        # add global metrics
         if self.config.get("global", {}).get("enabled", True):
             all_features.append(global_metrics)
         
-        # 合并所有特征
+        # merge all features
         if all_features:
             try:
-                # 先过滤掉空数组
+                # first filter out empty arrays
                 valid_features = [f for f in all_features if len(f) > 0]
                 if valid_features:
                     global_observation = np.concatenate(valid_features)
                 else:
                     global_observation = np.zeros(self.get_observation_dim(), dtype=np.float32)
             except Exception as e:
-                logger.error(f"合并特征时出错: {e}")
+                logger.error(f"error merging features: {e}")
                 global_observation = np.zeros(self.get_observation_dim(), dtype=np.float32)
         else:
             global_observation = np.zeros(self.get_observation_dim(), dtype=np.float32)
             
-        # 确保维度匹配
+        # ensure dimension matches
         expected_dim = self.get_observation_dim()
         if len(global_observation) != expected_dim:
-            logger.warning(f"全局观测维度不匹配，期望 {expected_dim}，实际 {len(global_observation)}")
+            logger.warning(f"global observation dimension mismatch, expected {expected_dim}, actual {len(global_observation)}")
             if len(global_observation) < expected_dim:
-                # 零填充
                 padded = np.zeros(expected_dim, dtype=np.float32)
                 padded[:len(global_observation)] = global_observation
                 global_observation = padded
             else:
-                # 截断
+                # truncate
                 global_observation = global_observation[:expected_dim]
-            logger.info(f"已调整全局观测维度为 {len(global_observation)}")
+            logger.info(f"adjusted global observation dimension to {len(global_observation)}")
         
-        # 确保数据类型正确
+        # ensure data type is correct
         if not isinstance(global_observation, np.ndarray) or global_observation.dtype != np.float32:
             global_observation = np.array(global_observation, dtype=np.float32)
         
         return global_observation
     
     def get_observation_space(self) -> gym.Space:
-        """获取观测空间"""
+        """get observation space"""
         return self.observation_space
     
     def get_observation_dim(self) -> int:
-        """获取观测空间维度"""
+        """get observation space dimension"""
         return self.observation_space.shape[0]
     
     def reset(self) -> None:
-        """重置观测缓存"""
+        """reset observation cache"""
         self.observation_cache = {}
         
     def save_config(self, path: str) -> None:
-        """保存配置到文件"""
+        """save configuration to file"""
         with open(path, 'w') as f:
             json.dump(self.config, f, indent=2)
             
     def load_config(self, path: str) -> None:
-        """从文件加载配置"""
+        """load configuration from file"""
         if not os.path.exists(path):
-            logger.warning(f"配置文件 {path} 不存在，使用默认配置")
+            logger.warning(f"configuration file {path} not found, using default configuration")
             return
             
         try:
             with open(path, 'r') as f:
                 self.config = json.load(f)
                 
-            # 重新初始化
+            # re-initialize
             self._init_feature_processors()
             self._init_observation_space()
             
-            logger.info(f"从文件 {path} 加载配置成功")
+            logger.info(f"loaded configuration from {path}")
         except Exception as e:
-            logger.error(f"加载配置时出错: {e}")
+            logger.error(f"error loading configuration: {e}")
             
     def _extract_features(self, module_name: str, observation: np.ndarray) -> np.ndarray:
-        """从模块观测中提取关键特征"""
+        """extract key features from module observation"""
         if module_name not in self.feature_extractors:
-            logger.warning(f"模块 {module_name} 没有对应的特征提取器")
+            logger.warning(f"module {module_name} has no corresponding feature extractor")
             return np.array([])
             
         try:
@@ -268,11 +266,11 @@ class GlobalObservationManager:
             module_config = self.config.get(module_name, {})
             return extractor(observation, module_config)
         except Exception as e:
-            logger.error(f"提取 {module_name} 模块特征时出错: {e}")
+            logger.error(f"error extracting features of module {module_name}: {e}")
             return np.array([])
             
     def get_module_info(self) -> Dict[str, Any]:
-        """获取模块信息"""
+        """get module information"""
         info = {}
         
         for module_name, module_config in self.config.items():
