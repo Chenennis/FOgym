@@ -1,14 +1,14 @@
 """
 FlexOffer Multi-Agent PPO (FOMAPPO) Algorithm
 
-基于MAPPO算法专门为FlexOffer系统设计的多智能体强化学习算法。
-针对Manager级别的多智能体协作进行了优化。
+A multi-agent reinforcement learning algorithm specifically designed for the FlexOffer system based on MAPPO algorithm.
+Optimized for multi-agent collaboration at the Manager level.
 """
 
 import os
 import sys
 
-# 添加MAPPO onpolicy模块路径，确保能找到onpolicy模块
+# Add MAPPO onpolicy module path to ensure the onpolicy module can be found
 current_dir = os.path.dirname(os.path.abspath(__file__))
 mappo_dir = os.path.dirname(current_dir)  # algorithms/MAPPO/
 onpolicy_path = os.path.join(mappo_dir, "onpolicy")
@@ -16,23 +16,23 @@ onpolicy_path = os.path.join(mappo_dir, "onpolicy")
 if onpolicy_path not in sys.path:
     sys.path.insert(0, onpolicy_path)
 
-# 导入完整的FOMAPPO算法组件
+# Import complete FOMAPPO algorithm components
 try:
     from .fomappo import FOMAPPO
     from .fomappo_policy import FOMAPPOPolicy
     
-    # 导入完整的Dec-POMDP组件
+    # Import complete Dec-POMDP components
     from .dec_pomdp_adapter import DecPOMDPObservationAdapter
     from .dec_pomdp_policy import DecPOMDPFOMAPPOPolicy
     from .dec_pomdp_loss import DecPOMDPLossComputer
     
-    # 导入标准FOMAPPO适配器（共享策略架构）
+    # Import standard FOMAPPO adapter (shared policy architecture)
     from .fomappo_adapter import FOMAPPOAdapter
     
-    print("[OK] 完整FOMAPPO算法模块导入成功（包含onpolicy支持）")
+    print("[OK] Complete FOMAPPO algorithm module imported successfully (with onpolicy support)")
     
 except ImportError as e:
-    print(f"[WARN] FOMAPPO部分模块导入失败: {e}")
+    print(f"[WARN] Some FOMAPPO modules failed to import: {e}")
 
 __all__ = [
     'FOMAPPO', 

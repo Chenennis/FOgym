@@ -1,7 +1,7 @@
 """
 FlexOffer ModelBased Pipeline
 
-提供基于物理模型的FlexOffer生成、聚合、交易和分解流程，不使用强化学习概念。
+Provide a physical model-based FlexOffer generation, aggregation, trading, and disaggregation process, without using reinforcement learning concepts.
 """
 
 from .config import PipelineConfig, ModelBasedConfig, load_config
@@ -22,5 +22,3 @@ __all__ = [
     'Manager'
 ]
 
-__version__ = '0.1.0'
-__author__ = 'Your Name' 

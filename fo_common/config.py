@@ -1,8 +1,8 @@
-"""全局观测空间配置"""
+"""Global observation space configuration"""
 
 from typing import Dict, Any, List
 
-# 默认全局观测配置
+# Default global observation configuration
 default_global_observation_config = {
     "generate": {
         "enabled": True,
@@ -35,24 +35,24 @@ default_global_observation_config = {
     }
 }
 
-# 特征尺寸配置
+# Feature dimension configuration
 feature_dimensions = {
     "generate": {
-        "time": 1,         # 时间段分类 (早中晚夜)
-        "user_demand": 2,  # 总需求和未来需求预测
-        "device_stats": 5  # 平均SOC, 总可用功率等统计信息
+        "time": 1,         # Time period classification (morning, noon, evening, night)
+        "user_demand": 2,  # Total demand and future demand forecast
+        "device_stats": 5  # Average SOC, total available power and other statistics
     },
     "aggregate": {
-        "energy_bounds": 4,  # 最小/最大能量统计
-        "flexibility": 2     # 灵活性指标
+        "energy_bounds": 4,  # Min/max energy statistics
+        "flexibility": 2     # Flexibility indicators
     },
     "trading": {
-        "price_trends": 3,   # 价格趋势指标
-        "trade_stats": 4     # 交易统计信息
+        "price_trends": 3,   # Price trend indicators
+        "trade_stats": 4     # Trading statistics
     },
     "schedule": {
-        "efficiency": 1,           # 调度效率指标
-        "cost_optimization": 2     # 成本优化指标
+        "efficiency": 1,           # Scheduling efficiency indicator
+        "cost_optimization": 2     # Cost optimization indicator
     },
     "global": {
         "efficiency": 1,
@@ -69,17 +69,17 @@ feature_dimensions = {
 }
 
 def get_observation_dimension(config: Dict[str, Any]) -> int:
-    """计算基于配置的观测空间维度
+    """Calculate observation space dimension based on configuration
     
     Args:
-        config: 全局观测配置
+        config: Global observation configuration
         
     Returns:
-        观测空间总维度
+        Total observation space dimension
     """
     total_dim = 0
     
-    # 计算每个模块的维度
+    # Calculate dimension for each module
     for module, module_config in config.items():
         if module == "global" or not module_config.get("enabled", True):
             continue
@@ -88,13 +88,13 @@ def get_observation_dimension(config: Dict[str, Any]) -> int:
             if feature in feature_dimensions.get(module, {}):
                 total_dim += feature_dimensions[module][feature]
     
-    # 添加全局特征
+    # Add global features
     if config.get("global", {}).get("enabled", True):
         for feature in config.get("global", {}).get("features", []):
             if feature in feature_dimensions.get("global", {}):
                 total_dim += feature_dimensions["global"][feature]
     
-    # 添加跨模块相关性
+    # Add cross-module correlations
     total_dim += sum(feature_dimensions["cross_module"].values())
     
     return total_dim 

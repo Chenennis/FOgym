@@ -1,14 +1,6 @@
 #!/usr/bin/env python3
 """
-FOSQDDPG适配器 - FlexOffer Shapley Q-value Deep Deterministic Policy Gradient Adapter
-
-为FOSQDDPG算法提供与FO Pipeline的完整集成，支持：
-1. Shapley值公平信用分配
-2. FlexOffer约束集成
-3. 多智能体协作训练
-4. 与FO Framework的标准化接口
-
-基于FOMADDPG和FOMATD3的成功架构模式设计。
+FOSQDDPG Adapter - FlexOffer Shapley Q-value Deep Deterministic Policy Gradient Adapter
 """
 
 import numpy as np
@@ -29,10 +21,10 @@ logger = logging.getLogger(__name__)
 
 class FOSQDDPGAdapter:
     """
-    FOSQDDPG算法适配器
+    FOSQDDPG Algorithm Adapter
     
-    集成FOSQDDPG算法到FO Pipeline，提供标准化的多智能体强化学习接口。
-    特色功能：Shapley值公平信用分配 + FlexOffer约束优化
+    Integrates FOSQDDPG algorithm into FO Pipeline, providing a standardized multi-agent reinforcement learning interface.
+    Special features: Shapley value fair credit assignment + FlexOffer constraint optimization
     """
     
     def __init__(self, 
@@ -48,11 +40,11 @@ class FOSQDDPGAdapter:
                  noise_scale: float = 0.1,
                  buffer_capacity: int = 100000,
                  batch_size: int = 64,
-                 sample_size: int = 5,  # Shapley采样大小
-                 policy_delay: int = 1,  # FOSQDDPG通常不需要延迟更新
+                 sample_size: int = 5,  # Shapley sampling size
+                 policy_delay: int = 1,  # FOSQDDPG typically doesn't need delayed updates
                  device: str = "cpu"):
         
-        # 核心参数
+        # Core parameters
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.num_agents = num_agents
@@ -66,19 +58,19 @@ class FOSQDDPGAdapter:
         self.sample_size = sample_size
         self.policy_delay = policy_delay
         
-        # FOSQDDPG特有参数
+        # FOSQDDPG specific parameters
         self.max_action = max_action
         self.buffer_capacity = buffer_capacity
         
-        # 智能体ID管理
+        # Agent ID management
         self.agent_ids = [f"manager_{i+1}" for i in range(num_agents)]
         
-        # 训练状态
+        # Training state
         self.training_iterations = 0
         self.total_iterations = 0
         self.current_episode = 0
         
-        # 初始化FOSQDDPG算法
+        # Initialize FOSQDDPG algorithm
         self.fosqddpg = FOSQDDPG(
             n_agents=num_agents,
             state_dim=state_dim,
@@ -96,19 +88,19 @@ class FOSQDDPGAdapter:
             device=device
         )
         
-        # 缓存机制（兼容FO Pipeline接口）
+        # Caching mechanism (compatible with FO Pipeline interface)
         self._prev_states = None
         self._prev_actions = None
         self._prev_rewards = None
         self._prev_dones = None
         
-        # 管理器奖励统计
+        # Manager reward statistics
         self._manager_rewards = {agent_id: [] for agent_id in self.agent_ids}
         
-        # 奖励标准化器
+        # Reward normalizer
         self.reward_normalizer = self._create_reward_normalizer()
         
-        # 兼容性参数对象
+        # Compatibility parameter object
         class Args:
             def __init__(self, policy_delay, noise_scale, sample_size):
                 self.policy_delay = policy_delay
@@ -117,12 +109,12 @@ class FOSQDDPGAdapter:
         
         self.args = Args(policy_delay, noise_scale, sample_size)
         
-        logger.info(f"FOSQDDPG适配器初始化完成: {num_agents}个智能体, "
-                   f"状态维度={state_dim}, 动作维度={action_dim}, "
-                   f"Shapley采样={sample_size}")
+        logger.info(f"FOSQDDPG adapter initialization complete: {num_agents} agents, "
+                   f"state dimension={state_dim}, action dimension={action_dim}, "
+                   f"Shapley sampling={sample_size}")
     
     def _create_reward_normalizer(self):
-        """创建奖励标准化器"""
+        """Create reward normalizer"""
         return {
             'running_min': float('inf'),
             'running_max': float('-inf'),
@@ -133,19 +125,19 @@ class FOSQDDPGAdapter:
         }
     
     def _normalize_rewards(self, rewards: np.ndarray) -> np.ndarray:
-        """标准化奖励值 - 保持相对关系的缩放方法"""
+        """Normalize reward values - scaling method that preserves relative relationships"""
         
-        # 固定除数缩放（推荐）- 假设奖励在500-600范围
-        # 将奖励从~575缩放到~0.575
+        # Fixed divisor scaling (recommended) - assuming rewards in 500-600 range
+        # Scale rewards from ~575 to ~0.575
         fixed_scale_normalized = rewards / 1000.0
         
-        # 检查方差以决定使用哪种方法
+        # Check variance to decide which method to use
         reward_variance = np.var(rewards)
         
-        if reward_variance < 1e-3:  # 方差很小，使用固定缩放
+        if reward_variance < 1e-3:  # Very small variance, use fixed scaling
             return fixed_scale_normalized
         else:
-            # 动态范围标准化（保持相对关系）
+            # Dynamic range normalization (preserves relative relationships)
             reward_min = np.min(rewards)
             reward_max = np.max(rewards)
             if reward_max - reward_min > 1e-8:
@@ -157,34 +149,21 @@ class FOSQDDPGAdapter:
     def select_actions(self, 
                       observations: Dict[str, np.ndarray], 
                       deterministic: bool = False) -> Tuple[Dict[str, np.ndarray], Optional[Dict], Optional[Dict]]:
-        """
-        选择FlexOffer参数生成动作（Shapley值公平信用分配）
-        
-        🔧 重构后的环境适配：
-        - 动作现在对应FlexOffer参数：[start_flex, end_flex, energy_min_factor, energy_max_factor, priority_weight] × 设备数量
-        - FOSQDDPG的Shapley值机制特别适合公平的FlexOffer参数分配
-        - 确保不同Manager之间FlexOffer生成的公平性
-        
-        Returns:
-            actions: FlexOffer参数动作字典 {agent_id: fo_params_action}
-            action_log_probs: None (FOSQDDPG是确定性策略)
-            values: None (此接口不返回值函数)
-        """
-        # 转换为numpy数组
+        # Convert to numpy array
         obs_array = np.array([observations[agent_id] for agent_id in self.agent_ids])
         
-        # 使用FOSQDDPG选择原始动作
+        # Use FOSQDDPG to select raw actions
         raw_actions_array = self.fosqddpg.select_actions(obs_array, add_noise=not deterministic)
         
-        # 转换回字典格式并映射到FlexOffer参数范围
+        # Convert back to dictionary format and map to FlexOffer parameter ranges
         actions = {}
         for i, agent_id in enumerate(self.agent_ids):
             raw_action = raw_actions_array[i]
             fo_action = self._map_action_to_fo_params(raw_action)
             actions[agent_id] = fo_action
             
-            logger.debug(f"Manager {agent_id} FOSQDDPG FlexOffer动作: {fo_action.shape} 维, "
-                       f"前5个参数: {fo_action[:5]}, Shapley公平性权重应用")
+            logger.debug(f"Manager {agent_id} FOSQDDPG FlexOffer action: {fo_action.shape} dimensions, "
+                       f"first 5 parameters: {fo_action[:5]}, Shapley fairness weighting applied")
         
         return actions, None, None
     
@@ -196,33 +175,33 @@ class FOSQDDPGAdapter:
                     infos: Dict[str, Any],
                     timestep: int) -> Dict[str, Any]:
         """
-        收集单步经验（标准FO Pipeline接口）
+        Collect single step experience (standard FO Pipeline interface)
         """
-        # 转换格式
+        # Convert formats
         states = np.array([obs[agent_id] for agent_id in self.agent_ids])
         actions_array = np.array([actions[agent_id] for agent_id in self.agent_ids])
         rewards_array = np.array([rewards[agent_id] for agent_id in self.agent_ids])
         dones_array = np.array([dones[agent_id] for agent_id in self.agent_ids])
         
-        # 标准化奖励
+        # Normalize rewards
         normalized_rewards = self._normalize_rewards(rewards_array)
         
-        # 更新管理器奖励统计
+        # Update manager reward statistics
         for i, agent_id in enumerate(self.agent_ids):
             self._manager_rewards[agent_id].append(rewards_array[i])
         
-        # 使用缓存机制存储经验（兼容FO Pipeline）
+        # Use caching mechanism to store experience (compatible with FO Pipeline)
         if hasattr(self, '_prev_states') and self._prev_states is not None:
-            # 存储上一步的经验
+            # Store previous step experience
             self.fosqddpg.store_experience(
                 self._prev_states,
                 self._prev_actions, 
                 self._prev_rewards,
-                states,  # 当前状态作为next_states
+                states,  # Current states as next_states
                 self._prev_dones
             )
         
-        # 保存当前状态为下次使用
+        # Save current state for next use
         self._prev_states = states.copy()
         self._prev_actions = actions_array.copy()
         self._prev_rewards = normalized_rewards.copy()
@@ -238,20 +217,20 @@ class FOSQDDPGAdapter:
     
     def train_on_batch(self) -> Optional[Dict[str, float]]:
         """
-        执行一次批量训练
+        Perform one batch training
         """
         if len(self.fosqddpg.replay_buffer) < self.batch_size:
             return None
         
         try:
-            # 执行FOSQDDPG训练
+            # Execute FOSQDDPG training
             training_info = self.fosqddpg.update()
             
             if training_info:
                 self.training_iterations += 1
                 self.total_iterations += 1
                 
-                # 添加FOSQDDPG特有的统计信息
+                # Add FOSQDDPG specific statistics
                 training_stats = training_info.copy()
                 additional_stats = {
                     'total_iterations': self.total_iterations,
@@ -265,35 +244,35 @@ class FOSQDDPGAdapter:
                     }
                 }
                 
-                # 合并统计信息
+                # Merge statistics
                 for key, value in additional_stats.items():
                     training_stats[key] = value
                 
                 return training_stats
             
         except Exception as e:
-            logger.error(f"FOSQDDPG训练出错: {e}")
+            logger.error(f"FOSQDDPG training error: {e}")
             return None
         
         return None
     
     def reset_episode(self):
-        """重置episode状态"""
+        """Reset episode state"""
         self.current_episode += 1
         
-        # 清空缓存
+        # Clear cache
         self._prev_states = None
         self._prev_actions = None
         self._prev_rewards = None
         self._prev_dones = None
     
     def reset_buffers(self):
-        """重置经验缓冲区"""
+        """Reset experience buffer"""
         self.fosqddpg.replay_buffer.buffer.clear()
-        logger.debug("FOSQDDPG经验缓冲区已重置")
+        logger.debug("FOSQDDPG experience buffer has been reset")
     
     def get_training_stats(self) -> Dict[str, Any]:
-        """获取训练统计信息"""
+        """Get training statistics"""
         return {
             'training_iterations': self.training_iterations,
             'total_iterations': self.total_iterations, 
@@ -304,7 +283,7 @@ class FOSQDDPGAdapter:
         }
     
     def get_manager_rewards_summary(self) -> Dict[str, Dict[str, float]]:
-        """获取管理器奖励统计摘要"""
+        """Get manager reward statistics summary"""
         summary = {}
         for agent_id in self.agent_ids:
             if agent_id in self._manager_rewards and self._manager_rewards[agent_id]:
@@ -327,66 +306,66 @@ class FOSQDDPGAdapter:
         return summary
     
     def save_models(self, save_path: str):
-        """保存模型"""
+        """Save models"""
         os.makedirs(save_path, exist_ok=True)
         
         for i, policy in enumerate(self.fosqddpg.policies):
             agent_id = self.agent_ids[i]
             
-            # 保存Actor和Critic网络
+            # Save Actor and Critic networks
             actor_path = os.path.join(save_path, f"{agent_id}_actor.pt")
             critic_path = os.path.join(save_path, f"{agent_id}_critic.pt")
             
             torch.save(policy.actor.state_dict(), actor_path)
             torch.save(policy.critic.state_dict(), critic_path)
             
-            logger.info(f"保存{agent_id}的模型到{save_path}")
+            logger.info(f"Saved {agent_id} models to {save_path}")
     
     def load_models(self, load_path: str):
-        """加载模型"""
+        """Load models"""
         for i, policy in enumerate(self.fosqddpg.policies):
             agent_id = self.agent_ids[i]
             
-            # 加载Actor和Critic网络
+            # Load Actor and Critic networks
             actor_path = os.path.join(load_path, f"{agent_id}_actor.pt")
             critic_path = os.path.join(load_path, f"{agent_id}_critic.pt")
             
             if os.path.exists(actor_path) and os.path.exists(critic_path):
                 policy.actor.load_state_dict(torch.load(actor_path, map_location=self.device))
                 policy.critic.load_state_dict(torch.load(critic_path, map_location=self.device))
-                logger.info(f"加载{agent_id}的模型从{load_path}")
+                logger.info(f"Loaded {agent_id} models from {load_path}")
             else:
-                logger.warning(f"未找到{agent_id}的模型文件")
+                logger.warning(f"Model files for {agent_id} not found")
     
     def _map_action_to_fo_params(self, raw_action: np.ndarray) -> np.ndarray:
         """
-        将原始动作映射到FlexOffer参数范围
+        Map raw actions to FlexOffer parameter ranges
         
-        FlexOffer参数范围：
-        - start_flex: [-1.0, 1.0] → 时间灵活性
-        - end_flex: [-1.0, 1.0] → 时间灵活性  
-        - energy_min_factor: [0.1, 1.0] → 最小能量因子
-        - energy_max_factor: [1.0, 2.0] → 最大能量因子
-        - priority_weight: [0.1, 2.0] → 优先级权重
+        FlexOffer parameter ranges:
+        - start_flex: [-1.0, 1.0] → Time flexibility
+        - end_flex: [-1.0, 1.0] → Time flexibility  
+        - energy_min_factor: [0.1, 1.0] → Minimum energy factor
+        - energy_max_factor: [1.0, 2.0] → Maximum energy factor
+        - priority_weight: [0.1, 2.0] → Priority weight
         
         Args:
-            raw_action: 原始动作 [-1, 1]范围
+            raw_action: Raw action in [-1, 1] range
             
         Returns:
-            fo_action: 映射到FlexOffer参数范围的动作
+            fo_action: Action mapped to FlexOffer parameter ranges
         """
         fo_action = np.zeros_like(raw_action)
         
-        # 假设动作是5的倍数（每个设备5个参数）
+        # Assume actions are multiples of 5 (5 parameters per device)
         num_devices = len(raw_action) // 5 if len(raw_action) >= 5 else 1
         
         for i in range(num_devices):
             base_idx = i * 5
             if base_idx + 4 < len(raw_action):
-                # start_flex: [-1, 1] → [-1, 1] (保持不变)
+                # start_flex: [-1, 1] → [-1, 1] (keep unchanged)
                 fo_action[base_idx] = np.clip(raw_action[base_idx], -1.0, 1.0)
                 
-                # end_flex: [-1, 1] → [-1, 1] (保持不变)
+                # end_flex: [-1, 1] → [-1, 1] (keep unchanged)
                 fo_action[base_idx + 1] = np.clip(raw_action[base_idx + 1], -1.0, 1.0)
                 
                 # energy_min_factor: [-1, 1] → [0.1, 1.0]
@@ -401,8 +380,8 @@ class FOSQDDPGAdapter:
         return fo_action
     
     def _generate_default_fo_action(self) -> np.ndarray:
-        """生成默认的FlexOffer参数动作"""
-        # 生成合理的默认FlexOffer参数
+        """Generate default FlexOffer parameter action"""
+        # Generate reasonable default FlexOffer parameters
         default_action = np.zeros(self.action_dim)
         num_devices = self.action_dim // 5 if self.action_dim >= 5 else 1
         

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-FOMADDPG训练方法
+FOMADDPG Training Methods
 
-提供标准化的FOMADDPG训练实现
-用于在FO Pipeline中集成FOMADDPG算法
+Provides standardized FOMADDPG training implementation
+For integrating FOMADDPG algorithm in FO Pipeline
 """
 
 import numpy as np
@@ -15,7 +15,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# 添加缺失的导入
+# Add missing imports
 try:
     from .fomaddpg_adapter import FOMAddpgAdapter
     FOMADDPG_ADAPTER_available = True
@@ -25,45 +25,45 @@ except ImportError:
 
 def train_fomaddpg_adapter(pipeline):
     """
-    优化版FOMADDPG训练方法 - 包含稳定性和性能改进
+    Optimized FOMADDPG training method - includes stability and performance improvements
     
     Args:
-        pipeline: FO Pipeline实例
+        pipeline: FO Pipeline instance
     
     Returns:
-        包含训练结果的字典
+        Dictionary containing training results
     """
-    logger.info("🚀 开始优化版FOMADDPG训练（解决过拟合和不稳定问题）")
-    logger.info(f"计划训练 {pipeline.num_episodes} 个episodes")
+    logger.info("🚀 Starting optimized FOMADDPG training (resolving overfitting and instability issues)")
+    logger.info(f"Planning to train {pipeline.num_episodes} episodes")
     
-    # 强制检查num_episodes参数
+    # Force check num_episodes parameter
     if not hasattr(pipeline, 'num_episodes') or pipeline.num_episodes <= 0:
-        logger.error("num_episodes参数无效，设置为默认值1")
+        logger.error("num_episodes parameter invalid, setting to default value 1")
         pipeline.num_episodes = 1
     
-    # 记录最大允许的episodes数量
-    max_allowed_episodes = min(pipeline.num_episodes, 100)  # 设置一个安全上限
-    logger.info(f"最大允许的episodes数量: {max_allowed_episodes}")
+    # Record maximum allowed episodes
+    max_allowed_episodes = min(pipeline.num_episodes, 100)  # Set a safe upper limit
+    logger.info(f"Maximum allowed episodes: {max_allowed_episodes}")
     
-    # 更新实际运行的算法
+    # Update actual running algorithm
     pipeline._update_actual_algorithm("FOMADDPG_OPTIMIZED")
     
-    # 1. 准备训练环境
-    logger.info("正在准备FOMADDPG训练环境...")
+    # 1. Prepare training environment
+    logger.info("Preparing FOMADDPG training environment...")
     
-    # 创建FO环境
+    # Create FO environment
     if hasattr(pipeline, "_create_environments"):
         pipeline._create_environments()
     
-    # 复位环境状态
+    # Reset environment state
     if hasattr(pipeline, "_reset_pipeline_state"):
         pipeline._reset_pipeline_state()
         
-    # 初始化用户状态
+    # Initialize user states
     if hasattr(pipeline, "_initialize_user_states"):
         pipeline._initialize_user_states()
     
-    # 创建多智能体环境
+    # Create multi-agent environment
     multi_env = None
     try:
         from fo_generate.multi_agent_env import MultiAgentFlexOfferEnv
@@ -76,126 +76,126 @@ def train_fomaddpg_adapter(pipeline):
             trading_method=pipeline.trading_strategy if hasattr(pipeline, 'trading_strategy') else "pool",
             disaggregation_method=pipeline.disaggregation_method if hasattr(pipeline, 'disaggregation_method') else "proportional"
         )
-        logger.info("✅ 成功创建multi_agent_env")
+        logger.info("✅ Successfully created multi_agent_env")
     except Exception as e:
-        logger.error(f"❌ 创建multi_agent_env失败: {e}")
+        logger.error(f"❌ Failed to create multi_agent_env: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return {'status': 'failed', 'error': f'创建环境失败: {e}'}
+        return {'status': 'failed', 'error': f'Failed to create environment: {e}'}
     
-    # 2. 获取环境参数
-    # 获取manager数量和ID
+    # 2. Get environment parameters
+    # Get manager count and IDs
     num_managers = multi_env.get_manager_count()
     manager_ids = list(multi_env.manager_agents.keys())
-    logger.info(f"🏗️ 环境配置: {num_managers} 个Manager: {manager_ids}")
+    logger.info(f"🏗️ Environment configuration: {num_managers} Managers: {manager_ids}")
     
-    # 获取状态和动作空间维度
+    # Get state and action space dimensions
     try:
         sample_obs, _ = multi_env.reset()
         state_dim = len(sample_obs[manager_ids[0]])
         action_dim = multi_env.action_spaces[manager_ids[0]].shape[0]
-        logger.info(f"📊 状态空间: {state_dim}维, 动作空间: {action_dim}维")
+        logger.info(f"📊 State space: {state_dim} dimensions, Action space: {action_dim} dimensions")
     except Exception as e:
-        logger.error(f"❌ 获取观测和动作空间失败: {e}")
-        return {'status': 'failed', 'error': f'获取环境参数失败: {e}'}
+        logger.error(f"❌ Failed to get observation and action spaces: {e}")
+        return {'status': 'failed', 'error': f'Failed to get environment parameters: {e}'}
     
-    # 3. 创建FOMADDPG适配器
+    # 3. Create FOMADDPG adapter
     try:
         if not FOMADDPG_ADAPTER_available or FOMAddpgAdapter is None:
-            logger.error("❌ FOMAddpgAdapter不可用")
-            return {'status': 'failed', 'error': 'FOMAddpgAdapter不可用'}
+            logger.error("❌ FOMAddpgAdapter is not available")
+            return {'status': 'failed', 'error': 'FOMAddpgAdapter is not available'}
             
-        # FOMADDPG专用优化超参数
-        # MADDPG作为off-policy算法，具有一些特殊参数
-        WARMUP_EPISODES = 10  # 前10个episode仅收集经验，不更新策略
-        NOISE_DECAY = 0.99    # 噪声衰减率
-        MIN_NOISE = 0.01      # 最小噪声比例
-        INITIAL_NOISE = 0.2   # 初始噪声比例
-        UPDATE_FREQ = 2       # 每隔2个时间步更新一次
-        BATCH_SIZE = 128      # 批次大小
+        # FOMADDPG specific optimized hyperparameters
+        # MADDPG as an off-policy algorithm has some special parameters
+        WARMUP_EPISODES = 10  # First 10 episodes only collect experience, do not update policy
+        NOISE_DECAY = 0.99    # Noise decay rate
+        MIN_NOISE = 0.01      # Minimum noise ratio
+        INITIAL_NOISE = 0.2   # Initial noise ratio
+        UPDATE_FREQ = 2       # Update every 2 time steps
+        BATCH_SIZE = 128      # Batch size
         
-        # 创建FOMADDPG适配器，使用优化的超参数
+        # Create FOMADDPG adapter, using optimized hyperparameters
         fomaddpg_adapter = FOMAddpgAdapter(
             state_dim=state_dim,
             action_dim=action_dim,
             num_agents=num_managers,
             episode_length=pipeline.steps_per_episode,
             
-            # 🔧 优化1: 降低学习率，提高稳定性
-            lr_actor=5e-5,      # 从1e-4降低到5e-5
-            lr_critic=1e-4,     # 从1e-3降低到1e-4
+            # 🔧 Optimization 1: Lower learning rate, improve stability
+            lr_actor=5e-5,      # Reduced from 1e-4 to 5e-5
+            lr_critic=1e-4,     # Reduced from 1e-3 to 1e-4
             device=pipeline.device if hasattr(pipeline, 'device') else "cpu",
             
-            # 🔧 优化2: MADDPG专用参数调整
+            # 🔧 Optimization 2: MADDPG specific parameter adjustments
             hidden_dim=256,
             max_action=1.0,
             gamma=0.99,
-            tau=0.001,           # 软更新参数更低，更稳定
+            tau=0.001,           # Lower soft update parameter, more stable
             noise_scale=INITIAL_NOISE,
             buffer_capacity=1000000,
             batch_size=BATCH_SIZE,
             
-            # FlexOffer特定参数
+            # FlexOffer specific parameters
             use_device_coordination=True,
             device_coordination_weight=0.1,
             fo_constraint_weight=0.2,
             use_manager_coordination=True,
             manager_coordination_weight=0.05
         )
-        logger.info("✅ FOMADDPG适配器初始化成功")
+        logger.info("✅ FOMADDPG adapter initialized successfully")
     except Exception as e:
-        logger.error(f"❌ 创建FOMADDPG适配器失败: {e}")
+        logger.error(f"❌ Failed to create FOMADDPG adapter: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return {'status': 'failed', 'error': f'创建适配器失败: {e}'}
+        return {'status': 'failed', 'error': f'Failed to create adapter: {e}'}
     
-    # 4. 初始化训练历史记录
+    # 4. Initialize training history
     training_episode_rewards = {manager_id: [] for manager_id in manager_ids}
     training_history = []
     
-    # 5. 设置动态探索噪声
+    # 5. Set dynamic exploration noise
     current_noise_scale = INITIAL_NOISE
     fomaddpg_adapter.fomaddpg.noise_scale = current_noise_scale
     
-    # 记录开始时间
+    # Record start time
     start_time = datetime.now()
     
-    # 6. 开始训练循环
-    logger.info(f"开始FOMADDPG训练循环 ({pipeline.num_episodes}个episodes)...")
+    # 6. Start training loop
+    logger.info(f"Starting FOMADDPG training loop ({pipeline.num_episodes} episodes)...")
     
-    # 训练循环 - Off-policy学习
+    # Training loop - Off-policy learning
     for episode in range(1, max_allowed_episodes + 1):
         if episode > pipeline.num_episodes:
-            logger.warning(f"已达到指定的episodes数量 {pipeline.num_episodes}，终止训练")
+            logger.warning(f"Reached specified number of episodes {pipeline.num_episodes}, terminating training")
             break
             
         logger.info(f"\n========== Episode {episode}/{pipeline.num_episodes} (FOMADDPG) ==========")
         episode_start_time = datetime.now()
         
-        # 重置环境
+        # Reset environment
         obs, infos = multi_env.reset()
-        fomaddpg_adapter.reset_buffers()  # 对于MADDPG，这个操作是安全的，不会清空经验回放缓冲区
+        fomaddpg_adapter.reset_buffers()  # For MADDPG, this operation is safe, does not clear experience replay buffer
         
         episode_rewards = {manager_id: 0.0 for manager_id in manager_ids}
         
-        # 动态调整噪声比例
+        # Dynamically adjust noise ratio
         if episode > WARMUP_EPISODES:
             current_noise_scale = max(MIN_NOISE, current_noise_scale * NOISE_DECAY)
             fomaddpg_adapter.fomaddpg.noise_scale = current_noise_scale
-            logger.info(f"📉 噪声调整: {current_noise_scale:.4f}")
+            logger.info(f"📉 Noise adjustment: {current_noise_scale:.4f}")
         
-        # 每个episode运行步数
+        # Number of steps per episode
         for timestep in range(pipeline.steps_per_episode):
-            logger.info(f"Episode {episode}, 时间步 {timestep}/{pipeline.steps_per_episode-1}")
+            logger.info(f"Episode {episode}, Time step {timestep}/{pipeline.steps_per_episode-1}")
             
-            # 使用探索或利用策略
-            use_noise = (episode <= WARMUP_EPISODES * 2)  # 前期更多探索
+            # Use exploration or exploitation strategy
+            use_noise = (episode <= WARMUP_EPISODES * 2)  # More exploration in early episodes
             actions, action_log_probs, values = fomaddpg_adapter.select_actions(obs, deterministic=not use_noise)
             
-            # 环境步进
+            # Environment step
             next_obs, rewards, dones, truncated, infos = multi_env.step(actions)
             
-            # 收集数据到经验回放缓冲区
+            # Collect data into experience replay buffer
             fomaddpg_adapter.collect_step(
                 obs=obs,
                 actions=actions,
@@ -206,48 +206,48 @@ def train_fomaddpg_adapter(pipeline):
                 values=values
             )
             
-            # 累积奖励
+            # Accumulate rewards
             for manager_id in manager_ids:
                 episode_rewards[manager_id] += rewards[manager_id]
             
-            # 更新观测
+            # Update observation
             obs = next_obs
             
-            # MADDPG专用：分批次更新
-            # 🔧 优化：不要在每个时间步都更新，而是每隔几个时间步更新一次
+            # MADDPG specific: Batch update
+            # 🔧 Optimization: Do not update every time step, but update every few time steps
             if timestep % UPDATE_FREQ == 0 and episode > WARMUP_EPISODES:
-                # 🔧 优化：前几个episode不更新，只收集经验
+                # 🔧 Optimization: Do not update in the first few episodes, only collect experience
                 train_info = fomaddpg_adapter.train_on_batch()
                 if isinstance(train_info, dict):
                     policy_loss = train_info.get('policy_loss', 0.0)
                     value_loss = train_info.get('value_loss', 0.0)
-                    logger.debug(f"  ⚙️ 训练更新: Actor Loss: {policy_loss:.5f}, Critic Loss: {value_loss:.5f}")
+                    logger.debug(f"  ⚙️ Training update: Actor Loss: {policy_loss:.5f}, Critic Loss: {value_loss:.5f}")
             
-            # 显示时间步奖励
+            # Display time step reward
             timestep_total = sum(rewards.values())
-            logger.info(f"  时间步 {timestep} 总奖励: {timestep_total:.3f}")
+            logger.info(f"   Time step {timestep} Total reward: {timestep_total:.3f}")
         
-        # episode结束后的训练 - MADDPG可以多更新几次
+        # Training after episode - MADDPG can update multiple times
         if episode > WARMUP_EPISODES:
-            # 在episode结束后多进行几次更新
-            for _ in range(5):  # 多更新5次
+            # Perform multiple updates after the episode
+            for _ in range(5):  # Update 5 times
                 update_info = fomaddpg_adapter.train_on_batch()
         
-        # 记录episode奖励和统计
+        # Record episode reward and statistics
         episode_total_reward = sum(episode_rewards.values())
-        logger.info(f"Episode {episode} 完成:")
-        logger.info(f"  🎯 总奖励: {episode_total_reward:.3f}")
+        logger.info(f"Episode {episode} completed:")
+        logger.info(f"  🎯 Total reward: {episode_total_reward:.3f}")
         
-        # 如果有训练信息
+        # If training information exists
         if 'update_info' in locals() and isinstance(update_info, dict):
-            logger.info(f"  📈 训练损失: Actor {update_info.get('policy_loss', 0):.4f}, Critic {update_info.get('value_loss', 0):.4f}")
+            logger.info(f"  📈 Training loss: Actor {update_info.get('policy_loss', 0):.4f}, Critic {update_info.get('value_loss', 0):.4f}")
         
-        # 显示每个Manager的奖励并记录到训练历史
+        # Display reward for each Manager and record to training history
         for manager_id, reward in episode_rewards.items():
             logger.info(f"  📊 {manager_id}: {reward:.3f}")
             training_episode_rewards[manager_id].append(reward)
             
-            # 添加到训练历史
+            # Add to training history
             training_data = {
                 'algorithm': 'FOMADDPG',
                 'manager_id': manager_id,
@@ -255,21 +255,21 @@ def train_fomaddpg_adapter(pipeline):
                 'episode_reward': reward,
                 'policy_loss': float(update_info.get('policy_loss', 0.001)) if 'update_info' in locals() else 0.001,
                 'value_loss': float(update_info.get('value_loss', 0.001)) if 'update_info' in locals() else 0.001,
-                'entropy': 0.0  # MADDPG没有熵概念
+                'entropy': 0.0  # MADDPG has no entropy concept
             }
             training_history.append(training_data)
             
-            # 记录训练损失
+            # Record training loss
             if hasattr(pipeline, '_record_training_loss') and 'update_info' in locals():
                 pipeline._record_training_loss(
                     manager_id=manager_id,
                     episode=episode,
                     policy_loss=float(update_info.get('policy_loss', 0.001)),
                     value_loss=float(update_info.get('value_loss', 0.001)),
-                    entropy=0.0  # MADDPG没有熵概念
+                    entropy=0.0  # MADDPG has no entropy concept
                 )
         
-        # 记录总体奖励
+        # Record total reward
         training_data_total = {
             'algorithm': 'FOMADDPG',
             'manager_id': 'total',
@@ -277,15 +277,15 @@ def train_fomaddpg_adapter(pipeline):
             'episode_reward': episode_total_reward,
             'policy_loss': float(update_info.get('policy_loss', 0.0)) if 'update_info' in locals() else 0.0,
             'value_loss': float(update_info.get('value_loss', 0.0)) if 'update_info' in locals() else 0.0,
-            'entropy': 0.0  # MADDPG没有熵
+            'entropy': 0.0  # MADDPG has no entropy
         }
         training_history.append(training_data_total)
         
-        # 定期输出学习进度
+        # Output learning progress periodically
         if (episode + 1) % 10 == 0:
-            logger.info(f"\n========== FOMADDPG训练进度: {episode+1}/{pipeline.num_episodes} episodes ==========")
+            logger.info(f"\n========== FOMADDPG Training Progress: {episode+1}/{pipeline.num_episodes} episodes ==========")
             
-            # 获取训练统计
+            # Get training statistics
             try:
                 training_stats = fomaddpg_adapter.get_training_stats()
                 manager_rewards = fomaddpg_adapter.get_manager_rewards_summary()
@@ -296,61 +296,61 @@ def train_fomaddpg_adapter(pipeline):
                             total_reward = stats.get('total_reward', 0.0)
                             best_reward = stats.get('best_reward', 0.0)
                             training_updates = stats.get('training_updates', 0)
-                            logger.info(f"  🔥 {manager_id}: 累积奖励 {total_reward:.2f}, 最佳 {best_reward:.2f}, 更新 {training_updates} 次")
+                            logger.info(f"  🔥 {manager_id}: Cumulative reward {total_reward:.2f}, Best {best_reward:.2f}, Updates {training_updates} times")
                         else:
-                            logger.info(f"  🔥 {manager_id}: 累积奖励 {stats:.2f}")
+                            logger.info(f"  🔥 {manager_id}: Cumulative reward {stats:.2f}")
                 else:
-                    logger.info(f"  🔥 管理者奖励: {manager_rewards}")
+                    logger.info(f"  �� Manager rewards: {manager_rewards}")
                 
                 if isinstance(training_stats, dict):
                     iterations = training_stats.get('training_iterations', 0)
-                    logger.info(f"  🚀 总训练迭代: {iterations}")
+                    logger.info(f"  🚀 Total training iterations: {iterations}")
                 else:
-                    logger.info(f"  🚀 训练统计: {training_stats}")
+                    logger.info(f"  🚀 Training stats: {training_stats}")
             except Exception as e:
-                logger.warning(f"获取训练统计失败: {e}")
-                logger.info("  🔥 训练进度: 正在学习中...")
+                logger.warning(f"Failed to get training statistics: {e}")
+                logger.info("  🔥 Training progress: Learning...")
             
             logger.info("=" * 70)
         
-        # 定期保存模型
+        # Save model periodically
         if (episode + 1) % 20 == 0 or episode == pipeline.num_episodes:
             try:
                 model_path = f"results/fomaddpg_optimized_ep{episode+1}"
                 fomaddpg_adapter.save_models(model_path)
-                logger.info(f"📀 模型已保存至: {model_path}")
+                logger.info(f"📀 Model saved to: {model_path}")
                 
-                # 保存训练历史
+                # Save training history
                 if hasattr(pipeline, '_force_save_training_history'):
                     pipeline._force_save_training_history(training_history, "FOMADDPG_OPTIMIZED")
             except Exception as e:
-                logger.error(f"保存模型失败: {e}")
+                logger.error(f"Failed to save model: {e}")
         
-        # 计算episode耗时
+        # Calculate episode duration
         episode_duration = datetime.now() - episode_start_time
-        logger.info(f"Episode {episode} 耗时: {episode_duration}")
+        logger.info(f"Episode {episode} duration: {episode_duration}")
         
-        # 显示总进度
+        # Display total progress
         total_elapsed = datetime.now() - start_time
         avg_time_per_episode = total_elapsed / episode
         remaining_episodes = pipeline.num_episodes - episode
         estimated_remaining = avg_time_per_episode * remaining_episodes
         
-        logger.info(f"已用时间: {total_elapsed}, 预计剩余: {estimated_remaining}")
+        logger.info(f"Elapsed time: {total_elapsed}, Estimated remaining: {estimated_remaining}")
     
-    # 训练结束，保存最终模型
+    # Training finished, save final model
     try:
         save_path = f"results/fomaddpg_optimized_final"
         fomaddpg_adapter.save_models(save_path)
-        logger.info(f"保存最终模型: {save_path}")
+        logger.info(f"Saved final model: {save_path}")
     except Exception as e:
-        logger.error(f"保存最终模型失败: {e}")
+        logger.error(f"Failed to save final model: {e}")
     
-    # 计算总训练时间
+    # Calculate total training time
     total_training_time = datetime.now() - start_time
-    logger.info(f"FOMADDPG训练完成! 总训练时间: {total_training_time}")
+    logger.info(f"FOMADDPG training completed! Total training time: {total_training_time}")
     
-    # 将训练历史整理为pipeline期望的格式
+    # Organize training history into pipeline expected format
     result = {
         'status': 'success',
         'training_history': {
@@ -368,26 +368,26 @@ def train_fomaddpg_adapter(pipeline):
         'fomaddpg_adapter': fomaddpg_adapter
     }
     
-    # 处理训练历史数据，按manager_id分组
+    # Process training history data, grouped by manager_id
     for item in training_history:
         manager_id = item.get('manager_id')
-        if manager_id and manager_id != 'total':  # 排除总体记录
+        if manager_id and manager_id != 'total':  # Exclude overall record
             if manager_id not in result['training_history']['episode_rewards']:
                 result['training_history']['episode_rewards'][manager_id] = []
                 result['training_history']['episode_lengths'][manager_id] = []
                 result['training_history']['training_loss'][manager_id] = []
             
-            # 添加奖励和长度
+            # Add rewards and lengths
             result['training_history']['episode_rewards'][manager_id].append(item.get('episode_reward', 0.0))
             result['training_history']['episode_lengths'][manager_id].append(pipeline.steps_per_episode)
             
-            # 添加训练损失
+            # Add training loss
             loss_info = {
                 'policy_loss': item.get('policy_loss', 0.001),
                 'value_loss': item.get('value_loss', 0.001),
-                'entropy': item.get('entropy', 0.0)  # MADDPG没有熵
+                'entropy': item.get('entropy', 0.0)  # MADDPG has no entropy
             }
             result['training_history']['training_loss'][manager_id].append(loss_info)
     
-    logger.info(f"返回结果包含 {len(result['training_history']['episode_rewards'])} 个Manager的训练历史")
+    logger.info(f"Return result contains training history for {len(result['training_history']['episode_rewards'])} Managers")
     return result 
