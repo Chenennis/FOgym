@@ -1,16 +1,3 @@
-"""
-统一MDP环境框架 - FlexOffer完整MDP实现
-
-整合了设备级MDP和环境级MDP，提供完整的FlexOffer马尔可夫决策过程框架。
-
-核心特性：
-- 完整的马尔可夫性质保证
-- 统一的设备接口
-- 确定性状态转移
-- 多目标奖励函数
-- 与FlexOffer流程完全集成
-"""
-
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -33,7 +20,7 @@ from fo_generate.price_loader import PriceLoader
 logger = logging.getLogger(__name__)
 
 class DeviceType:
-    """设备类型枚举"""
+    """device type enumeration"""
     BATTERY = "battery"
     HEAT_PUMP = "heat_pump"
     EV = "ev"
@@ -41,45 +28,43 @@ class DeviceType:
     DISHWASHER = "dishwasher"
 
 class EnvironmentDynamics:
-    """环境动态管理 - 确保马尔可夫性质"""
     
     def __init__(self, price_data: pd.DataFrame = None, weather_data: pd.DataFrame = None, 
                  data_dir: str = "data"):
         self.price_data = price_data
         self.weather_data = weather_data
         
-        # 初始化电价加载器
+        # initialize price loader
         self.price_loader = PriceLoader(data_dir)
         
-        # 马尔可夫状态历史（仅保留计算趋势所需的最小历史）
         self.price_history = []
         self.weather_history = []
         
-        # 环境参数
+        # environment parameters
         self.price_volatility = 0.1
         self.weather_noise = 0.05
 
     def get_current_state(self, current_time: datetime) -> Dict[str, Any]:
-        """获取当前环境状态（马尔可夫状态）"""
-        # 获取当前价格和天气
+
+        # get current price and weather
         current_price = self._get_price_at_time(current_time)
         current_weather = self._get_weather_at_time(current_time)
         
-        # 更新历史
+        # update history
         self.price_history.append(current_price)
         self.weather_history.append(current_weather)
         
-        # 只保留最近3个时间步的历史（计算趋势所需）
+        # only keep recent 3 time steps for trend calculation
         if len(self.price_history) > 3:
             self.price_history = self.price_history[-3:]
         if len(self.weather_history) > 3:
             self.weather_history = self.weather_history[-3:]
         
-        # 计算趋势
+        # calculate trend
         price_trend = self._get_price_trend()
         weather_trend = self._get_weather_trend()
         
-        # 预测未来3小时的价格和天气
+        # predict future 3 hours price and weather
         future_prices = self._predict_future_prices(current_time)
         future_weather = self._predict_future_weather(current_time)
         
@@ -94,36 +79,35 @@ class EnvironmentDynamics:
         }
 
     def _get_price_at_time(self, current_time: datetime) -> float:
-        """获取指定时间的电价，优先使用丹麦电价数据"""
+        """get price at specified time, use danish price data if available"""
         try:
-            # 首先尝试使用价格加载器获取丹麦电价数据
             current_price_info = self.price_loader.get_current_price(current_time)
             base_price = current_price_info['price']
-            logger.debug(f"使用{current_price_info['source']}电价数据: {base_price:.4f} USD/kWh")
+            logger.debug(f"use {current_price_info['source']} price data: {base_price:.4f} USD/kWh")
         except Exception as e:
-            logger.warning(f"电价加载器获取价格失败: {e}，使用备选方案")
+            logger.warning(f"price loader get price failed: {e}, use alternative")
             
-            # 备选方案1：使用传入的价格数据
+            # alternative 1: use input price data
             if self.price_data is not None:
                 time_diffs = abs((pd.to_datetime(self.price_data['timestamp']) - current_time).dt.total_seconds())
                 closest_idx = time_diffs.idxmin()
                 base_price = self.price_data.loc[closest_idx, 'price']
             else:
-                # 备选方案2：简化的价格模型
+                # alternative 2: simplified price model
                 hour = current_time.hour
-                if 0 <= hour < 6:  # 夜间低价
+                if 0 <= hour < 6:  # night low price
                     base_price = 0.08
-                elif 6 <= hour < 18:  # 白天
+                elif 6 <= hour < 18:  # day high price
                     base_price = 0.15 + 0.05 * math.sin(math.pi * (hour - 6) / 12)
-                else:  # 晚上峰值
+                else:  # night peak price
                     base_price = 0.20
                 
-        # 添加随机波动
+        # add random fluctuation
         price_noise = np.random.normal(0, self.price_volatility * 0.1)
         return max(0.01, base_price + price_noise)
 
     def _get_weather_at_time(self, current_time: datetime) -> Dict[str, float]:
-        """获取指定时间的天气数据"""
+        """get weather data at specified time"""
         if self.weather_data is not None:
             time_diffs = abs((pd.to_datetime(self.weather_data['timestamp']) - current_time).dt.total_seconds())
             closest_idx = time_diffs.idxmin()
@@ -132,16 +116,16 @@ class EnvironmentDynamics:
                 'solar_irradiance': self.weather_data.loc[closest_idx, 'solar_irradiance']
             }
         else:
-            # 简化的天气模型
+            # weather model
             hour = current_time.hour
             day_of_year = current_time.timetuple().tm_yday
             
-            # 温度模型
+            # temperature model
             seasonal_temp = 20 + 10 * math.sin(2 * math.pi * day_of_year / 365)
             daily_variation = 5 * math.sin(2 * math.pi * (hour - 6) / 24)
             temperature = seasonal_temp + daily_variation
             
-            # 太阳辐照度模型
+            # solar irradiance model
             if 6 <= hour <= 18:
                 solar_angle = math.sin(math.pi * (hour - 6) / 12)
                 irradiance = 800 * solar_angle * max(0, math.sin(2 * math.pi * day_of_year / 365 + math.pi/2))
@@ -154,13 +138,13 @@ class EnvironmentDynamics:
             }
 
     def _get_price_trend(self) -> float:
-        """计算价格趋势"""
+        """calculate price trend"""
         if len(self.price_history) < 2:
             return 0.0
         return (self.price_history[-1] - self.price_history[0]) / max(self.price_history[0], 0.01)
 
     def _get_weather_trend(self) -> Dict[str, float]:
-        """计算天气趋势"""
+        """calculate weather trend"""
         if len(self.weather_history) < 2:
             return {'temperature_trend': 0.0, 'irradiance_trend': 0.0}
         
@@ -170,7 +154,7 @@ class EnvironmentDynamics:
         return {'temperature_trend': temp_trend, 'irradiance_trend': irr_trend}
 
     def _predict_future_prices(self, current_time: datetime) -> List[float]:
-        """预测未来3小时的价格"""
+        """predict future 3 hours price"""
         future_prices = []
         for h in range(1, 4):
             future_time = current_time + timedelta(hours=h)
@@ -179,7 +163,7 @@ class EnvironmentDynamics:
         return future_prices
 
     def _predict_future_weather(self, current_time: datetime) -> List[Dict[str, float]]:
-        """预测未来3小时的天气"""
+        """predict future 3 hours weather"""
         future_weather = []
         for h in range(1, 4):
             future_time = current_time + timedelta(hours=h)
@@ -188,81 +172,80 @@ class EnvironmentDynamics:
         return future_weather
 
 class DeviceMDPInterface(ABC):
-    """设备MDP接口"""
+    """device MDP interface"""
     
     @abstractmethod
     def get_state_features(self) -> np.ndarray:
-        """获取设备状态特征"""
+        """get device state features"""
         pass
     
     @abstractmethod
     def transition_state(self, action: float, env_state: Dict) -> Dict[str, Any]:
-        """设备状态转移"""
+        """device state transition"""
         pass
     
     @abstractmethod
     def calculate_reward(self, action: float, next_state: Dict, env_state: Dict) -> Tuple[float, Dict]:
-        """计算设备奖励"""
+        """calculate device reward"""
         pass
     
     @abstractmethod
     def get_action_bounds(self) -> Tuple[float, float]:
-        """获取动作边界"""
+        """get action bounds"""
         pass
     
     @abstractmethod
     def reset_state(self):
-        """重置设备状态"""
+        """reset device state"""
         pass
 
 class DishwasherMDPDevice(DeviceMDPInterface):
-    """洗碗机设备MDP实现"""
     
     def __init__(self, dishwasher_model: DishwasherModel):
         self.dishwasher = dishwasher_model
         
     def get_state_features(self) -> np.ndarray:
-        """获取洗碗机状态特征 [是否部署, 是否运行, 是否完成, 当前步骤/总步骤, 紧急度, 剩余能量需求]"""
+        """get dishwasher state features [is deployed, is running, is completed, current step/total steps, urgency, remaining energy demand]"""
         is_deployed = 1.0 if self.dishwasher.is_deployed else 0.0
         is_running = 1.0 if self.dishwasher.is_running else 0.0
         is_completed = 1.0 if self.dishwasher.is_completed else 0.0
         
-        # 进度（当前步骤/总步骤）
+        # progress (current step/total steps)
         progress = self.dishwasher.current_cycle_step / max(1, self.dishwasher.total_cycle_steps)
         
-        # 紧急度
+        # urgency
         urgency = self.dishwasher.calculate_urgency(datetime.now())
         
-        # 剩余能量需求
+        # remaining energy demand
         remaining_energy = self.dishwasher.params.total_energy - self.dishwasher.energy_consumed
         remaining_energy_norm = remaining_energy / max(1, self.dishwasher.params.total_energy)
         
         return np.array([is_deployed, is_running, is_completed, progress, urgency, remaining_energy_norm])
     
     def transition_state(self, action: float, env_state: Dict) -> Dict[str, Any]:
-        """洗碗机状态转移
+        """dishwasher state transition
         
-        action: 0-1，表示是否启动洗碗机（仅在已部署但未运行时有效）
+        action: 0-1, whether to start dishwasher (only valid when deployed but not running)
         """
         current_time = datetime.now()
         
-        # 如果还未部署，随机模拟部署（在实际应用中由用户触发）
+        # if not deployed, randomly simulate deployment (in actual application triggered by user)
         if not self.dishwasher.is_deployed:
-            # 模拟用户可能在某些时间部署洗碗机
-            if np.random.random() < 0.1:  # 10%概率部署
+            # simulate user may deploy dishwasher at some time
+            if np.random.random() < 0.1:  # 10% probability to deploy
                 self.dishwasher.deploy(current_time)
                 
-        # 如果已部署但未运行，根据action决定是否启动
+        # if deployed but not running, decide whether to start based on action
         start_success = False
         if self.dishwasher.is_deployed and not self.dishwasher.is_running and not self.dishwasher.is_completed:
-            if action > 0.5:  # action > 0.5表示决定启动
+            if action > 0.5:  # action > 0.5 means decide to start
                 start_success = self.dishwasher.start_operation(current_time)
         
-        # 如果正在运行，继续运行一个时间步
+        # if running, continue running one time step
         power_consumed = 0.0
         operation_completed = False
         if self.dishwasher.is_running:
-            # 洗碗机运行需要固定功率
+            # dishwasher running needs fixed power
             available_power = env_state.get('available_power', self.dishwasher.params.power_rating)
             power_consumed, operation_completed = self.dishwasher.step_operation(current_time, available_power)
         
@@ -278,63 +261,62 @@ class DishwasherMDPDevice(DeviceMDPInterface):
         }
     
     def calculate_reward(self, action: float, next_state: Dict, env_state: Dict) -> Tuple[float, Dict]:
-        """计算洗碗机奖励 - 修复版本，减少稀疏奖励"""
+        """calculate dishwasher reward - fixed version, reduce sparse reward"""
         reward = 0.0
         reward_components = {}
         
-        # 🔧 修复1: 完成任务奖励保持高奖励
         if next_state['operation_completed']:
-            completion_reward = 50.0  # 降低但仍然较高的完成奖励
+            completion_reward = 50.0  # reduce but still high reward
             reward += completion_reward
             reward_components['completion_reward'] = completion_reward
         
-        # 🔧 修复2: 增加运行进度奖励，鼓励启动和持续运行
+        # add progress reward, encourage start and continue running
         if next_state['is_running']:
-            # 根据进度给予递增奖励
+            # give increasing reward based on progress
             progress = getattr(self.dishwasher, 'current_cycle_step', 0)
             total_steps = getattr(self.dishwasher, 'total_cycle_steps', 10)
             
             if total_steps > 0:
                 progress_ratio = progress / total_steps
-                progress_reward = 5.0 + progress_ratio * 10.0  # 5-15分的进度奖励
+                progress_reward = 5.0 + progress_ratio * 10.0  
             else:
-                progress_reward = 8.0  # 默认运行奖励
+                progress_reward = 8.0  
                 
             reward += progress_reward
             reward_components['progress_reward'] = progress_reward
         
-        # 🔧 修复3: 重新设计启动时机奖励，更宽容
+        # re-design start timing reward, more tolerant
         if next_state.get('start_success', False):
             current_time = datetime.now()
             if hasattr(self.dishwasher, 'calculate_urgency'):
                 urgency = self.dishwasher.calculate_urgency(current_time)
             else:
-                urgency = 0.5  # 默认中等紧急度
+                urgency = 0.5  # default medium urgency
             
-            if urgency > 0.6:  # 较高紧急度时启动
-                timing_reward = 15.0 * urgency  # 最高9分奖励
+            if urgency > 0.6:  # high urgency
+                timing_reward = 15.0 * urgency  # highest 9 points reward
                 reward += timing_reward
                 reward_components['timing_reward'] = timing_reward
-            elif urgency > 0.3:  # 中等紧急度
-                timing_reward = 5.0 * urgency  # 1.5-3分奖励
+            elif urgency > 0.3:  # medium urgency
+                timing_reward = 5.0 * urgency  # 1.5-3 points reward
                 reward += timing_reward
                 reward_components['timing_reward'] = timing_reward
-            else:  # 低紧急度时启动，轻微惩罚
-                timing_penalty = -2.0  # 减少惩罚
+            else:  # low urgency, slight penalty
+                timing_penalty = -2.0  # reduce penalty
                 reward += timing_penalty
                 reward_components['timing_penalty'] = timing_penalty
         
-        # 🔧 修复4: 重新设计能耗成本，不要过度惩罚
+        # re-design energy cost, not over-penalize
         power_consumed = next_state.get('power_consumed', 0.0)
         price = env_state.get('price', 0.15)
         
         if power_consumed > 0:
-            # 能耗成本相对于收益的惩罚，而不是绝对惩罚
-            energy_cost = power_consumed * price * 0.3  # 降低成本权重
+            # energy cost relative to reward, not absolute penalty
+            energy_cost = power_consumed * price * 0.3  # reduce cost weight
             reward -= energy_cost
             reward_components['energy_cost'] = -energy_cost
         
-        # 🔧 修复5: 重新设计等待时间惩罚，更宽容
+        # re-design waiting time penalty, more tolerant
         if (self.dishwasher.is_deployed and 
             not getattr(self.dishwasher, 'is_running', False) and 
             not getattr(self.dishwasher, 'is_completed', False)):
@@ -345,23 +327,23 @@ class DishwasherMDPDevice(DeviceMDPInterface):
                 max_delay = getattr(self.dishwasher.params, 'max_start_delay', 6.0)
                 
                 if wait_time > max_delay:
-                    # 等待超时，重度惩罚但减少幅度
-                    timeout_penalty = -20.0  # 从-50减少到-20
+                    # wait timeout, heavy penalty but reduce
+                    timeout_penalty = -20.0  
                     reward += timeout_penalty
                     reward_components['timeout_penalty'] = timeout_penalty
                 elif wait_time > max_delay * 0.8:
-                    # 接近超时，轻度惩罚
-                    wait_penalty = -5.0 * (wait_time / max_delay)  # 减少惩罚
+                    # close to timeout, light penalty
+                    wait_penalty = -5.0 * (wait_time / max_delay)  # reduce penalty
                     reward += wait_penalty
                     reward_components['wait_penalty'] = wait_penalty
         
-        # 🔧 修复6: 添加部署奖励，鼓励参与
+        # add deployment reward, encourage participation
         if self.dishwasher.is_deployed:
-            deployment_reward = 2.0  # 部署即有奖励
+            deployment_reward = 2.0  # deployment has reward
             reward += deployment_reward
             reward_components['deployment_reward'] = deployment_reward
         
-        # 🔧 修复7: 添加基础参与奖励
+        # add base participation reward
         base_participation_reward = 1.0
         reward += base_participation_reward
         reward_components['participation_reward'] = base_participation_reward
@@ -369,11 +351,11 @@ class DishwasherMDPDevice(DeviceMDPInterface):
         return reward, reward_components
     
     def get_action_bounds(self) -> Tuple[float, float]:
-        """获取动作边界"""
-        return 0.0, 1.0  # 0表示不启动，1表示启动
+        """get action bounds"""
+        return 0.0, 1.0  # 0 means not start, 1 means start
     
     def reset_state(self):
-        """重置洗碗机状态"""
+        """reset dishwasher state"""
         self.dishwasher.is_deployed = False
         self.dishwasher.is_running = False
         self.dishwasher.is_completed = False
@@ -384,7 +366,6 @@ class DishwasherMDPDevice(DeviceMDPInterface):
         self.dishwasher.energy_consumed = 0.0
 
 class BatteryMDPDevice(DeviceMDPInterface):
-    """电池设备MDP实现"""
     
     def __init__(self, battery_model: BatteryModel):
         self.battery = battery_model
@@ -392,35 +373,35 @@ class BatteryMDPDevice(DeviceMDPInterface):
         self.capacity = battery_model.params.capacity_kwh
     
     def get_state_features(self) -> np.ndarray:
-        """获取电池状态特征 [SOC, 最大充电功率, 最大放电功率, 健康度]"""
+        """get battery state features [SOC, max charge power, max discharge power, health]"""
         soc = self.battery.current_soc
         
-        # 计算可用功率范围
+        # calculate available power range
         max_charge_energy = (self.battery.params.soc_max - soc) * self.capacity
         max_charge_power = min(self.battery.params.p_max, max_charge_energy / self.efficiency)
         
         max_discharge_energy = (soc - self.battery.params.soc_min) * self.capacity
         max_discharge_power = min(abs(self.battery.params.p_min), max_discharge_energy * self.efficiency)
         
-        # 健康度（简化模型）
-        health = max(0.8, 1.0 - soc * 0.1)  # 基于SOC的简化健康度
+        # health
+        health = max(0.8, 1.0 - soc * 0.1)  # simplified health based on SOC
         
         return np.array([soc, max_charge_power, max_discharge_power, health])
     
     def transition_state(self, action: float, env_state: Dict) -> Dict[str, Any]:
-        """电池状态转移"""
+        """battery state transition"""
         soc = self.battery.current_soc
         
-        # 计算SOC变化
-        if action > 0:  # 充电
+        # calculate SOC change
+        if action > 0:  # charge
             energy_change = action * self.efficiency
-        else:  # 放电
+        else:  # discharge
             energy_change = action / self.efficiency
         
         new_soc = soc + energy_change / self.capacity
         new_soc = np.clip(new_soc, self.battery.params.soc_min, self.battery.params.soc_max)
         
-        # 更新电池状态
+        # update battery state
         self.battery.current_soc = new_soc
         
         return {
@@ -431,136 +412,135 @@ class BatteryMDPDevice(DeviceMDPInterface):
         }
     
     def calculate_reward(self, action: float, next_state: Dict, env_state: Dict) -> Tuple[float, Dict]:
-        """计算电池奖励 - 增强学习信号版本"""
+        """calculate battery reward - enhanced learning signal version"""
         reward_components = {}
         
-        # 🔧 增强1: 重新设计经济性奖励，增大差异化
+        # re-design economic reward, increase differentiation
         price = env_state.get('price', 0.15)
         base_price = 0.15
         price_ratio = price / base_price
         
-        # 电价时段分析 - 增大奖励差异
-        if price < 0.10:  # 超低电价时段
-            if action > 0:  # 充电
-                economic_reward = abs(action) * 10.0 * (1.0 - price_ratio)  # 最高10分
+        # price time analysis - increase reward difference
+        if price < 0.10:  # super low price
+            if action > 0:  # charge
+                economic_reward = abs(action) * 10.0 * (1.0 - price_ratio)  # highest 10 points
             else:
-                economic_reward = -abs(action) * 2.0  # 错失机会惩罚
-        elif price < 0.12:  # 低电价时段
-            if action > 0:  # 充电
-                economic_reward = abs(action) * 5.0 * (1.0 - price_ratio)  # 最高5分
+                economic_reward = -abs(action) * 2.0  # miss opportunity penalty
+        elif price < 0.12:  # low price
+            if action > 0:  # charge
+                economic_reward = abs(action) * 5.0 * (1.0 - price_ratio)  # highest 5 points
             else:
                 economic_reward = 0.0
-        elif price > 0.25:  # 超高电价时段
-            if action < 0:  # 放电
-                economic_reward = abs(action) * 15.0 * (price_ratio - 1.0)  # 最高15分
+        elif price > 0.25:  # super high price
+            if action < 0:  # discharge
+                economic_reward = abs(action) * 15.0 * (price_ratio - 1.0)  # highest 15 points
             else:
-                economic_reward = -abs(action) * 5.0  # 高价充电重罚
-        elif price > 0.18:  # 高电价时段
-            if action < 0:  # 放电
-                economic_reward = abs(action) * 8.0 * (price_ratio - 1.0)  # 最高8分
+                economic_reward = -abs(action) * 5.0  # high price charge heavy penalty
+        elif price > 0.18:  # high price
+            if action < 0:  # discharge
+                economic_reward = abs(action) * 8.0 * (price_ratio - 1.0)  # highest 8 points
             else:
-                economic_reward = -abs(action) * 2.0  # 高价充电轻罚
-        else:  # 中等电价
-            economic_reward = -abs(action) * 0.5  # 轻微惩罚
+                economic_reward = -abs(action) * 2.0  # high price charge light penalty
+        else:  # medium price
+            economic_reward = -abs(action) * 0.5  # slight penalty
         
         reward_components['economic'] = economic_reward
         
-        # 🔧 增强2: SOC管理奖励，创造更大差异
+        # SOC management reward, create bigger difference
         soc = next_state.get('soc', 0.5)
         
-        if 0.45 <= soc <= 0.75:  # 最佳SOC区间
+        if 0.45 <= soc <= 0.75:  # best SOC interval
             soc_reward = 8.0
-        elif 0.35 <= soc <= 0.85:  # 良好SOC区间
+        elif 0.35 <= soc <= 0.85:  # good SOC interval
             soc_reward = 4.0
-        elif 0.25 <= soc <= 0.9:  # 可接受区间
+        elif 0.25 <= soc <= 0.9:  # acceptable interval
             soc_reward = 1.0
-        elif 0.15 <= soc <= 0.95:  # 边界区间
+        elif 0.15 <= soc <= 0.95:  # boundary interval
             soc_reward = -2.0
-        else:  # 危险区间
-            soc_reward = -10.0  # 重罚
+        else:  # dangerous interval
+            soc_reward = -10.0  # heavy penalty
             
         reward_components['soc_maintenance'] = soc_reward
         
-        # 🔧 增强3: 连续决策奖励，鼓励合理的action sequence
+        # continuous decision reward, encourage reasonable action sequence
         action_consistency_reward = 0.0
         if hasattr(self, 'prev_action'):
             prev_action = self.prev_action
-            # 奖励合理的动作连续性
-            if abs(action - prev_action) < 0.5:  # 平稳操作
+            # reward reasonable action continuity
+            if abs(action - prev_action) < 0.5:  # smooth operation
                 action_consistency_reward = 2.0
-            elif abs(action - prev_action) > 2.0:  # 剧烈变化
+            elif abs(action - prev_action) > 2.0:  
                 action_consistency_reward = -1.0
         
         self.prev_action = action
         reward_components['action_consistency'] = action_consistency_reward
         
-        # 🔧 增强4: 状态改善奖励，鼓励positive state changes
+        # state improvement reward, encourage positive state changes
         state_improvement_reward = 0.0
         if hasattr(self, 'prev_soc'):
             prev_soc = self.prev_soc
             soc_change = soc - prev_soc
             
-            # 奖励向理想SOC区间移动
+            # reward to move to ideal SOC interval
             ideal_soc = 0.6
             prev_distance = abs(prev_soc - ideal_soc)
             current_distance = abs(soc - ideal_soc)
             
-            if current_distance < prev_distance:  # 向理想状态移动
+            if current_distance < prev_distance:  # move to ideal state
                 state_improvement_reward = 3.0 * (prev_distance - current_distance)
-            else:  # 远离理想状态
+            else:  # move away from ideal state
                 state_improvement_reward = -2.0 * (current_distance - prev_distance)
         
         self.prev_soc = soc
         reward_components['state_improvement'] = state_improvement_reward
         
-        # 🔧 增强5: 任务完成奖励，基于时间进度
+        # task completion reward, based on time progress
         hour = datetime.now().hour
         task_completion_reward = 0.0
         
-        # 根据一天中的时间给予不同的任务完成奖励
-        if 6 <= hour <= 9:  # 早高峰
-            if 0.7 <= soc <= 0.9:  # 为白天做好准备
+        # give different task completion rewards based on time
+        if 6 <= hour <= 9:  
+            if 0.7 <= soc <= 0.9:  
                 task_completion_reward = 5.0
-        elif 18 <= hour <= 22:  # 晚高峰
-            if action < 0 and soc > 0.5:  # 放电支持负荷
+        elif 18 <= hour <= 22:  
+            if action < 0 and soc > 0.5:  
                 task_completion_reward = 6.0
-        elif 22 <= hour or hour <= 6:  # 夜间
-            if action > 0 and price < 0.12:  # 夜间低价充电
+        elif 22 <= hour or hour <= 6:  
+            if action > 0 and price < 0.12:  
                 task_completion_reward = 4.0
                 
         reward_components['task_completion'] = task_completion_reward
         
-        # 🔧 增强6: 重新平衡权重，增大总体奖励范围
+        # re-balance weights, increase overall reward range
         total_reward = (
-            0.4 * economic_reward +           # 提高经济权重
-            0.3 * soc_reward +               # SOC管理
-            0.1 * action_consistency_reward + # 动作一致性
-            0.1 * state_improvement_reward +  # 状态改善
-            0.1 * task_completion_reward      # 任务完成
+            0.4 * economic_reward +           # increase economic weight
+            0.3 * soc_reward +               # SOC management
+            0.1 * action_consistency_reward + # action consistency
+            0.1 * state_improvement_reward +  # state improvement
+            0.1 * task_completion_reward      # task completion
         )
         
-        # 🔧 增强7: 去掉固定的基础奖励，让差异化更明显
-        # 不再添加base_participation_reward，让好坏动作的差异更大
+        # remove fixed base reward, make differentiation more obvious
         
         return total_reward, reward_components
     
     def get_action_bounds(self) -> Tuple[float, float]:
-        """获取动作边界"""
+        """get action bounds"""
         return self.battery.params.p_min, self.battery.params.p_max
     
     def reset_state(self):
-        """重置电池状态"""
+        """reset battery state"""
         self.battery.current_soc = self.battery.params.initial_soc
 
 class HeatPumpMDPDevice(DeviceMDPInterface):
-    """热泵设备MDP实现"""
+    """heat pump device implementation"""
     
     def __init__(self, heatpump_model: HeatPumpModel):
         self.heatpump = heatpump_model
         self.cop = heatpump_model.params.cop
     
     def get_state_features(self) -> np.ndarray:
-        """获取热泵状态特征 [当前温度, 目标温度, 舒适度]"""
+        """get heat pump state features [current temperature, target temperature, comfort]"""
         current_temp = self.heatpump.current_temp
         target_temp = self._get_target_temperature()
         comfort_score = 1.0 - min(1.0, abs(current_temp - target_temp) / 3.0)
@@ -568,7 +548,7 @@ class HeatPumpMDPDevice(DeviceMDPInterface):
         return np.array([current_temp, target_temp, comfort_score])
     
     def _get_target_temperature(self) -> float:
-        """获取目标温度（基于时间）"""
+        """get target temperature (based on time)"""
         hour = datetime.now().hour
         if 8 <= hour < 22:
             return self.heatpump.params.primary_target_temp
@@ -576,24 +556,24 @@ class HeatPumpMDPDevice(DeviceMDPInterface):
             return self.heatpump.params.secondary_target_temp
     
     def transition_state(self, action: float, env_state: Dict) -> Dict[str, Any]:
-        """热泵状态转移"""
+        """heat pump state transition"""
         current_temp = self.heatpump.current_temp
         outside_temp = env_state['temperature']
         
-        # 计算热量输出
+        # calculate heat output
         heat_output = action * self.cop if action > 0 else 0
         
-        # 热损失
+        # heat loss
         heat_loss = self.heatpump.params.heat_loss_coef * (current_temp - outside_temp)
         
-        # 温度变化
+        # temperature change
         net_heat = heat_output - heat_loss
         temp_change = net_heat / (self.heatpump.params.room_volume * 1.2)
         
         new_temp = current_temp + temp_change
         new_temp = np.clip(new_temp, self.heatpump.params.temp_min, self.heatpump.params.temp_max)
         
-        # 更新热泵状态
+        # update heat pump state
         self.heatpump.current_temp = new_temp
         
         return {
@@ -604,107 +584,106 @@ class HeatPumpMDPDevice(DeviceMDPInterface):
         }
     
     def calculate_reward(self, action: float, next_state: Dict, env_state: Dict) -> Tuple[float, Dict]:
-        """计算热泵奖励 - 修复版本，提供正向激励"""
         reward_components = {}
         
-        # 🔧 修复1: 重新设计经济性奖励，鼓励高效使用
+        # re-design economic reward, encourage efficient use
         price = env_state.get('price', 0.15)
         
-        if action <= 0:  # 不使用热泵
-            economic_reward = 0.1  # 小的基础奖励
+        if action <= 0:  # not use heat pump
+            economic_reward = 0.1  # small base reward
         else:
-            # 根据COP和电价计算效率
+            # calculate efficiency based on COP and price
             heat_output = action * self.cop
             efficiency_ratio = heat_output / action if action > 0 else 0
             
-            if price < 0.12:  # 低电价时段
-                economic_reward = 1.0 - (action * price * 0.5)  # 鼓励使用
-            elif price > 0.20:  # 高电价时段
-                if efficiency_ratio > 3.5:  # 高效率使用
+            if price < 0.12:  # low price
+                economic_reward = 1.0 - (action * price * 0.5)  # encourage use
+            elif price > 0.20:  # high price
+                if efficiency_ratio > 3.5:  # high efficiency use
                     economic_reward = 0.5 - (action * price * 0.3)
                 else:
-                    economic_reward = -(action * price * 0.8)  # 惩罚低效率高价使用
-            else:  # 中等电价
+                    economic_reward = -(action * price * 0.8)  # punish low efficiency high price use
+            else:  # medium price
                 economic_reward = 0.2 - (action * price * 0.4)
         
         reward_components['economic'] = economic_reward
         
-        # 🔧 修复2: 重新设计舒适度奖励，更宽容的温度控制
+        # re-design comfort reward, more tolerant temperature control
         current_temp = next_state['temperature']
         target_temp = self._get_target_temperature()
         temp_diff = abs(current_temp - target_temp)
         
-        if temp_diff <= 1.0:  # 很好的温度控制
-            comfort_reward = 3.0 - temp_diff * 2.0  # 1.0-3.0分
-        elif temp_diff <= 2.5:  # 可接受的温度控制
-            comfort_reward = 2.0 - temp_diff * 0.5  # 0.75-1.75分
-        elif temp_diff <= 4.0:  # 基本可接受
-            comfort_reward = 1.0 - temp_diff * 0.2  # 0.2-1.0分
-        else:  # 温度控制差
-            comfort_reward = -temp_diff * 0.5  # 负分
+        if temp_diff <= 1.0:  # good temperature control
+            comfort_reward = 3.0 - temp_diff * 2.0  # 1.0-3.0 points
+        elif temp_diff <= 2.5:  # acceptable temperature control
+            comfort_reward = 2.0 - temp_diff * 0.5  # 0.75-1.75 points
+        elif temp_diff <= 4.0:  # acceptable
+            comfort_reward = 1.0 - temp_diff * 0.2  # 0.2-1.0 points
+        else:  # bad temperature control
+            comfort_reward = -temp_diff * 0.5  # negative points
             
         reward_components['comfort'] = comfort_reward
         
-        # 🔧 修复3: 添加温度稳定性奖励
-        # 检查温度变化（需要历史温度，这里简化处理）
+        # add temperature stability reward
+        # check temperature change (need history temperature)
         if hasattr(self.heatpump, 'prev_temp'):
             temp_change = abs(current_temp - self.heatpump.prev_temp)
-            if temp_change <= 0.5:  # 温度稳定
+            if temp_change <= 0.5:  # temperature stable
                 stability_reward = 1.0
-            elif temp_change <= 1.5:  # 适度变化
+            elif temp_change <= 1.5:  # moderate change
                 stability_reward = 0.5
-            else:  # 温度波动大
+            else:  # large temperature fluctuation
                 stability_reward = -0.5
         else:
             stability_reward = 0.0
             
-        self.heatpump.prev_temp = current_temp  # 保存当前温度
+        self.heatpump.prev_temp = current_temp  # save current temperature
         reward_components['stability'] = stability_reward
         
-        # 🔧 修复4: 添加适时使用奖励
+        # add time appropriateness reward
         hour = datetime.now().hour
-        if 8 <= hour <= 22:  # 白天使用时段
+        if 8 <= hour <= 22:  # daytime
             time_appropriateness = 1.0 if action > 0 else 0.0
-        else:  # 夜间时段
+        else:  # nighttime
             time_appropriateness = 0.5 if action > 0 else 0.2
             
         reward_components['time_appropriateness'] = time_appropriateness
         
-        # 🔧 修复5: 重新平衡权重，确保正向激励
+        # re-balance weights, ensure positive incentive
         total_reward = (
-            0.2 * economic_reward +        # 降低经济权重
-            0.5 * comfort_reward +         # 提高舒适度权重
-            0.2 * stability_reward +       # 温度稳定性
-            0.1 * time_appropriateness     # 使用时机
+            0.2 * economic_reward +        # decrease economic weight
+            0.5 * comfort_reward +         # increase comfort weight
+            0.2 * stability_reward +       # temperature stability
+            0.1 * time_appropriateness     # time appropriateness
         )
         
-        # 🔧 修复6: 添加基础参与奖励
+        # add base participation reward
         base_participation_reward = 0.2
         total_reward += base_participation_reward
         
         return total_reward, reward_components
     
     def get_action_bounds(self) -> Tuple[float, float]:
-        """获取动作边界"""
+        """get action bounds"""
         return 0.0, self.heatpump.params.max_power
     
     def reset_state(self):
-        """重置热泵状态"""
+        """reset heat pump state"""
         self.heatpump.current_temp = self.heatpump.params.initial_temp
 
 class EVMDPDevice(DeviceMDPInterface):
-    """电动汽车设备MDP实现"""
+    """EV device MDP implementation"""
     
     def __init__(self, ev_model: EVModel):
         self.ev = ev_model
         self.battery_capacity = ev_model.params.battery_capacity
     
     def get_state_features(self) -> np.ndarray:
-        """获取EV状态特征 [SOC, 连接状态, 充电紧急度]"""
+        """get EV state features [SOC, connection state, charging urgency]"""
         soc = self.ev.current_soc
         is_connected = self._is_connected()
         
-        # 充电紧急度（基于用户行为）
+        # charging urgency (based on user behavior)
         if self.ev.user_behavior and is_connected:
             remaining_time = max(0, (self.ev.user_behavior.disconnection_time - datetime.now()).total_seconds() / 3600)
             soc_gap = max(0, self.ev.user_behavior.target_soc - soc)
@@ -715,18 +694,18 @@ class EVMDPDevice(DeviceMDPInterface):
         return np.array([soc, float(is_connected), urgency])
     
     def _is_connected(self) -> bool:
-        """检查EV是否连接"""
+        """check if EV is connected"""
         if not self.ev.user_behavior:
             return True
         now = datetime.now()
         return self.ev.user_behavior.connection_time <= now < self.ev.user_behavior.disconnection_time
     
     def transition_state(self, action: float, env_state: Dict) -> Dict[str, Any]:
-        """EV状态转移"""
+        """EV state transition"""
         soc = self.ev.current_soc
         is_connected = self._is_connected()
         
-        # 只有连接时才能充电
+        # only charge when connected
         actual_power = action if is_connected and action > 0 else 0
         
         if actual_power > 0:
@@ -738,7 +717,7 @@ class EVMDPDevice(DeviceMDPInterface):
         
         new_soc = np.clip(new_soc, self.ev.params.soc_min, self.ev.params.soc_max)
         
-        # 更新EV状态
+        # update EV state
         self.ev.current_soc = new_soc
         
         return {
@@ -749,26 +728,26 @@ class EVMDPDevice(DeviceMDPInterface):
         }
     
     def calculate_reward(self, action: float, next_state: Dict, env_state: Dict) -> Tuple[float, Dict]:
-        """计算EV奖励 - 修复版本，提供更好的学习信号"""
+        """calculate EV reward - provide better learning signal"""
         reward_components = {}
         
-        # 🔧 修复1: 重新设计经济性奖励，鼓励智能充电
+        # re-design economic reward, encourage smart charging
         power = next_state.get('power', 0.0)
         price = env_state.get('price', 0.15)
         
-        if power <= 0:  # 不充电
-            economic_reward = 0.1  # 小的基础奖励
+        if power <= 0:  # not charge
+            economic_reward = 0.1  # small base reward
         else:
-            if price < 0.12:  # 低电价时段充电
-                economic_reward = 2.0 - (power * price * 0.5)  # 鼓励低价充电
-            elif price > 0.20:  # 高电价时段充电
-                economic_reward = -(power * price * 0.8)  # 惩罚高价充电
-            else:  # 中等电价
+            if price < 0.12:  # low price
+                economic_reward = 2.0 - (power * price * 0.5)  # encourage low price charge
+            elif price > 0.20:  # high price
+                economic_reward = -(power * price * 0.8)  # punish high price charge
+            else:  # medium price
                 economic_reward = 0.5 - (power * price * 0.6)
                 
         reward_components['economic'] = economic_reward
         
-        # 🔧 修复2: 重新设计充电完成奖励，提供渐进奖励
+        # re-design charging completion reward, provide progressive reward
         current_soc = next_state.get('soc', 0.0)
         
         if self.ev.user_behavior:
@@ -776,17 +755,17 @@ class EVMDPDevice(DeviceMDPInterface):
             min_required_soc = getattr(self.ev.user_behavior, 'min_required_soc', 0.6)
             
             if current_soc >= target_soc:
-                completion_reward = 5.0  # 达到目标SOC高奖励
+                completion_reward = 5.0  # high reward for reaching target SOC
             elif current_soc >= min_required_soc:
-                # 达到最低要求SOC后的渐进奖励
+                # progressive reward after reaching minimum required SOC
                 progress = (current_soc - min_required_soc) / (target_soc - min_required_soc)
-                completion_reward = 2.0 + progress * 3.0  # 2-5分渐进奖励
+                completion_reward = 2.0 + progress * 3.0  # 2-5 points progressive reward
             else:
-                # 向最低要求SOC努力的奖励
+                # reward for trying to reach minimum required SOC
                 progress = current_soc / min_required_soc
-                completion_reward = progress * 2.0  # 0-2分
+                completion_reward = progress * 2.0  # 0-2 points
         else:
-            # 默认目标SOC为0.8
+            # default target SOC is 0.8
             if current_soc >= 0.8:
                 completion_reward = 3.0
             elif current_soc >= 0.6:
@@ -796,24 +775,24 @@ class EVMDPDevice(DeviceMDPInterface):
                 
         reward_components['completion'] = completion_reward
         
-        # 🔧 修复3: 重新设计连接性奖励，更合理
+        # re-design connection reward, more reasonable
         is_connected = next_state.get('connected', False)
         
         if not is_connected:
             if action > 0:
-                connection_reward = -2.0  # 尝试给断开的车充电，惩罚
+                connection_reward = -2.0  
             else:
-                connection_reward = 0.0  # 车未连接且不充电，正常
+                connection_reward = 0.0  
         else:
-            # 车已连接
+            # car is connected
             if action > 0:
-                connection_reward = 1.0  # 连接且充电，奖励
+                connection_reward = 1.0  # connected and charging, reward
             else:
-                connection_reward = 0.2  # 连接但不充电，小奖励
+                connection_reward = 0.2  # connected but no charge, small reward
                 
         reward_components['connection'] = connection_reward
         
-        # 🔧 修复4: 添加充电紧急度奖励
+        # add charging urgency reward
         urgency_reward = 0.0
         if is_connected and hasattr(self.ev, 'user_behavior') and self.ev.user_behavior:
             try:
@@ -824,58 +803,58 @@ class EVMDPDevice(DeviceMDPInterface):
                 
                 if remaining_time > 0 and soc_gap > 0:
                     urgency = min(1.0, soc_gap / max(remaining_time, 0.1))
-                    if urgency > 0.7 and action > 0:  # 高紧急度且充电
+                    if urgency > 0.7 and action > 0:  # high urgency and charge
                         urgency_reward = 2.0 * urgency
-                    elif urgency < 0.3 and action <= 0:  # 低紧急度且不充电
+                    elif urgency < 0.3 and action <= 0:  # low urgency and not charge
                         urgency_reward = 0.5
             except:
                 urgency_reward = 0.0
                 
         reward_components['urgency'] = urgency_reward
         
-        # 🔧 修复5: 重新平衡权重
+        # re-balance weights
         total_reward = (
-            0.2 * economic_reward +     # 降低经济权重
-            0.5 * completion_reward +   # 提高完成奖励权重
-            0.2 * connection_reward +   # 连接奖励
-            0.1 * urgency_reward        # 紧急度奖励
+            0.2 * economic_reward +     # decrease economic weight
+            0.5 * completion_reward +   # increase completion reward weight
+            0.2 * connection_reward +   # connection reward
+            0.1 * urgency_reward        # urgency reward
         )
         
-        # 🔧 修复6: 添加基础参与奖励
+        # add base participation reward
         base_participation_reward = 0.3
         total_reward += base_participation_reward
         
         return total_reward, reward_components
     
     def get_action_bounds(self) -> Tuple[float, float]:
-        """获取动作边界"""
+        """get action bounds"""
         return 0.0, self.ev.params.max_charging_power
     
     def reset_state(self):
-        """重置EV状态"""
+        """reset EV state"""
         self.ev.current_soc = self.ev.params.initial_soc
 
 class PVMDPDevice(DeviceMDPInterface):
-    """光伏设备MDP实现（只读设备）"""
+    """PV device MDP implementation (read-only device)"""
     
     def __init__(self, pv_model: PVModel):
         self.pv = pv_model
     
     def get_state_features(self) -> np.ndarray:
-        """获取PV状态特征 [当前发电功率, 预测发电功率]"""
-        # PV是只读设备，这里返回状态信息
-        current_power = 0.0  # 简化实现
+        """get PV state features [current power, forecast power]"""
+        # PV is read-only device, here return state information
+        current_power = 0.0  # simplified implementation
         forecast_power = 0.0
         return np.array([current_power, forecast_power])
     
     def transition_state(self, action: float, env_state: Dict) -> Dict[str, Any]:
-        """PV状态转移（PV不受控制）"""
-        # 计算实际发电功率（基于太阳辐照度）
+        """PV state transition (PV is read-only device)"""
+        # calculate actual power (based on solar irradiance)
         irradiance = env_state['solar_irradiance']
         max_power = self.pv.params.max_power
         efficiency = self.pv.params.efficiency
         
-        # 简化的发电模型
+        # power model
         actual_power = max_power * efficiency * (irradiance / 1000.0) if irradiance > 0 else 0
         
         return {
@@ -885,25 +864,25 @@ class PVMDPDevice(DeviceMDPInterface):
         }
     
     def calculate_reward(self, action: float, next_state: Dict, env_state: Dict) -> Tuple[float, Dict]:
-        """计算PV奖励（发电收益）"""
+        """calculate PV reward (generation reward)"""
         power_generated = next_state['power']
         price = env_state['price']
         
-        # PV发电收益
+        # PV generation reward
         generation_reward = power_generated * price
         
         return generation_reward, {'generation': generation_reward}
     
     def get_action_bounds(self) -> Tuple[float, float]:
-        """PV没有动作空间"""
+        """PV has no action space"""
         return 0.0, 0.0
     
     def reset_state(self):
-        """重置PV状态"""
+        """reset PV state"""
         pass
 
 class FlexOfferEnv(gym.Env):
-    """统一的FlexOffer MDP环境"""
+    """unified FlexOffer MDP environment"""
     
     def __init__(
         self,
@@ -917,16 +896,16 @@ class FlexOfferEnv(gym.Env):
         data_dir: str = "data",
     ):
         """
-        初始化统一的FlexOffer环境
+        initialize unified FlexOffer environment
         
         Args:
-            devices: 设备配置字典
-            time_horizon: 时间范围
-            time_step: 时间步长
-            start_time: 开始时间
-            price_data: 价格数据
-            user_preferences: 用户偏好
-            weather_data: 天气数据
+            devices: device configuration dictionary
+            time_horizon: time range
+            time_step: time step
+            start_time: start time
+            price_data: price data
+            user_preferences: user preferences
+            weather_data: weather data
         """
         super().__init__()
         
@@ -936,10 +915,10 @@ class FlexOfferEnv(gym.Env):
         self.current_time = self.start_time
         self.current_step = 0
         
-        # 初始化环境动态，传递data_dir参数
+        # initialize environment dynamics, pass data_dir parameter
         self.env_dynamics = EnvironmentDynamics(price_data, weather_data, data_dir)
         
-        # 初始化用户偏好
+        # initialize user preferences
         self.user_preferences = {
             "economic": 0.25,
             "comfort": 0.25,
@@ -948,11 +927,11 @@ class FlexOfferEnv(gym.Env):
         }
         if user_preferences:
             self.user_preferences.update(user_preferences)
-            # 归一化
+            # normalize
             total = sum(self.user_preferences.values())
             self.user_preferences = {k: v/total for k, v in self.user_preferences.items()}
         
-        # 初始化设备MDP
+        # initialize device MDP
         self.device_mdps = {}
         self.device_ids = []
         self.device_types = {}
@@ -966,7 +945,6 @@ class FlexOfferEnv(gym.Env):
             self.device_ids.append(device_id)
             self.device_types[device_id] = device_type
         
-        # 马尔可夫历史状态
         self.markov_history = {
             'prev_actions': np.zeros(len(self.device_ids)),
             'prev_reward': 0.0,
@@ -974,11 +952,11 @@ class FlexOfferEnv(gym.Env):
             'cumulative_energy': 0.0
         }
         
-        # 定义观测和动作空间
+        # define observation and action space
         self._setup_spaces()
     
     def _create_device_model(self, device_type: str, params):
-        """创建设备模型"""
+        """create device model"""
         if device_type == DeviceType.BATTERY:
             return BatteryModel(params)
         elif device_type == DeviceType.HEAT_PUMP:
@@ -993,7 +971,7 @@ class FlexOfferEnv(gym.Env):
             raise ValueError(f"Unknown device type: {device_type}")
     
     def _create_device_mdp(self, device_type: str, device_model) -> DeviceMDPInterface:
-        """创建设备MDP"""
+        """create device MDP"""
         if device_type == DeviceType.BATTERY:
             return BatteryMDPDevice(device_model)
         elif device_type == DeviceType.HEAT_PUMP:
@@ -1008,11 +986,11 @@ class FlexOfferEnv(gym.Env):
             raise ValueError(f"Unknown device type: {device_type}")
     
     def _setup_spaces(self):
-        """设置观测和动作空间"""
-        # 计算状态空间维度
-        # 通用状态: 时间(4) + 环境(5) + 马尔可夫历史(设备数+3) = 12+设备数
-        # 设备状态: 每设备的特征维度之和
-        env_state_dim = 4 + 5 + len(self.device_ids) + 3  # 环境和马尔可夫状态
+        """set observation and action space"""
+        # calculate state space dimension
+        # general state: time(4) + environment(5) + markov history(device number+3) = 12+device number
+        # device state: feature dimension of each device
+        env_state_dim = 4 + 5 + len(self.device_ids) + 3  
         device_state_dim = sum(len(mdp.get_state_features()) for mdp in self.device_mdps.values())
         total_state_dim = env_state_dim + device_state_dim
         
@@ -1020,7 +998,7 @@ class FlexOfferEnv(gym.Env):
             low=-np.inf, high=np.inf, shape=(total_state_dim,), dtype=np.float32
         )
         
-        # 动作空间：每个可控设备一个连续动作
+        # action space: one continuous action for each controllable device
         controllable_devices = [
             device_id for device_id in self.device_ids 
             if self.device_types[device_id] != DeviceType.PV
@@ -1037,17 +1015,17 @@ class FlexOfferEnv(gym.Env):
                 low=action_bounds[:, 0], high=action_bounds[:, 1], dtype=np.float32
             )
         else:
-            # 如果没有可控设备，创建一个虚拟动作空间
+            # if there is no controllable device, create a virtual action space
             self.action_space = spaces.Box(low=0, high=0, shape=(1,), dtype=np.float32)
     
     def reset(self, seed=None, options=None):
-        """重置环境"""
+        """reset environment"""
         super().reset(seed=seed)
         
         self.current_time = self.start_time
         self.current_step = 0
         
-        # 重置马尔可夫历史
+        # reset markov history
         self.markov_history = {
             'prev_actions': np.zeros(len(self.device_ids)),
             'prev_reward': 0.0,
@@ -1055,29 +1033,29 @@ class FlexOfferEnv(gym.Env):
             'cumulative_energy': 0.0
         }
         
-        # 重置环境动态
+        # reset environment dynamics
         self.env_dynamics.price_history = []
         self.env_dynamics.weather_history = []
         
-        # 重置所有设备
+        # reset all devices
         for device_mdp in self.device_mdps.values():
             device_mdp.reset_state()
         
-        # 获取初始观测
+        # get initial observation
         observation = self._get_observation()
         info = {'time': self.current_time, 'step': self.current_step}
         
         return observation, info
     
     def step(self, action: np.ndarray):
-        """执行一步"""
-        # 获取当前环境状态
+        """execute one step"""
+        # get current environment state
         env_state = self.env_dynamics.get_current_state(self.current_time)
         
-        # 映射动作到设备
+        # map action to devices
         device_actions = self._map_actions_to_devices(action)
         
-        # 执行设备状态转移
+        # execute device state transition
         device_next_states = {}
         total_reward = 0.0
         all_reward_components = {}
@@ -1086,11 +1064,11 @@ class FlexOfferEnv(gym.Env):
         for device_id, device_action in device_actions.items():
             device_mdp = self.device_mdps[device_id]
             
-            # 状态转移
+            # state transition
             next_state = device_mdp.transition_state(device_action, env_state)
             device_next_states[device_id] = next_state
             
-            # 计算奖励
+            # calculate reward
             device_reward, reward_components = device_mdp.calculate_reward(
                 device_action, next_state, env_state
             )
@@ -1098,31 +1076,31 @@ class FlexOfferEnv(gym.Env):
             total_reward += device_reward
             all_reward_components[device_id] = reward_components
             
-            # 累积成本
+            # accumulate cost
             if 'power' in next_state:
                 cost = next_state['power'] * env_state['price'] * self.time_step
                 total_cost += cost
         
-        # 应用用户偏好权重
+        # apply user preferences weight
         weighted_reward = self._apply_user_preferences(total_reward, all_reward_components)
         
-        # 更新马尔可夫历史
+        # update markov history
         self.markov_history['prev_actions'] = np.array(list(device_actions.values()))
         self.markov_history['prev_reward'] = weighted_reward
         self.markov_history['cumulative_cost'] += total_cost
         self.markov_history['cumulative_energy'] += sum(abs(a) for a in device_actions.values()) * self.time_step
         
-        # 更新时间
+        # update time
         self.current_time += timedelta(hours=self.time_step)
         self.current_step += 1
         
-        # 检查终止条件
+        # check termination condition
         done = self.current_step >= self.time_horizon
         
-        # 获取下一个观测
+        # get next observation
         next_observation = self._get_observation()
         
-        # 构建信息字典
+        # build information dictionary
         info = {
             'time': self.current_time,
             'step': self.current_step,
@@ -1135,7 +1113,7 @@ class FlexOfferEnv(gym.Env):
         return next_observation, weighted_reward, done, False, info
     
     def _map_actions_to_devices(self, action: np.ndarray) -> Dict[str, float]:
-        """映射动作到设备"""
+        """map action to devices"""
         device_actions = {}
         action_idx = 0
         
@@ -1143,10 +1121,10 @@ class FlexOfferEnv(gym.Env):
             device_type = self.device_types[device_id]
             
             if device_type == DeviceType.PV:
-                # PV设备不可控
+                # PV device is read-only
                 device_actions[device_id] = 0.0
             else:
-                # 可控设备
+                # controllable device
                 if action_idx < len(action):
                     device_actions[device_id] = float(action[action_idx])
                     action_idx += 1
@@ -1156,14 +1134,13 @@ class FlexOfferEnv(gym.Env):
         return device_actions
     
     def _apply_user_preferences(self, base_reward: float, reward_components: Dict) -> float:
-        """应用用户偏好权重"""
-        # 这里可以根据reward_components中的不同组件应用用户偏好
-        # 简化实现：直接返回基础奖励
+        """apply user preferences weight"""
+        # here can apply user preferences based on reward_components
         return base_reward
     
     def _get_observation(self) -> np.ndarray:
-        """获取当前观测状态"""
-        # 时间特征
+        """get current observation state"""
+        # time feature
         hour = self.current_time.hour
         time_features = np.array([
             math.sin(2 * math.pi * hour / 24),
@@ -1172,7 +1149,7 @@ class FlexOfferEnv(gym.Env):
             self.current_step / self.time_horizon
         ])
         
-        # 环境特征
+        # environment feature
         env_state = self.env_dynamics.get_current_state(self.current_time)
         env_features = np.array([
             env_state['price'],
@@ -1182,7 +1159,7 @@ class FlexOfferEnv(gym.Env):
             env_state['weather_trend']['temperature_trend']
         ])
         
-        # 马尔可夫历史特征
+        # markov history feature
         markov_features = np.concatenate([
             self.markov_history['prev_actions'],
             [self.markov_history['prev_reward']],
@@ -1190,7 +1167,7 @@ class FlexOfferEnv(gym.Env):
             [self.markov_history['cumulative_energy']]
         ])
         
-        # 设备状态特征
+        # device state feature
         device_features = []
         for device_id in self.device_ids:
             device_state = self.device_mdps[device_id].get_state_features()
@@ -1198,7 +1175,7 @@ class FlexOfferEnv(gym.Env):
         
         device_features = np.concatenate(device_features)
         
-        # 合并所有特征
+        # merge all features
         full_observation = np.concatenate([
             time_features,
             env_features,
@@ -1209,21 +1186,20 @@ class FlexOfferEnv(gym.Env):
         return full_observation.astype(np.float32)
     
     def generate_dfo(self) -> Dict[str, DFOSystem]:
-        """生成DFO系统（与FlexOffer流程集成）"""
         dfo_systems = {}
         
         for device_id in self.device_ids:
             device_type = self.device_types[device_id]
             device_mdp = self.device_mdps[device_id]
             
-            if device_type != DeviceType.PV:  # 只为可控设备生成DFO
+            if device_type != DeviceType.PV:  
                 dfo = DFOSystem(self.time_horizon)
                 
                 for t in range(self.time_horizon):
-                    # 获取动作边界
+                    # get action bounds
                     p_min, p_max = device_mdp.get_action_bounds()
                     
-                    # 创建时间片
+                    # create time slice
                     dfo_slice = DFOSlice(
                         time_step=t,
                         energy_min=p_min * self.time_step,
@@ -1237,5 +1213,5 @@ class FlexOfferEnv(gym.Env):
         
         return dfo_systems
 
-# 向后兼容的别名
+# backward compatible alias
 FlexOfferEnvMDP = FlexOfferEnv 

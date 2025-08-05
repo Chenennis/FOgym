@@ -15,37 +15,36 @@ from fo_generate.ev_model import EVParameters, EVUserBehavior
 from fo_generate.pv_model import PVParameters
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="使用训练好的模型生成灵活性报价")
+    parser = argparse.ArgumentParser(description="generate flexible offer with trained model")
     
-    # 模型参数
-    parser.add_argument("--model_path", type=str, default=None, help="训练好的模型路径（可选）")
-    parser.add_argument("--algorithm", type=str, default="fomappo", choices=["fomappo"], help="使用的算法")
-    parser.add_argument("--time_horizon", type=int, default=24, help="时间范围（小时）")
-    parser.add_argument("--time_step", type=float, default=1.0, help="时间步长（小时）")
+    # model parameters
+    parser.add_argument("--model_path", type=str, default=None, help="path to trained model (optional)")
+    parser.add_argument("--algorithm", type=str, default="fomappo", choices=["fomappo"], help="algorithm to use")
+    parser.add_argument("--time_horizon", type=int, default=24, help="time range (hours)")
+    parser.add_argument("--time_step", type=float, default=1.0, help="time step (hours)")
     
-    # 设备配置
-    parser.add_argument("--device_config", type=str, default=None, help="设备配置文件路径 (JSON格式)")
-    parser.add_argument("--price_data", type=str, default=None, help="电价数据文件路径 (CSV格式)")
-    parser.add_argument("--weather_data", type=str, default=None, help="天气数据文件路径 (CSV格式)")
-    parser.add_argument("--pv_forecast", type=str, default=None, help="光伏预测数据文件路径 (CSV格式)")
+    # device configuration
+    parser.add_argument("--device_config", type=str, default=None, help="path to device configuration file (JSON format)")
+    parser.add_argument("--price_data", type=str, default=None, help="path to price data file (CSV format)")
+    parser.add_argument("--weather_data", type=str, default=None, help="path to weather data file (CSV format)")
+    parser.add_argument("--pv_forecast", type=str, default=None, help="path to PV forecast data file (CSV format)")
     
-    # 用户偏好
-    parser.add_argument("--economic", type=float, default=0.25, help="经济性偏好权重")
-    parser.add_argument("--comfort", type=float, default=0.25, help="舒适性偏好权重")
-    parser.add_argument("--self_sufficient", type=float, default=0.25, help="自给自足偏好权重")
-    parser.add_argument("--environmental", type=float, default=0.25, help="环保性偏好权重")
+    # user preferences
+    parser.add_argument("--economic", type=float, default=0.25, help="economic preference weight")
+    parser.add_argument("--comfort", type=float, default=0.25, help="comfort preference weight")
+    parser.add_argument("--self_sufficient", type=float, default=0.25, help="self-sufficient preference weight")
+    parser.add_argument("--environmental", type=float, default=0.25, help="environmental preference weight")
     
-    # 输出路径
-    parser.add_argument("--output_dir", type=str, default="./fo_output", help="输出目录")
-    parser.add_argument("--visualize", action="store_true", help="是否生成可视化结果")
+    # output path
+    parser.add_argument("--output_dir", type=str, default="./fo_output", help="output directory")
+    parser.add_argument("--visualize", action="store_true", help="generate visualization results")
     
     return parser.parse_args()
 
 def load_generic_agent(model_path, env, algorithm="fomappo"):
-    """加载训练好的通用模型"""
+    """load trained generic model"""
     
     if algorithm == "fomappo":
-        # FOMAPPO是多智能体算法，直接使用多智能体环境
         try:
             from fo_generate.multi_agent_env import MultiAgentFlexOfferEnv
             multi_env = MultiAgentFlexOfferEnv(
@@ -55,19 +54,18 @@ def load_generic_agent(model_path, env, algorithm="fomappo"):
             )
             return multi_env
         except ImportError:
-            print("FOMAPPO多智能体环境不可用，使用默认策略")
+            print("FOMAPPO multi-agent environment is not available, using default strategy")
             return None
     else:
-        # 其他算法的加载逻辑
-        print(f"算法 {algorithm} 暂不支持")
+        # other algorithm loading logic
+        print(f"algorithm {algorithm} is not supported")
         return None
 
 def load_price_data(file_path):
-    """加载电价数据"""
+    """load price data"""
     if file_path is None or not os.path.exists(file_path):
-        # 创建模拟电价数据
+        # create simulated price data
         hours = np.arange(24)
-        # 简单的日内价格曲线：早晚高峰，午夜低谷
         prices = 0.5 + 0.3 * np.sin((hours - 8) * np.pi / 12)
         price_data = pd.DataFrame({'hour': hours, 'price': prices})
         price_data.set_index('hour', inplace=True)
@@ -79,7 +77,7 @@ def load_price_data(file_path):
     return df
 
 def load_weather_data(file_path):
-    """加载天气数据"""
+    """load weather data"""
     if file_path is None or not os.path.exists(file_path):
         return None
     
@@ -90,16 +88,16 @@ def load_weather_data(file_path):
     return df
 
 def load_pv_forecast(file_path):
-    """加载光伏预测数据"""
+    """load PV forecast data"""
     if file_path is None or not os.path.exists(file_path):
         return None
     
     return pd.read_csv(file_path)
 
 def load_device_config(config_file: str) -> Dict[str, Dict]:
-    """加载设备配置"""
+    """load device configuration"""
     if not os.path.exists(config_file):
-        raise FileNotFoundError(f"设备配置文件 {config_file} 不存在")
+        raise FileNotFoundError(f"device configuration file {config_file} does not exist")
         
     with open(config_file, 'r') as f:
         config = json.load(f)
@@ -107,10 +105,10 @@ def load_device_config(config_file: str) -> Dict[str, Dict]:
     return config
 
 def create_default_devices() -> Dict[str, Dict]:
-    """创建默认设备配置"""
+    """create default device configuration"""
     devices = {}
     
-    # 默认电池
+    # default battery
     battery_params = BatteryParameters(
         battery_id="battery_1",
         soc_min=0.2,
@@ -128,7 +126,7 @@ def create_default_devices() -> Dict[str, Dict]:
         "params": battery_params
     }
     
-    # 默认热泵
+    # default heat pump
     heat_pump_params = HeatPumpParameters(
         room_id="room_1",
         room_area=30.0,
@@ -150,7 +148,7 @@ def create_default_devices() -> Dict[str, Dict]:
         "params": heat_pump_params
     }
     
-    # 默认电动汽车
+    # default EV
     ev_params = EVParameters(
         ev_id="ev_1",
         battery_capacity=60.0,
@@ -162,7 +160,7 @@ def create_default_devices() -> Dict[str, Dict]:
         fast_charge_capable=True
     )
     
-    # 创建用户行为
+    # create user behavior
     now = datetime.now()
     arrival_time = datetime(now.year, now.month, now.day, 18, 0)
     departure_time = datetime(now.year, now.month, now.day + 1, 7, 30)
@@ -185,7 +183,7 @@ def create_default_devices() -> Dict[str, Dict]:
         "behavior": ev_behavior
     }
     
-    # 默认光伏
+    # default PV
     pv_params = PVParameters(
         pv_id="pv_1",
         max_power=5.0,
@@ -206,19 +204,17 @@ def create_default_devices() -> Dict[str, Dict]:
     return devices
 
 def generate_fo_with_agent(env, agent, visualize=False, output_dir=None):
-    """使用训练好的代理生成灵活性报价（通用接口）"""
+    """generate flexible offer with trained agent (generic interface)"""
     
     if agent is None:
-        # 如果没有代理，使用环境的默认策略
-        print("使用环境默认策略生成FlexOffer")
+        print("use environment's default strategy to generate FlexOffer")
         return env.generate_dfo()
     
-    # 检查是否是多智能体环境
     if hasattr(agent, 'generate_all_dfos'):
-        # 多智能体环境（如FOMAPPO）
-        print("使用多智能体算法生成FlexOffer")
+        # multi-agent environment (e.g. FOMAPPO)
+        print("use multi-agent algorithm to generate FlexOffer")
         
-        # 执行一个回合来生成FlexOffer
+        # execute one round to generate FlexOffer
         obs, infos = agent.reset()
         done = False
         step_count = 0
@@ -228,7 +224,6 @@ def generate_fo_with_agent(env, agent, visualize=False, output_dir=None):
             actions = {}
             for manager_id in obs.keys():
                 action_space_size = agent.action_spaces[manager_id].shape[0]
-                # 使用随机策略（可以替换为训练好的策略）
                 actions[manager_id] = np.random.uniform(-1, 1, action_space_size)
             
             next_obs, rewards, dones, truncated, infos = agent.step(actions)
@@ -236,12 +231,11 @@ def generate_fo_with_agent(env, agent, visualize=False, output_dir=None):
             done = all(dones.values()) if isinstance(dones, dict) else dones
             step_count += 1
         
-        # 生成所有Manager的FlexOffer
+        # generate FlexOffer for all Managers
         fo_systems = agent.generate_all_dfos()
         return fo_systems
     else:
-        # 单智能体算法
-        print("使用单智能体算法生成FlexOffer")
+        print("use single-agent algorithm to generate FlexOffer")
         state = env.reset()
         done = False
         step = 0
@@ -252,11 +246,11 @@ def generate_fo_with_agent(env, agent, visualize=False, output_dir=None):
         power_actions_history = []
         
         while not done:
-            # 选择动作（使用代理的选择方法）
+            # select action (use agent's selection method)
             if hasattr(agent, 'select_action'):
                 action = agent.select_action(state, add_noise=False)
             else:
-                # 默认随机动作
+                # default random action
                 action = env.action_space.sample()
             
             next_state, reward, done, info = env.step(action)
@@ -265,57 +259,57 @@ def generate_fo_with_agent(env, agent, visualize=False, output_dir=None):
             rewards.append(reward)
             states.append(next_state)
             
-            # 记录功率动作历史
+            # record power action history
             if 'power_actions' in info:
                 power_actions_history.append(info['power_actions'])
             
             state = next_state
             step += 1
         
-        # 从环境中获取DFO
+        # get DFO from environment
         dfo_dict = env.generate_dfo()
         
-        # 可视化结果（如果需要）
+        # visualize results (if needed)
         if visualize and output_dir:
             visualize_results(env, states, actions, rewards, power_actions_history, dfo_dict, output_dir)
         
         return dfo_dict
 
 def visualize_results(env, states, actions, rewards, power_actions_history, dfo_dict, output_dir):
-    """可视化结果"""
+    """visualize results"""
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    # 1. 绘制奖励
+    # 1. plot rewards
     plt.figure(figsize=(10, 6))
     plt.plot(rewards)
-    plt.title('每步奖励')
-    plt.xlabel('步骤')
-    plt.ylabel('奖励')
+    plt.title('rewards per step')
+    plt.xlabel('step')
+    plt.ylabel('reward')
     plt.grid(True)
     plt.savefig(os.path.join(output_dir, 'rewards.png'))
     plt.close()
     
-    # 2. 绘制动作
+    # 2. plot actions
     plt.figure(figsize=(12, 8))
     plt.subplot(211)
     for i in range(len(actions[0])):
         device_id = env.device_ids[i]
         plt.plot([a[i] for a in actions], label=f'{device_id}')
-    plt.title('代理动作')
-    plt.xlabel('步骤')
-    plt.ylabel('归一化动作')
+    plt.title('agent actions')
+    plt.xlabel('step')
+    plt.ylabel('normalized action')
     plt.legend()
     plt.grid(True)
     
-    # 3. 绘制每个设备的功率
+    # 3. plot power of each device
     plt.subplot(212)
     for device_id in env.device_ids:
         powers = [pa[device_id] for pa in power_actions_history]
-        plt.plot(powers, label=f'{device_id} 功率')
-    plt.title('设备功率')
-    plt.xlabel('步骤')
-    plt.ylabel('功率 (kW)')
+        plt.plot(powers, label=f'{device_id} power')
+    plt.title('device power')
+    plt.xlabel('step')
+    plt.ylabel('power (kW)')
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
@@ -329,28 +323,28 @@ def visualize_results(env, states, actions, rewards, power_actions_history, dfo_
         e_mins = [dfo.slices[t].energy_min for t in time_steps]
         e_maxs = [dfo.slices[t].energy_max for t in time_steps]
         
-        plt.fill_between(time_steps, e_mins, e_maxs, alpha=0.3, label='能量范围')
-        plt.plot(time_steps, e_mins, 'b-', label='最小能量')
-        plt.plot(time_steps, e_maxs, 'r-', label='最大能量')
+        plt.fill_between(time_steps, e_mins, e_maxs, alpha=0.3, label='energy range')
+        plt.plot(time_steps, e_mins, 'b-', label='minimum energy')
+        plt.plot(time_steps, e_maxs, 'r-', label='maximum energy')
         
-        # 如果是PV设备，同时绘制预测和实际发电量
+        # if PV device, plot both forecast and actual power
         if env.device_types[device_id] == DeviceType.PV:
             device_mdp = env.device_mdps[device_id]
             device = device_mdp.model
             if hasattr(device, 'power_history') and len(device.power_history) > 0:
-                plt.plot(range(len(device.power_history)), device.power_history, 'g--', label='实际发电量')
+                plt.plot(range(len(device.power_history)), device.power_history, 'g--', label='actual power')
             if hasattr(device, 'forecast_data') and device.forecast_data is not None:
-                plt.plot(range(len(device.forecast_data)), device.forecast_data, 'y--', label='预测发电量')
+                plt.plot(range(len(device.forecast_data)), device.forecast_data, 'y--', label='forecast power')
         
-        plt.title(f'{device_id} 灵活性报价')
-        plt.xlabel('时间步')
-        plt.ylabel('能量 (kWh)')
+        plt.title(f'{device_id} flexible offer')
+        plt.xlabel('time step')
+        plt.ylabel('energy (kWh)')
         plt.legend()
         plt.grid(True)
         plt.savefig(os.path.join(output_dir, f'{device_id}_fo.png'))
         plt.close()
     
-    # 5. 绘制设备SOC变化 (电池、PV储能和EV)
+    # 5. plot device SOC change (battery, PV storage and EV)
     plt.figure(figsize=(10, 6))
     
     for device_id, device_mdp in env.device_mdps.items():
@@ -358,15 +352,14 @@ def visualize_results(env, states, actions, rewards, power_actions_history, dfo_
         device_type = env.device_types[device_id]
         
         if device_type in [DeviceType.BATTERY, DeviceType.PV, DeviceType.EV] and hasattr(device, 'current_soc'):
-            # 提取每个时间步的SOC
+            # extract SOC for each time step
             soc_history = []
             for s in states:
-                # 解析状态获取SOC
-                # 这需要根据状态向量的实际布局进行调整
+                # parse state to get SOC
                 device_idx = env.device_ids.index(device_id)
-                offset = 30  # 基本状态维度 (时间、价格、偏好)
+                offset = 30  # basic state dimension (time, price, preference)
                 
-                # 计算当前设备状态在状态向量中的索引
+                # calculate index of current device state in state vector
                 for i in range(device_idx):
                     prev_device_type = env.device_types[env.device_ids[i]]
                     if prev_device_type == DeviceType.BATTERY:
@@ -378,13 +371,13 @@ def visualize_results(env, states, actions, rewards, power_actions_history, dfo_
                     elif prev_device_type == DeviceType.PV:
                         offset += 5
                 
-                # SOC通常是设备状态的第一个值
+                # SOC is usually the first value of device state
                 soc_history.append(s[offset])
             
             plt.plot(soc_history, label=f'{device_id} SOC')
     
-    plt.title('储能设备SOC变化')
-    plt.xlabel('时间步')
+    plt.title('SOC change of energy storage devices')
+    plt.xlabel('time step')
     plt.ylabel('SOC')
     plt.legend()
     plt.grid(True)
@@ -392,7 +385,7 @@ def visualize_results(env, states, actions, rewards, power_actions_history, dfo_
     plt.close()
 
 def save_fo(dfo_dict, output_dir):
-    """保存生成的FO到文件"""
+    """save generated FO to file"""
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
@@ -400,22 +393,22 @@ def save_fo(dfo_dict, output_dir):
         with open(os.path.join(output_dir, f"{device_id}_fo.json"), "w") as f:
             json.dump(dfo.to_dict(), f, indent=2)
             
-    print(f"灵活性报价已保存到 {output_dir}")
+    print(f"flexible offer saved to {output_dir}")
 
 def main():
     args = parse_args()
     
-    # 创建输出目录
+    # create output directory
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
     
-    # 加载数据
+    # load data
     price_data = load_price_data(args.price_data)
     weather_data = load_weather_data(args.weather_data)
     pv_forecast = load_pv_forecast(args.pv_forecast)
     devices = load_device_config(args.device_config)
     
-    # 用户偏好
+    # user preferences
     user_preferences = {
         "economic": args.economic,
         "comfort": args.comfort,
@@ -423,7 +416,7 @@ def main():
         "environmental": args.environmental
     }
     
-    # 创建环境
+    # create environment
     env = FlexOfferEnv(
         devices=devices,
         time_horizon=args.time_horizon,
@@ -434,23 +427,23 @@ def main():
         weather_data=weather_data if weather_data is not None else pd.DataFrame()
     )
     
-    # 设置环境中PV设备的预测数据
+    # set PV device forecast data in environment
     if pv_forecast is not None:
         for device_id, device_mdp in env.device_mdps.items():
             if env.device_types[device_id] == DeviceType.PV and device_id in pv_forecast.columns:
                 device_mdp.model.set_forecast_data(pv_forecast[device_id].tolist())
     
-    # 加载训练好的模型
+    # load trained model
     agent = load_generic_agent(args.model_path, env, args.algorithm)
     
-    # 使用代理生成FO
-    print("生成灵活性报价...")
+    # use agent to generate FO
+    print("generate flexible offer...")
     dfo_dict = generate_fo_with_agent(env, agent, visualize=args.visualize, output_dir=args.output_dir)
     
-    # 保存FO
+    # save FO
     save_fo(dfo_dict, args.output_dir)
     
-    # 保存配置
+    # save config
     with open(os.path.join(args.output_dir, "config.json"), "w") as f:
         config = {
             "time_horizon": args.time_horizon,
@@ -461,8 +454,8 @@ def main():
         }
         json.dump(config, f, indent=2)
     
-    print(f"所有输出已保存到 {args.output_dir}")
-    print(f"总奖励: {sum(dfo_dict.values()):.2f}")
+    print(f"all outputs saved to {args.output_dir}")
+    print(f"total reward: {sum(dfo_dict.values()):.2f}")
 
 if __name__ == "__main__":
     main() 
