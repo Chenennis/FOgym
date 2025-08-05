@@ -1,13 +1,3 @@
-"""
-多智能体FlexOffer环境 - Manager级别的多智能体系统
-
-每个Manager作为一个独立的agent：
-- 观测：自己管理的所有用户设备状态 + 其他Manager的聚合信息
-- 动作：控制管理范围内所有可控设备
-- 奖励：基于经济性、环保性和用户满意度的多目标优化
-- 协作：通过观测其他Manager信息实现协作优化
-"""
-
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -35,7 +25,7 @@ from fo_common.dynamic_observation_quality import DynamicObservationQuality
 logger = logging.getLogger(__name__)
 
 class ManagerAgent:
-    """Manager代理类，管理一组用户和设备"""
+    """Manager class, manage a group of users and devices"""
     
     def __init__(self, manager_id: str, manager_config: Dict, users: List[Dict], devices: List[Dict]):
         self.manager_id = manager_id
@@ -43,23 +33,23 @@ class ManagerAgent:
         self.users = users
         self.devices = devices
         
-        # 位置和覆盖信息
+        # location and coverage information
         self.location = (manager_config['location_x'], manager_config['location_y'])
         self.coverage_area = manager_config['coverage_area']
         self.district_type = manager_config['district_type']
         
-        # 设备MDP对象
+        # device MDP objects
         self.device_mdps: Dict[str, DeviceMDPInterface] = {}
         self.device_types: Dict[str, str] = {}
         self.controllable_devices: List[str] = []
         
-        # 用户偏好聚合
+        # aggregated user preferences
         self.aggregated_preferences = self._aggregate_user_preferences()
         
-        # 初始化设备
+        # initialize devices
         self._initialize_devices()
         
-        # 马尔可夫历史
+        # Markov history
         self.markov_history = {
             'prev_actions': np.zeros(len(self.controllable_devices)),
             'prev_reward': 0.0,
@@ -69,7 +59,7 @@ class ManagerAgent:
         }
     
     def _aggregate_user_preferences(self) -> Dict[str, float]:
-        """聚合用户偏好"""
+        """aggregate user preferences"""
         if not self.users:
             return {'economic': 0.33, 'comfort': 0.33, 'environmental': 0.34}
         
@@ -86,29 +76,29 @@ class ManagerAgent:
         }
     
     def _initialize_devices(self):
-        """初始化设备MDP对象"""
+        """initialize device MDP objects"""
         for device in self.devices:
             device_id = device['device_id']
             device_type = device['device_type']
             
-            # 创建设备模型
+            # create device model
             device_model = self._create_device_model(device_type, device)
             
-            # 创建设备MDP
+            # create device MDP
             device_mdp = self._create_device_mdp(device_type, device_model)
             
             self.device_mdps[device_id] = device_mdp
             self.device_types[device_id] = device_type
             
-            # 记录可控设备
-            if device_type not in [DeviceType.PV]:  # PV是不可控的
+            # record controllable devices
+            if device_type not in [DeviceType.PV]:  # PV is not controllable
                 self.controllable_devices.append(device_id)
         
-        logger.info(f"Manager {self.manager_id}: 初始化 {len(self.device_mdps)} 个设备，"
-                   f"其中 {len(self.controllable_devices)} 个可控")
+        logger.info(f"Manager {self.manager_id}: initialize {len(self.device_mdps)} devices, "
+                   f"among which {len(self.controllable_devices)} are controllable")
     
     def _create_device_model(self, device_type: str, device_config: Dict):
-        """创建设备模型"""
+        """create device model"""
         if device_type == DeviceType.BATTERY:
             params = BatteryParameters(
                 battery_id=device_config['device_id'],
@@ -153,7 +143,7 @@ class ManagerAgent:
                 fast_charge_capable=True
             )
             
-            # 创建用户行为
+            # create user behavior
             now = datetime.now()
             connection_time = datetime(now.year, now.month, now.day, 18, 0)
             disconnection_time = datetime(now.year, now.month, now.day + 1, 7, 30)
@@ -193,18 +183,18 @@ class ManagerAgent:
         elif device_type == DeviceType.DISHWASHER:
             params = DishwasherParameters(
                 dishwasher_id=device_config['device_id'],
-                total_energy=device_config.get('capacity', 3.0),  # 总能量需求
+                total_energy=device_config.get('capacity', 3.0),  # total energy demand
                 power_rating=device_config['max_power'],
-                operation_hours=device_config.get('param1', 3.5),  # 运行时长
-                min_start_delay=device_config.get('param2', 0.5),  # 最小启动延迟
-                max_start_delay=device_config.get('param3', 6.0),  # 最大启动延迟
+                operation_hours=device_config.get('param1', 3.5),  # operation hours
+                min_start_delay=device_config.get('param2', 0.5),  # minimum start delay
+                max_start_delay=device_config.get('param3', 6.0),  # maximum start delay
                 efficiency=device_config['efficiency'],
-                can_interrupt=False  # 洗碗机不可中断
+                can_interrupt=False  # dishwasher cannot be interrupted
             )
             
-            # 创建用户行为
+            # create user behavior
             now = datetime.now()
-            deployment_time = now + timedelta(hours=np.random.uniform(0, 2))  # 随机部署时间
+            deployment_time = now + timedelta(hours=np.random.uniform(0, 2))  # random deployment time
             
             behavior = DishwasherUserBehavior(
                 dishwasher_id=device_config['device_id'],
@@ -219,10 +209,10 @@ class ManagerAgent:
             return model
         
         else:
-            raise ValueError(f"不支持的设备类型: {device_type}")
+            raise ValueError(f"Unsupported device type: {device_type}")
     
     def _create_device_mdp(self, device_type: str, device_model) -> DeviceMDPInterface:
-        """创建设备MDP"""
+        """create device MDP"""
         if device_type == DeviceType.BATTERY:
             return BatteryMDPDevice(device_model)
         elif device_type == DeviceType.HEAT_PUMP:
@@ -234,58 +224,42 @@ class ManagerAgent:
         elif device_type == DeviceType.DISHWASHER:
             return DishwasherMDPDevice(device_model)
         else:
-            raise ValueError(f"不支持的设备类型: {device_type}")
+            raise ValueError(f"Unsupported device type: {device_type}")
     
     def get_state_features(self, standardized: bool = True) -> np.ndarray:
-        """
-        获取Manager的状态特征 - 优化版本
-        
-        优化内容：
-        1. 标准化的维度管理：确保所有Manager具有一致的状态向量维度
-        2. 增强的特征工程：改进设备状态特征的表示方式
-        3. 统一的特征缩放：保证数值范围的一致性
-        4. 语义明确的特征编码：减少零值特征，提高信息密度
-        5. 分层特征组织：按功能模块组织特征，便于理解和调试
-        
-        Args:
-            standardized: 是否应用标准化处理
-            
-        Returns:
-            np.ndarray: 标准化的Manager状态特征向量
-        """
         if standardized:
             return self._get_standardized_state_features()
         else:
             return self._get_legacy_state_features()
     
     def _get_standardized_state_features(self) -> np.ndarray:
-        """获取标准化的状态特征"""
+        """get standardized state features"""
         
-        # 1. 设备特征模块（按类型组织和标准化）
+        # 1. device features module (organized and standardized by type)
         device_features = self._get_standardized_device_features()
         
-        # 2. Manager管理特征模块（标准化）
+        # 2. manager management features module (standardized)
         management_features = self._get_standardized_management_features()
         
-        # 3. 用户偏好特征模块（已标准化）
+        # 3. user preference features module (standardized)
         preference_features = self._get_standardized_preference_features()
         
-        # 4. 系统状态特征模块（标准化）
+        # 4. system state features module (standardized)
         system_features = self._get_standardized_system_features()
         
-        # 合并所有特征模块
+        # merge all feature modules
         all_features = np.concatenate([
-            device_features,      # 设备状态（最主要的特征）
-            management_features,  # 管理特征
-            preference_features,  # 用户偏好
-            system_features      # 系统状态
+            device_features,      # device state (the most important features)
+            management_features,  # management features
+            preference_features,  # user preferences
+            system_features      # system state
         ])
         
         return all_features.astype(np.float32)
     
     def _get_standardized_device_features(self) -> np.ndarray:
-        """获取标准化的设备特征 - 高效版本"""
-        # 新设计：聚合特征而不是固定维度填充
+        """get standardized device features - efficient version"""
+        # new design: aggregate features instead of fixed dimension filling
         device_aggregation = {
             DeviceType.BATTERY: [],
             DeviceType.HEAT_PUMP: [],
@@ -294,76 +268,75 @@ class ManagerAgent:
             DeviceType.DISHWASHER: []
         }
         
-        # 收集各类型设备的增强特征
+        # collect enhanced features of each type of device
         for device_id, mdp in self.device_mdps.items():
             device_type = self.device_types[device_id]
             enhanced_features = self._get_enhanced_device_features(device_id, device_type, mdp)
             if device_type in device_aggregation:
                 device_aggregation[device_type].append(enhanced_features)
         
-        # 生成聚合特征而非固定维度
+        # generate aggregated features instead of fixed dimension filling
         aggregated_features = []
         
         for device_type in sorted(device_aggregation.keys()):
             features_list = device_aggregation[device_type]
             if features_list:
-                # 聚合同类设备特征：[数量, 平均值, 最大值, 最小值, 标准差]
+                # aggregate features of the same type of device: [number, average, max, min, std]
                 stacked = np.stack(features_list)
                 aggregated = np.array([
-                    float(len(features_list)),   # 设备数量
-                    float(np.mean(stacked)),     # 平均值
-                    float(np.max(stacked)),      # 最大值 
-                    float(np.min(stacked)),      # 最小值
-                    float(np.std(stacked))       # 标准差
+                    float(len(features_list)),   # number of devices
+                    float(np.mean(stacked)),     # average
+                    float(np.max(stacked)),      # max
+                    float(np.min(stacked)),      # min
+                    float(np.std(stacked))       # std
                 ])
             else:
-                # 无该类型设备
+                # no devices of this type
                 aggregated = np.zeros(5)
             
             aggregated_features.append(aggregated)
         
-        # 固定25维设备聚合特征 (5类型 × 5维/类型)
         return np.concatenate(aggregated_features)
     
     def _get_enhanced_device_features(self, device_id: str, device_type: str, mdp) -> np.ndarray:
-        """获取增强的设备特征 - 高效版本"""
+        """get enhanced device features - efficient version"""
         base_features = mdp.get_state_features()
         
-        # 快速标准化处理，减少复杂计算
+        # fast standardized processing, reduce complex calculation
         if device_type == DeviceType.BATTERY:
-            # 简化电池特征：[SOC, 功率状态, 健康度]
+            # battery features: [SOC, power status, health]
             soc = base_features[0] if len(base_features) > 0 else 0.5
             power_status = 1.0 if len(base_features) > 3 and abs(base_features[3]) > 0.1 else 0.0
             health = base_features[1] if len(base_features) > 1 else 1.0
             return np.array([soc, power_status, health])
             
         elif device_type == DeviceType.HEAT_PUMP:
-            # 简化热泵特征：[温度标准化, 运行状态]
+            # heat pump features: [temperature standardized, running status]
             temp = base_features[0] if len(base_features) > 0 else 20.0
             temp_normalized = np.clip((temp - 15.0) / 15.0, 0.0, 1.0)
             running = 1.0 if len(base_features) > 1 and abs(base_features[1] - temp) > 1.0 else 0.0
             return np.array([temp_normalized, running])
             
         elif device_type == DeviceType.EV:
-            # 简化EV特征：[SOC, 连接状态]
+            # EV features: [SOC, connection status]
             soc = base_features[0] if len(base_features) > 0 else 0.5
             connected = base_features[1] if len(base_features) > 1 else 1.0
             return np.array([soc, connected])
             
         elif device_type == DeviceType.PV:
-            # 简化PV特征：[发电能力]（基于时间的简单模型）
-            hour = 12  # 简化为固定时间
+            # PV features: [generation potential] (based on simple time-based model)
+            hour = 12  
             generation_potential = 0.8 if 8 <= hour <= 16 else 0.2
             return np.array([generation_potential])
             
         elif device_type == DeviceType.DISHWASHER:
-            # 简化洗碗机特征：[运行状态, 进度]
+            # dishwasher features: [running status, progress]
             running = 1.0 if len(base_features) > 1 and base_features[1] > 0 else 0.0
             progress = base_features[3] if len(base_features) > 3 else 0.0
             return np.array([running, progress])
         
         else:
-            # 未知设备类型，返回前两个特征或填充
+            # unknown device type, return the first two features or fill with zeros
             if len(base_features) >= 2:
                 return base_features[:2]
             elif len(base_features) == 1:
@@ -372,21 +345,21 @@ class ManagerAgent:
                 return np.array([0.0, 0.0])
     
     def _get_standardized_management_features(self) -> np.ndarray:
-        """获取标准化的管理特征"""
-        # 基础管理统计
+        """get standardized management features"""
+        # basic management statistics
         total_users = len(self.users)
         total_devices = len(self.device_mdps)
         controllable_devices = len(self.controllable_devices)
         
-        # 标准化管理特征（相对于系统规模）
-        user_density = min(1.0, total_users / 15.0)  # 假设最大15个用户
-        device_density = min(1.0, total_devices / 35.0)  # 假设最大35个设备
+        # standardized management features (relative to system size)
+        user_density = min(1.0, total_users / 15.0)  # assume maximum 15 users
+        device_density = min(1.0, total_devices / 35.0)  # assume maximum 35 devices
         control_ratio = controllable_devices / max(1, total_devices)
         
-        # 覆盖面积标准化
-        area_normalized = min(1.0, self.coverage_area / 1000.0)  # 假设最大1000平方米
+        # coverage area standardized
+        area_normalized = min(1.0, self.coverage_area / 1000.0)  # assume maximum 1000 square meters
         
-        # 区域类型编码（独热编码）
+        # district type encoded (one-hot encoding)
         is_residential = 1.0 if self.district_type == 'residential' else 0.0
         is_commercial = 1.0 if self.district_type == 'commercial' else 0.0
         is_mixed = 1.0 if self.district_type == 'mixed' else 0.0
@@ -397,7 +370,7 @@ class ManagerAgent:
         ])
     
     def _get_standardized_preference_features(self) -> np.ndarray:
-        """获取标准化的偏好特征"""
+        """get standardized preference features"""
         return np.array([
             self.aggregated_preferences['economic'],
             self.aggregated_preferences['comfort'],
@@ -405,8 +378,8 @@ class ManagerAgent:
         ])
     
     def _get_standardized_system_features(self) -> np.ndarray:
-        """获取标准化的系统特征"""
-        # 系统负载特征
+        """get standardized system features"""
+        # system load features
         total_capacity = sum(
             1.0 for device_type in self.device_types.values()
             if device_type in [DeviceType.BATTERY, DeviceType.EV]
@@ -420,19 +393,19 @@ class ManagerAgent:
             if device_type in [DeviceType.HEAT_PUMP, DeviceType.DISHWASHER]
         )
         
-        # 标准化系统特征
+        # standardized system features
         capacity_ratio = total_capacity / max(1, len(self.device_mdps))
         generation_ratio = total_generation / max(1, len(self.device_mdps))
         load_ratio = total_load / max(1, len(self.device_mdps))
         
-        # 系统平衡指标
+        # system balance index
         balance_index = min(1.0, (total_capacity + total_generation) / max(1, total_load))
         
         return np.array([capacity_ratio, generation_ratio, load_ratio, balance_index])
     
     def _get_legacy_state_features(self) -> np.ndarray:
-        """获取传统的状态特征（保持向后兼容）"""
-        # 设备状态特征
+        """get legacy state features (keep backward compatibility)"""
+        # device state features
         device_features = []
         for device_id in sorted(self.device_mdps.keys()):
             device_state = self.device_mdps[device_id].get_state_features()
@@ -443,25 +416,25 @@ class ManagerAgent:
         else:
             device_features = np.array([])
         
-        # 用户偏好特征
+        # user preference features
         preference_features = np.array([
             self.aggregated_preferences['economic'],
             self.aggregated_preferences['comfort'],
             self.aggregated_preferences['environmental']
         ])
         
-        # Manager特征
+        # manager features
         manager_features = np.array([
-            len(self.users),  # 用户数量
-            len(self.device_mdps),  # 设备数量
-            len(self.controllable_devices),  # 可控设备数量
-            self.coverage_area,  # 覆盖面积
+            len(self.users),  # number of users
+            len(self.device_mdps),  # number of devices
+            len(self.controllable_devices),  # number of controllable devices
+            self.coverage_area,  # coverage area
             1.0 if self.district_type == 'residential' else 0.0,
             1.0 if self.district_type == 'commercial' else 0.0,
             1.0 if self.district_type == 'mixed' else 0.0
         ])
         
-        # 合并所有特征
+        # merge all features
         if len(device_features) > 0:
             return np.concatenate([device_features, preference_features, manager_features])
         else:
@@ -469,29 +442,29 @@ class ManagerAgent:
     
     def get_action_space_size(self) -> int:
         """
-        获取动作空间大小 - 修改为FlexOffer参数生成
+        get action space size - modified to FlexOffer parameter generation
         
-        每个可控设备的动作包含：
-        - 时间窗口灵活性 (2维): [start_flex, end_flex] 
-        - 能量范围调整 (2维): [energy_min_factor, energy_max_factor]
-        - 优先级权重 (1维): [priority_weight]
+        each controllable device action contains:
+        - time window flexibility (2D): [start_flex, end_flex] 
+        - energy range adjustment (2D): [energy_min_factor, energy_max_factor]
+        - priority weight (1D): [priority_weight]
         
-        总共每个设备5维动作
+        total 5D action for each device
         """
-        # 每个可控设备需要5维FlexOffer参数
+        # each controllable device needs 5 FlexOffer parameters
         fo_params_per_device = 5
         total_action_dim = len(self.controllable_devices) * fo_params_per_device
         
-        # 确保至少有基本的动作维度
+        # ensure at least basic action dimension
         return max(total_action_dim, 10)
     
     def reset(self):
-        """重置Manager状态"""
-        # 重置所有设备
+        """reset manager state"""
+        # reset all devices
         for device_mdp in self.device_mdps.values():
             device_mdp.reset_state()
         
-        # 重置马尔可夫历史
+        # reset Markov history
         self.markov_history = {
             'prev_actions': np.zeros(len(self.controllable_devices)),
             'prev_reward': 0.0,
@@ -502,29 +475,29 @@ class ManagerAgent:
     
     def step(self, actions: np.ndarray, env_state: Dict) -> Tuple[float, Dict]:
         """
-        执行一步动作 - 修改为完整Pipeline流程
+        execute one step action
         
-        新的流程：
-        1. 将动作映射为FlexOffer参数
-        2. 生成设备级FlexOffer
-        3. 执行Pipeline流程：aggregate → trade → disaggregate → schedule
-        4. 计算Pipeline执行奖励
+        new process:
+        1. map actions to FlexOffer parameters
+        2. generate device-level FlexOffer
+        3. execute Pipeline process: aggregate → trade → disaggregate → schedule
+        4. calculate Pipeline execution reward
         """
-        # Step 1: 将动作映射为FlexOffer参数
+        # Step 1: map actions to FlexOffer parameters
         fo_params = self._map_actions_to_fo_params(actions)
         
-        # Step 2: 生成设备级FlexOffer
+        # Step 2: generate device-level FlexOffer
         device_flexoffers = self._generate_device_flexoffers(fo_params, env_state)
         
-        # Step 3: 执行完整Pipeline流程
+        # Step 3: execute complete Pipeline process
         pipeline_results = self._execute_full_pipeline(device_flexoffers, env_state)
         
-        # Step 4: 计算Pipeline奖励
+        # Step 4: calculate Pipeline reward
         pipeline_reward, reward_info = self._calculate_pipeline_reward(
             pipeline_results, env_state
         )
         
-        # 更新马尔可夫历史
+        # update history
         self.markov_history['prev_actions'] = actions.copy()
         self.markov_history['prev_reward'] = pipeline_reward
         self.markov_history['cumulative_cost'] += reward_info.get('total_cost', 0.0)
@@ -541,7 +514,7 @@ class ManagerAgent:
         return pipeline_reward, info
     
     def _map_actions_to_fo_params(self, actions: np.ndarray) -> Dict[str, Dict]:
-        """将Agent动作映射为FlexOffer参数"""
+        """map agent actions to FlexOffer parameters"""
         fo_params = {}
         fo_params_per_device = 5
         
@@ -551,16 +524,16 @@ class ManagerAgent:
             if start_idx + fo_params_per_device <= len(actions):
                 device_actions = actions[start_idx:start_idx + fo_params_per_device]
                 
-                # 将动作映射为FlexOffer参数
+                # map actions to FlexOffer parameters
                 fo_params[device_id] = {
-                    'start_flex': np.clip(device_actions[0], -1.0, 1.0),  # 开始时间灵活性
-                    'end_flex': np.clip(device_actions[1], -1.0, 1.0),    # 结束时间灵活性
-                    'energy_min_factor': np.clip(device_actions[2], 0.1, 1.0),  # 最小能量因子
-                    'energy_max_factor': np.clip(device_actions[3], 1.0, 2.0),  # 最大能量因子
-                    'priority_weight': np.clip(device_actions[4], 0.1, 2.0)     # 优先级权重
+                    'start_flex': np.clip(device_actions[0], -1.0, 1.0),  # start time flexibility
+                    'end_flex': np.clip(device_actions[1], -1.0, 1.0),    # end time flexibility
+                    'energy_min_factor': np.clip(device_actions[2], 0.1, 1.0),  # minimum energy factor
+                    'energy_max_factor': np.clip(device_actions[3], 1.0, 2.0),  # maximum energy factor
+                    'priority_weight': np.clip(device_actions[4], 0.1, 2.0)     # priority weight
                 }
             else:
-                # 默认参数
+                # default parameters
                 fo_params[device_id] = {
                     'start_flex': 0.0,
                     'end_flex': 0.0,
@@ -572,7 +545,7 @@ class ManagerAgent:
         return fo_params
     
     def _generate_device_flexoffers(self, fo_params: Dict, env_state: Dict) -> Dict:
-        """基于FlexOffer参数生成设备级FlexOffer"""
+        """generate device-level FlexOffer based on FlexOffer parameters"""
         device_flexoffers = {}
         
         from fo_generate.dfo import DFOSystem, DFOSlice
@@ -582,33 +555,33 @@ class ManagerAgent:
             if device_id in self.device_mdps:
                 device_mdp = self.device_mdps[device_id]
                 
-                # 获取设备动作边界（不需要当前状态）
+                # get device action bounds (no need for current state)
                 p_min, p_max = device_mdp.get_action_bounds()
                 
-                # 基于动作参数调整FlexOffer
-                base_energy_min = p_min * 1.0  # 1小时基准
+                # adjust FlexOffer based on action parameters
+                base_energy_min = p_min * 1.0  # 1 hour baseline
                 base_energy_max = p_max * 1.0
                 
-                # 应用能量因子调整
+                # apply energy factor adjustment
                 energy_min = base_energy_min * params['energy_min_factor']
                 energy_max = base_energy_max * params['energy_max_factor']
                 
-                # 创建时间窗口（基于灵活性参数）
+                # create time window (based on flexibility parameters)
                 current_time = datetime.now()
-                start_offset = int(params['start_flex'] * 2)  # -2到+2小时
-                end_offset = 1 + int(params['end_flex'] * 2)   # 1到3小时
+                start_offset = int(params['start_flex'] * 2)  # -2 to +2 hours
+                end_offset = 1 + int(params['end_flex'] * 2)   # 1 to 3 hours
                 
                 start_time = current_time + timedelta(hours=start_offset)
                 end_time = current_time + timedelta(hours=end_offset)
                 
-                # 创建DFO系统
+                # create DFO system
                 dfo_system = DFOSystem(
                     time_horizon=max(1, end_offset - start_offset),
                     device_id=device_id,
                     device_type=getattr(device_mdp, 'device_type', 'unknown')
                 )
                 
-                # 添加时间片（使用正确的DFOSlice构造函数参数）
+                # add time slice 
                 dfo_slice = DFOSlice(
                     time_step=0,
                     energy_min=energy_min,
@@ -629,7 +602,7 @@ class ManagerAgent:
         return device_flexoffers
     
     def _execute_full_pipeline(self, device_flexoffers: Dict, env_state: Dict) -> Dict:
-        """执行完整的Pipeline流程 - 集成真实模块"""
+        """execute complete Pipeline process - integrate real modules"""
         pipeline_results = {
             'flexoffers': device_flexoffers,
             'aggregated': [],
@@ -647,55 +620,55 @@ class ManagerAgent:
                 }
                 return pipeline_results
             
-            # Step 1: 聚合FlexOffer (使用fo_aggregate模块)
+            # Step 1: aggregate FlexOffer (using fo_aggregate module)
             aggregated_results = self._aggregate_flexoffers(device_flexoffers, env_state)
             pipeline_results['aggregated'] = aggregated_results
             
-            # Step 2: 交易FlexOffer (使用fo_trading模块)
+            # Step 2: trade FlexOffer (using fo_trading module)
             trade_results = self._trade_flexoffers(aggregated_results, env_state)
             pipeline_results['trades'] = trade_results
             
-            # Step 3: 分解FlexOffer (使用fo_schedule模块)
+            # Step 3: disaggregate FlexOffer (using fo_schedule module)
             disaggregated_results = self._disaggregate_flexoffers(
                 trade_results, device_flexoffers, env_state
             )
             pipeline_results['disaggregated'] = disaggregated_results
             
-            # Step 4: 调度执行 (使用fo_schedule模块)
+            # Step 4: schedule execution (using fo_schedule module)
             scheduled_results = self._schedule_flexoffers(disaggregated_results, env_state)
             pipeline_results['scheduled'] = scheduled_results
             
-            # 计算统计信息
+            # calculate statistics
             pipeline_results['stats'] = self._calculate_pipeline_stats(
                 pipeline_results, env_state
             )
             
         except Exception as e:
-            logger.error(f"Pipeline执行失败: {e}")
+            logger.error(f"Pipeline execution failed: {e}")
             import traceback
             logger.error(traceback.format_exc())
             
-            # 返回失败的结果
+            # return failed results
             pipeline_results['stats'] = {
                 'num_flexoffers': 0,
                 'num_trades': 0,
                 'avg_satisfaction': 0.0,
-                'total_cost': 1000.0  # 高成本作为惩罚
+                'total_cost': 1000.0  # high cost as penalty
             }
         
         return pipeline_results
     
     def _aggregate_flexoffers(self, device_flexoffers: Dict, env_state: Dict) -> List:
-        """聚合FlexOffer - 调用fo_aggregate模块"""
+        """aggregate FlexOffer - call fo_aggregate module"""
         try:
             from fo_aggregate.aggregator import FOAggregatorFactory
             from fo_common.flexoffer import FlexOffer, FOSlice
             
-            # 转换DFO为FlexOffer格式
+            # convert DFO to FlexOffer format
             flex_offers = []
             for device_id, dfo_system in device_flexoffers.items():
                 for i, slice in enumerate(dfo_system.slices):
-                    # 创建FOSlice
+                    # create FOSlice
                     start_time = slice.start_time or datetime.now()
                     end_time = slice.end_time or (datetime.now() + timedelta(hours=1))
                     duration_minutes = (end_time - start_time).total_seconds() / 60.0
@@ -711,7 +684,7 @@ class ManagerAgent:
                         device_id=device_id
                     )
                     
-                    # 创建FlexOffer
+                    # create FlexOffer
                     flex_offer = FlexOffer(
                         fo_id=f"fo_{device_id}_{slice.time_step}",
                         hour=slice.time_step,
@@ -723,53 +696,52 @@ class ManagerAgent:
                     )
                     flex_offers.append(flex_offer)
             
-            # 选择聚合算法（可配置）
-            # 修复：确保正确获取聚合方法
-            aggregation_method = getattr(self, 'aggregation_method', 'LP')  # 默认LP
+            # select aggregation algorithm (configurable)
+            aggregation_method = getattr(self, 'aggregation_method', 'LP')  # default LP
             
-            # 添加详细日志记录聚合方法的选择
-            logger.info(f"使用聚合方法: {aggregation_method}")
-            logger.info(f"设备FlexOffer数量: {len(flex_offers)}")
+            # add detailed logging for aggregation method selection
+            logger.info(f"using aggregation method: {aggregation_method}")
+            logger.info(f"number of device FlexOffer: {len(flex_offers)}")
             
-            # 确保聚合方法是大写的，以匹配FOAggregatorFactory中的逻辑
+            # ensure aggregation method is uppercase to match FOAggregatorFactory logic
             aggregation_method = aggregation_method.upper()
             
-            # 创建聚合器
+            # create aggregator
             aggregator = FOAggregatorFactory.create_aggregator(aggregation_method)
-            logger.info(f"创建的聚合器类型: {aggregator.__class__.__name__}")
+            logger.info(f"created aggregator type: {aggregator.__class__.__name__}")
             
-            # 执行聚合
+            # execute aggregation
             if flex_offers:
                 aggregated_result = aggregator.aggregate(flex_offers)
                 
-                # 添加聚合结果日志
+                # add aggregated result logging
                 if aggregated_result:
-                    logger.info(f"聚合成功: 得到{len(aggregated_result)}个聚合FlexOffer")
+                    logger.info(f"aggregation successful: got {len(aggregated_result)} aggregated FlexOffer")
                     for i, afo in enumerate(aggregated_result):
-                        logger.info(f"聚合结果 #{i+1}: 方法={afo.aggregation_method}, "
-                                   f"源FO数量={len(afo.source_fo_ids)}, "
-                                   f"总能量范围=[{afo.total_energy_min:.2f}, {afo.total_energy_max:.2f}]")
+                        logger.info(f"aggregated result #{i+1}: method={afo.aggregation_method}, "
+                                   f"source FO number={len(afo.source_fo_ids)}, "
+                                   f"total energy range=[{afo.total_energy_min:.2f}, {afo.total_energy_max:.2f}]")
                 else:
-                    logger.warning("聚合过程完成，但没有得到聚合结果")
+                    logger.warning("aggregation process completed, but no aggregated result")
                 
                 return aggregated_result
             else:
-                logger.warning("没有FlexOffer可聚合")
+                logger.warning("no FlexOffer to aggregate")
                 return []
                 
         except Exception as e:
-            logger.error(f"FlexOffer聚合失败: {e}")
+            logger.error(f"FlexOffer aggregation failed: {e}")
             import traceback
             logger.error(traceback.format_exc())
             return []
     
     def _trade_flexoffers(self, aggregated_results: List, env_state: Dict) -> List:
-        """交易FlexOffer - 调用fo_trading模块的真实算法"""
+        """trade FlexOffer - call real algorithm from fo_trading module"""
         try:
             if not aggregated_results:
                 return []
             
-            # 选择交易算法（从环境状态或配置中获取）
+            # select trading algorithm (from environment state or configuration)
             trading_method = env_state.get('trading_algorithm', getattr(self, 'trading_method', 'market_clearing'))
             
             if trading_method == 'market_clearing':
@@ -778,20 +750,19 @@ class ManagerAgent:
                 return self._trade_with_bidding(aggregated_results, env_state)
             
         except Exception as e:
-            logger.error(f"FlexOffer交易失败: {e}")
+            logger.error(f"FlexOffer trading failed: {e}")
             return []
     
     def _trade_with_bidding(self, aggregated_results: List, env_state: Dict) -> List:
-        """使用Bidding算法交易 - 双方价格匹配时产生交易"""
+        """trade FlexOffer with Bidding algorithm - generate trade when both prices match"""
         try:
             from fo_trading.pool import BiddingAlgorithm, Bid
             
             bidding_algo = BiddingAlgorithm()
             bids = []
             
-            # 为每个聚合FO创建买卖双方报价
+            # create buy and sell bids for each aggregated FO
             for i, aggregated_fo in enumerate(aggregated_results):
-                # 修复：正确获取聚合FlexOffer的能量
                 total_energy = 0.0
                 if hasattr(aggregated_fo, 'total_energy_max'):
                     total_energy = aggregated_fo.total_energy_max
@@ -800,15 +771,14 @@ class ManagerAgent:
                 else:
                     total_energy = getattr(aggregated_fo, 'total_energy', 10.0)
                 
-                # 确保总能量至少为1.0，避免零能量交易
+                # ensure total energy is at least 1.0, avoid zero energy trading
                 total_energy = max(1.0, total_energy)
                 
-                logger.info(f"聚合FO {i} 总能量: {total_energy:.2f} kWh")
+                logger.info(f"aggregated FO {i} total energy: {total_energy:.2f} kWh")
                 
                 base_price = env_state.get('price', 0.15)
                 
-                # 创建卖方报价（当前Manager）- 降低卖方价格增加交易概率
-                sell_price = base_price * (0.85 + 0.15 * np.random.random())  # 0.85-1.0倍基准价，更低的卖价
+                sell_price = base_price * (0.85 + 0.15 * np.random.random())  
                 sell_bid = Bid(
                     bid_id=f"sell_{self.manager_id}_{i}",
                     participant_id=self.manager_id,
@@ -818,9 +788,8 @@ class ManagerAgent:
                     side="sell"
                 )
                 
-                # 创建模拟买方报价 - 提高买方价格增加交易概率
-                buy_price = base_price * (1.05 + 0.25 * np.random.random())  # 1.05-1.3倍基准价，更高的买价
-                buy_quantity = total_energy * (0.8 + 0.4 * np.random.random())  # 0.8-1.2倍能量需求
+                buy_price = base_price * (1.05 + 0.25 * np.random.random())  
+                buy_quantity = total_energy * (0.8 + 0.4 * np.random.random())  
                 buy_bid = Bid(
                     bid_id=f"buy_market_{i}",
                     participant_id=f"buyer_{i}",
@@ -834,32 +803,32 @@ class ManagerAgent:
                 bidding_algo.submit_bid(sell_bid)
                 bidding_algo.submit_bid(buy_bid)
             
-            # Bidding算法：检查买卖双方价格是否匹配，如果匹配则产生交易
+            # Bidding algorithm: check if buy and sell prices match, generate trade if they do
             trades = []
             processed_bids = bidding_algo.get_bids_by_timestep(0)
             
-            # 分离买方和卖方报价
+            # separate buy and sell bids
             buy_bids = [bid for bid in processed_bids if bid.side == "buy"]
             sell_bids = [bid for bid in processed_bids if bid.side == "sell"]
             
-            # 按价格排序
-            buy_bids.sort(key=lambda x: x.price, reverse=True)  # 买方出价从高到低
-            sell_bids.sort(key=lambda x: x.price)  # 卖方出价从低到高
+            # sort by price
+            buy_bids.sort(key=lambda x: x.price, reverse=True)  # buy bids from high to low
+            sell_bids.sort(key=lambda x: x.price)  # sell bids from low to high
             
-            # 匹配买卖双方：买方出价 >= 卖方出价时成交
+            # match buy and sell bids: buy bid >= sell bid
             for sell_bid in sell_bids:
                 if sell_bid.participant_id != self.manager_id:
-                    continue  # 只处理当前Manager的卖方报价
+                    continue  # only process sell bids for current Manager
                     
                 for buy_bid in buy_bids:
-                    if buy_bid.price >= sell_bid.price:  # 价格匹配
-                        # 计算交易数量（取两者最小值）
+                    if buy_bid.price >= sell_bid.price:  # price match
+                        # calculate trade quantity 
                         trade_quantity = min(sell_bid.quantity, buy_bid.quantity)
                         
-                        # 计算交易价格（买卖价格的中间值）
+                        # calculate trade price 
                         trade_price = (buy_bid.price + sell_bid.price) / 2
                         
-                        # 创建交易记录
+                        # create trade record
                         trade = {
                             'trade_id': f"trade_{sell_bid.bid_id}_{buy_bid.bid_id}",
                             'buyer_id': buy_bid.participant_id,
@@ -874,41 +843,41 @@ class ManagerAgent:
                         }
                         trades.append(trade)
                         
-                        # 更新报价数量（简化处理，实际应该更复杂）
+                        # update bid quantity
                         sell_bid.quantity -= trade_quantity
                         buy_bid.quantity -= trade_quantity
                         
-                        logger.info(f"交易成功(Bidding): 买方{buy_bid.participant_id}({buy_bid.price:.4f}) "
-                                  f"vs 卖方{sell_bid.participant_id}({sell_bid.price:.4f}), "
-                                  f"成交价{trade_price:.4f}, 数量{trade_quantity:.2f}")
+                        logger.info(f"success trade(Bidding): buyer {buy_bid.participant_id}({buy_bid.price:.4f}) "
+                                  f"vs seller {sell_bid.participant_id}({sell_bid.price:.4f}), "
+                                  f"trade price {trade_price:.4f}, quantity {trade_quantity:.2f}")
                         
-                        # 如果买方需求已满足，跳到下一个买方
+                        # if buy bid quantity is satisfied, jump to next buy bid
                         if buy_bid.quantity <= 0:
                             break
                     
-                    # 如果卖方供给已用完，跳到下一个卖方
+                    # if sell bid quantity is used up, jump to next sell bid
                     if sell_bid.quantity <= 0:
                         break
             
-            logger.info(f"交易算法(Bidding)完成: 处理{len(processed_bids)}个报价, 产生{len(trades)}笔交易")
+            logger.info(f"Bidding algorithm completed: processed {len(processed_bids)} bids, generated {len(trades)} trades")
             return trades
             
         except Exception as e:
-            logger.error(f"Bidding算法交易失败: {e}")
+            logger.error(f"Bidding algorithm trading failed: {e}")
             return []
     
     def _trade_with_market_clearing(self, aggregated_results: List, env_state: Dict) -> List:
-        """使用Market Clearing算法交易"""
+        """trade FlexOffer with Market Clearing algorithm"""
         try:
             from fo_trading.pool import MarketClearingAlgorithm, Bid
             
-            # 创建市场出清算法实例
+            # create market clearing algorithm instance
             clearing_algo = MarketClearingAlgorithm(clearing_method="uniform_price")
             bids = []
             
-            # 为每个聚合FO创建买卖双方报价
+            # create buy and sell bids for each aggregated FO
             for i, aggregated_fo in enumerate(aggregated_results):
-                # 修复：正确获取聚合FlexOffer的能量
+                # fix: correct energy of aggregated FlexOffer
                 total_energy = 0.0
                 if hasattr(aggregated_fo, 'total_energy_max'):
                     total_energy = aggregated_fo.total_energy_max
@@ -917,30 +886,29 @@ class ManagerAgent:
                 else:
                     total_energy = getattr(aggregated_fo, 'total_energy', 10.0)
                 
-                # 确保总能量至少为1.0，避免零能量交易
+                # ensure total energy is at least 1.0, avoid zero energy trading
                 total_energy = max(1.0, total_energy)
                 
-                logger.info(f"聚合FO {i} 总能量: {total_energy:.2f} kWh")
+                logger.info(f"aggregated FO {i} total energy: {total_energy:.2f} kWh")
                 
                 base_price = env_state.get('price', 0.15)
                 
-                # 创建卖方报价（当前Manager）- 与bidding算法保持一致的价格范围
+                # create sell bid (current Manager) - same price range as bidding algorithm
                 sell_bid = Bid(
                     bid_id=f"sell_{self.manager_id}_{i}",
                     participant_id=self.manager_id,
-                    price=base_price * (0.85 + 0.15 * np.random.random()),  # 0.85-1.0倍基准价
+                    price=base_price * (0.85 + 0.15 * np.random.random()),  
                     quantity=total_energy,
                     time_step=0,
                     side="sell"
                 )
                 
-                # 创建多个模拟买方报价（增加成交概率）- 扩大价格范围
-                for j in range(2):  # 每个FO创建2个买方
+                for j in range(2):  
                     buy_bid = Bid(
                         bid_id=f"buy_market_{i}_{j}",
                         participant_id=f"buyer_{i}_{j}",
-                        price=base_price * (1.05 + 0.25 * np.random.random()),  # 1.05-1.3倍基准价
-                        quantity=total_energy * (0.4 + 0.4 * np.random.random()),  # 0.4-0.8倍需求量
+                        price=base_price * (1.05 + 0.25 * np.random.random()),  
+                        quantity=total_energy * (0.4 + 0.4 * np.random.random()),  
                         time_step=0,
                         side="buy"
                     )
@@ -948,16 +916,16 @@ class ManagerAgent:
                 
                 bids.append(sell_bid)
             
-            # 执行市场出清
+            # execute market clearing
             clearing_results = clearing_algo.process_bids(bids)
             
-            # 生成交易
+            # generate trades
             generated_trades = clearing_algo.generate_trades(clearing_results, bids)
             
-            # 转换为统一格式
+            # convert to unified format
             trades = []
             for trade in generated_trades:
-                if trade.seller_id == self.manager_id:  # 只关心当前Manager的交易
+                if trade.seller_id == self.manager_id:  # only process trades for current Manager
                     trades.append({
                         'trade_id': trade.trade_id,
                         'buyer_id': trade.buyer_id,
@@ -970,22 +938,22 @@ class ManagerAgent:
                         'clearing_result_id': trade.clearing_result_id
                     })
             
-            logger.info(f"交易算法(Market Clearing)完成: {len(clearing_results)}个出清结果, {len(trades)}笔交易")
+            logger.info(f"Market Clearing algorithm completed: {len(clearing_results)} clearing results, {len(trades)} trades")
             return trades
             
         except Exception as e:
-            logger.error(f"Market Clearing算法交易失败: {e}")
+            logger.error(f"Market Clearing algorithm trading failed: {e}")
             return []
     
     def _disaggregate_flexoffers(self, trade_results: List, original_flexoffers: Dict, env_state: Dict) -> List:
-        """分解FlexOffer - 调用fo_schedule模块"""
+        """disaggregate FlexOffer - call fo_schedule module"""
         try:
             if not trade_results:
                 return []
             
             from fo_schedule.scheduler import AggregatedResultDisaggregator
             
-            # 选择分解方法（可配置）
+            # select disaggregation method (configurable)
             disaggregation_method = getattr(self, 'disaggregation_method', 'proportional')
             disaggregator = AggregatedResultDisaggregator(
                 time_horizon=24, 
@@ -996,7 +964,7 @@ class ManagerAgent:
             
             for trade in trade_results:
                 if trade.get('success', False):
-                    # 准备分解数据
+                    # prepare disaggregation data
                     original_data = []
                     for device_id, dfo_system in original_flexoffers.items():
                         for slice in dfo_system.slices:
@@ -1005,17 +973,16 @@ class ManagerAgent:
                                 'energy_min': slice.energy_min,
                                 'energy_max': slice.energy_max,
                                 'weight': slice.flexibility_factor,
-                                'energy': slice.energy_max  # 添加energy字段供分解算法使用
+                                'energy': slice.energy_max  # add energy field for disaggregation algorithm
                             })
                     
                     if original_data:
-                        # 执行分解
+                        # execute disaggregation
                         total_energy = trade.get('trade_volume', 0.0)
                         
-                        # 修复：检查总能量是否为0或负值
+                        # fix: check if total energy is 0 or negative
                         if total_energy <= 0:
-                            logger.info(f"交易量为0或负值({total_energy})，分配零能量给所有设备")
-                            # 直接分配零能量给所有设备，避免分解算法报错
+                            logger.info(f"trade volume is 0 or negative ({total_energy}), allocate zero energy to all devices")
                             for data in original_data:
                                 disaggregated_results.append({
                                     'device_id': data['device_id'],
@@ -1033,8 +1000,8 @@ class ManagerAgent:
                             )
                             disaggregated_results.extend(disaggregated)
                         except Exception as e:
-                            logger.warning(f"分解失败，使用平均分配: {e}")
-                            # 回退到平均分配
+                            logger.warning(f"disaggregation failed, use average allocation: {e}")
+                            # fallback to average allocation
                             avg_energy = total_energy / len(original_data)
                             for data in original_data:
                                 disaggregated_results.append({
@@ -1046,11 +1013,11 @@ class ManagerAgent:
             return disaggregated_results
             
         except Exception as e:
-            logger.error(f"FlexOffer分解失败: {e}")
+            logger.error(f"FlexOffer disaggregation failed: {e}")
             return []
     
     def _schedule_flexoffers(self, disaggregated_results: List, env_state: Dict) -> Dict:
-        """调度FlexOffer - 执行最终的设备控制"""
+        """schedule FlexOffer - execute final device control"""
         try:
             scheduled_results = {}
             total_satisfaction = 0.0
@@ -1063,18 +1030,17 @@ class ManagerAgent:
                 if device_id and device_id in self.device_mdps:
                     device_mdp = self.device_mdps[device_id]
                     
-                    # 将分配的能量转换为功率控制信号
-                    # 简化：假设1小时内均匀分配
-                    power_signal = allocated_energy / 1.0  # 1小时
+                    # convert allocated energy to power control signal
+                    power_signal = allocated_energy / 1.0  # 1 hour
                     
-                    # 限制在设备功率范围内
+                    # limit within device power range
                     p_min, p_max = device_mdp.get_action_bounds()
                     power_signal = np.clip(power_signal, p_min, p_max)
                     
-                    # 执行设备状态转移
+                    # execute device state transition
                     next_state = device_mdp.transition_state(power_signal, env_state)
                     
-                    # 计算设备满意度（简化版）
+                    # calculate device satisfaction
                     device_satisfaction = self._calculate_device_satisfaction(
                         device_mdp, power_signal, next_state, env_state
                     )
@@ -1089,7 +1055,7 @@ class ManagerAgent:
                     total_satisfaction += device_satisfaction
                     device_count += 1
             
-            # 计算平均满意度
+            # calculate average satisfaction
             avg_satisfaction = total_satisfaction / max(device_count, 1)
             scheduled_results['_summary'] = {
                 'avg_satisfaction': avg_satisfaction,
@@ -1099,47 +1065,47 @@ class ManagerAgent:
             return scheduled_results
             
         except Exception as e:
-            logger.error(f"FlexOffer调度失败: {e}")
+            logger.error(f"FlexOffer scheduling failed: {e}")
             return {'_summary': {'avg_satisfaction': 0.0, 'total_devices': 0}}
     
     def _calculate_device_satisfaction(self, device_mdp, power_signal: float, 
                                      device_state: Dict, env_state: Dict) -> float:
-        """计算设备满意度（基于实际设备状态）"""
+        """calculate device satisfaction (based on actual device state)"""
         try:
-            # 使用设备的奖励函数来评估满意度
+            # use device reward function to evaluate satisfaction
             device_reward, reward_components = device_mdp.calculate_reward(
                 power_signal, device_state, env_state
             )
             
-            # 将奖励转换为满意度 (0-1范围)
-            # 假设正奖励对应高满意度，负奖励对应低满意度
+            # convert reward to satisfaction (0-1 range)
+            # assume positive reward corresponds to high satisfaction, negative reward corresponds to low satisfaction
             if device_reward > 0:
-                satisfaction = min(device_reward / 10.0, 1.0)  # 归一化到0-1
+                satisfaction = min(device_reward / 10.0, 1.0)  # normalize to 0-1
             else:
-                satisfaction = max(0.5 + device_reward / 20.0, 0.0)  # 负奖励降低满意度
+                satisfaction = max(0.5 + device_reward / 20.0, 0.0)  # negative reward reduces satisfaction
             
             return np.clip(satisfaction, 0.0, 1.0)
             
         except Exception as e:
-            logger.warning(f"设备满意度计算失败: {e}")
-            return 0.5  # 默认中等满意度
+            logger.warning(f"device satisfaction calculation failed: {e}")
+            return 0.5  
     
     def _calculate_pipeline_stats(self, pipeline_results: Dict, env_state: Dict) -> Dict:
-        """计算Pipeline统计信息"""
+        """calculate Pipeline statistics"""
         stats = {}
         
-        # 基本统计
+        # basic statistics
         stats['num_flexoffers'] = len(pipeline_results.get('flexoffers', {}))
         stats['num_aggregated'] = len(pipeline_results.get('aggregated', []))
         stats['num_trades'] = len(pipeline_results.get('trades', []))
         stats['num_disaggregated'] = len(pipeline_results.get('disaggregated', []))
         
-        # 满意度统计
+        # satisfaction statistics
         scheduled = pipeline_results.get('scheduled', {})
         summary = scheduled.get('_summary', {})
         stats['avg_satisfaction'] = summary.get('avg_satisfaction', 0.0)
         
-        # 成本统计
+        # cost statistics
         trades = pipeline_results.get('trades', [])
         total_cost = 0.0
         total_revenue = 0.0
@@ -1161,60 +1127,53 @@ class ManagerAgent:
         return stats
     
     def _calculate_pipeline_reward(self, pipeline_results: Dict, env_state: Dict) -> Tuple[float, Dict]:
-        """计算基于Pipeline执行结果的奖励 - 🔧 紧急修复：确保奖励合理"""
+        """calculate reward based on Pipeline execution results"""
         stats = pipeline_results.get('stats', {})
         
-        # 🔧 紧急修复1：重新设计奖励基准，确保主要为正值
-        
-        # 1. 经济性奖励：重新设计为正值导向 (0 到 100)
         total_cost = stats.get('total_cost', 0.0)
         total_revenue = stats.get('total_revenue', 0.0)
         net_benefit = total_revenue - total_cost
         
-        # 🔧 修复：以正奖励为主，避免大幅负值
         if net_benefit > 20:
-            economic_reward = 70.0 + min(net_benefit - 20, 30.0)  # 70-100分
+            economic_reward = 70.0 + min(net_benefit - 20, 30.0)  # 70-100
         elif net_benefit > 5:
-            economic_reward = 40.0 + (net_benefit - 5) * 2.0  # 40-70分
+            economic_reward = 40.0 + (net_benefit - 5) * 2.0  # 40-70
         elif net_benefit > 0:
-            economic_reward = 20.0 + net_benefit * 4.0  # 20-40分
+            economic_reward = 20.0 + net_benefit * 4.0  # 20-40
         elif net_benefit > -5:
-            economic_reward = 10.0 + (net_benefit + 5) * 2.0  # 0-20分
+            economic_reward = 10.0 + (net_benefit + 5) * 2.0  # 0-20
         else:
-            economic_reward = max(0.0, 10.0 + net_benefit)  # 最低0分，避免大幅负值
+            economic_reward = max(0.0, 10.0 + net_benefit)  # minimum 0, avoid large negative values
         
-        # 2. 用户满意度奖励：重新设计为正值导向 (10 到 80)
         satisfaction_base = stats.get('avg_satisfaction', 0.5)
         
-        # 🔧 修复：确保满意度奖励主要为正
         if satisfaction_base > 0.8:
-            satisfaction_reward = 60.0 + (satisfaction_base - 0.8) * 100  # 60-80分
+            satisfaction_reward = 60.0 + (satisfaction_base - 0.8) * 100  # 60-80
         elif satisfaction_base > 0.6:
-            satisfaction_reward = 40.0 + (satisfaction_base - 0.6) * 100  # 40-60分
+            satisfaction_reward = 40.0 + (satisfaction_base - 0.6) * 100  # 40-60
         elif satisfaction_base > 0.4:
-            satisfaction_reward = 20.0 + (satisfaction_base - 0.4) * 100  # 20-40分
+            satisfaction_reward = 20.0 + (satisfaction_base - 0.4) * 100  # 20-40
         elif satisfaction_base > 0.2:
-            satisfaction_reward = 10.0 + (satisfaction_base - 0.2) * 50  # 10-20分
+            satisfaction_reward = 10.0 + (satisfaction_base - 0.2) * 50  # 10-20
         else:
-            satisfaction_reward = max(10.0, satisfaction_base * 50)  # 最低10分
+            satisfaction_reward = max(10.0, satisfaction_base * 50)  # minimum 10
         
-        # 3. 协调奖励：重新设计为正值导向 (5 到 60)
+        # 3. coordination reward
         num_trades = stats.get('num_trades', 0)
         num_flexoffers = stats.get('num_flexoffers', 1)
         trade_success_rate = num_trades / max(num_flexoffers, 1)
         
-        # 🔧 修复：协调奖励以正值为主
         if trade_success_rate > 0.7:
-            coordination_reward = 40.0 + (trade_success_rate - 0.7) * 66.7  # 40-60分
+            coordination_reward = 40.0 + (trade_success_rate - 0.7) * 66.7  # 40-60
         elif trade_success_rate > 0.4:
-            coordination_reward = 20.0 + (trade_success_rate - 0.4) * 66.7  # 20-40分
+            coordination_reward = 20.0 + (trade_success_rate - 0.4) * 66.7  # 20-40
         elif trade_success_rate > 0.1:
-            coordination_reward = 5.0 + (trade_success_rate - 0.1) * 50  # 5-20分
+            coordination_reward = 5.0 + (trade_success_rate - 0.1) * 50  # 5-20
         else:
-            coordination_reward = max(5.0, trade_success_rate * 50)  # 最低5分
+            coordination_reward = max(5.0, trade_success_rate * 50)  # minimum 5
         
-        # 4. 策略一致性奖励：重新设计为正值导向 (0 到 30)
-        strategy_consistency_reward = 15.0  # 默认基础分
+        # 4. strategy consistency reward
+        strategy_consistency_reward = 15.0  # default base
         if hasattr(self, 'markov_history') and 'prev_actions' in self.markov_history:
             prev_actions = self.markov_history['prev_actions']
             if prev_actions is not None and len(prev_actions) > 0:
@@ -1223,48 +1182,47 @@ class ManagerAgent:
                 
                 # 奖励合理的策略
                 if 0.2 <= action_std <= 0.6 and 0.3 <= action_mean <= 0.7:
-                    strategy_consistency_reward = 30.0  # 优秀策略
+                    strategy_consistency_reward = 30.0  # excellent strategy
                 elif 0.1 <= action_std <= 0.8 and 0.2 <= action_mean <= 0.8:
-                    strategy_consistency_reward = 20.0  # 良好策略
-                elif action_std < 0.05:  # 策略过于保守
+                    strategy_consistency_reward = 20.0  # good strategy
+                elif action_std < 0.05:  # too conservative
                     strategy_consistency_reward = 5.0
-                elif action_std > 0.9:  # 策略过于随机
+                elif action_std > 0.9:  # too random
                     strategy_consistency_reward = 8.0
                 else:
-                    strategy_consistency_reward = 15.0  # 平均策略
+                    strategy_consistency_reward = 15.0  # average strategy
         
-        # 🔧 关键修复2：使用加权平均而不是直接相加，控制总奖励范围
-        # 目标范围：30-270分
+        # target range: 30-270
         total_reward = (
-            0.4 * economic_reward +           # 40%权重：0-40分
-            0.3 * satisfaction_reward +       # 30%权重：3-24分  
-            0.2 * coordination_reward +       # 20%权重：1-12分
-            0.1 * strategy_consistency_reward # 10%权重：0-3分
-        )  # 总范围：4-79分，再加上基础分
+            0.4 * economic_reward +           # 40% weight: 0-40
+            0.3 * satisfaction_reward +       # 30% weight: 3-24
+            0.2 * coordination_reward +       # 20% weight: 1-12
+            0.1 * strategy_consistency_reward # 10% weight: 0-3
+        )  # total range: 4-79, plus base reward
         
-        # 🔧 修复3：添加基础奖励，确保总奖励为正
-        base_reward = 50.0  # 基础奖励50分
-        total_reward += base_reward  # 最终范围：54-129分
+        # add base reward, ensure total reward is positive
+        base_reward = 50.0  # base reward 50
+        total_reward += base_reward  # final range: 54-129
         
-        # 🔧 修复4：添加基于学习进度的小幅调整（而不是大幅奖励）
+        # add small adjustment based on learning progress (instead of large reward)
         if hasattr(self, 'episode_count'):
             self.episode_count += 1
         else:
             self.episode_count = 1
             
-        # 学习进度奖励：小幅调整而不是大幅变化
+        # learning progress reward: small adjustment instead of large change
         learning_progress_reward = 0.0
         if self.episode_count <= 20:
-            # 早期阶段：鼓励探索，小幅随机调整
+            # early stage: encourage exploration, small random adjustment
             learning_progress_reward = np.random.uniform(-5, 15)  # -5到+15分
         elif self.episode_count <= 50:
-            # 中期阶段：奖励稳定策略
+            # mid stage: reward stable strategy
             if economic_reward > 60 and satisfaction_reward > 50:
                 learning_progress_reward = 10.0
             else:
                 learning_progress_reward = 5.0
         else:
-            # 后期阶段：奖励优秀策略
+            # late stage: reward excellent strategy
             if total_reward > 100:
                 learning_progress_reward = 15.0
             else:
@@ -1272,8 +1230,8 @@ class ManagerAgent:
                 
         total_reward += learning_progress_reward
         
-        # 🔧 修复5：确保奖励在合理范围内
-        total_reward = max(30.0, min(200.0, total_reward))  # 限制在30-200分范围内
+        # ensure reward is within reasonable range
+        total_reward = max(30.0, min(200.0, total_reward))  # limit within 30-200
         
         reward_info = {
             'economic': economic_reward,
@@ -1293,8 +1251,8 @@ class ManagerAgent:
         return total_reward, reward_info
     
     def _apply_user_preferences(self, base_reward: float, reward_components: Dict) -> float:
-        """应用用户偏好权重"""
-        # 提取不同类型的奖励
+        """apply user preference weights"""
+        # extract different types of rewards
         economic_reward = 0.0
         comfort_reward = 0.0
         environmental_reward = 0.0
@@ -1302,9 +1260,9 @@ class ManagerAgent:
         for device_rewards in reward_components.values():
             economic_reward += device_rewards.get('economic', 0.0)
             comfort_reward += device_rewards.get('comfort', 0.0)
-            environmental_reward += device_rewards.get('efficiency', 0.0)  # 效率作为环保指标
+            environmental_reward += device_rewards.get('efficiency', 0.0)  
         
-        # 应用用户偏好权重
+        # apply user preference weights
         weighted_reward = (
             self.aggregated_preferences['economic'] * economic_reward +
             self.aggregated_preferences['comfort'] * comfort_reward +
@@ -1314,8 +1272,8 @@ class ManagerAgent:
         return weighted_reward
     
     def _calculate_user_satisfaction(self, reward_components: Dict) -> float:
-        """计算用户满意度"""
-        # 基于舒适度奖励计算满意度
+        """calculate user satisfaction"""
+        # calculate satisfaction based on comfort reward
         comfort_rewards = []
         for device_rewards in reward_components.values():
             if 'comfort' in device_rewards:
@@ -1324,10 +1282,10 @@ class ManagerAgent:
         if comfort_rewards:
             return float(np.mean(comfort_rewards))
         else:
-            return 0.5  # 默认满意度
+            return 0.5  # default satisfaction
     
     def generate_dfo(self, time_horizon: int) -> Dict[str, DFOSystem]:
-        """生成DFO系统"""
+        """generate DFO system"""
         dfo_systems = {}
         
         for device_id in self.controllable_devices:
@@ -1335,10 +1293,10 @@ class ManagerAgent:
             dfo = DFOSystem(time_horizon)
             
             for t in range(time_horizon):
-                # 获取动作边界
+                # get action bounds
                 p_min, p_max = device_mdp.get_action_bounds()
                 
-                # 创建时间片
+                # create time slice
                 dfo_slice = DFOSlice(
                     time_step=t,
                     energy_min=p_min,
@@ -1353,52 +1311,52 @@ class ManagerAgent:
         return dfo_systems
 
     def get_observation(self):
-        """获取当前观测"""
+        """get current observation"""
         device_states = []
         user_states = []
         
-        # 收集设备状态
+        # collect device states
         if isinstance(self.devices, dict):
             for device in self.devices.values():
                 if hasattr(device, 'env'):
                     state = device.env.get_state()
                     device_states.extend(state)
         else:
-            # self.devices 是列表
+            # self.devices is a list
             for device in self.devices:
                 if hasattr(device, 'env'):
                     state = device['env'].get_state()  # type: ignore
                     device_states.extend(state)
         
-        # 收集用户状态  
+        # collect user states  
         for user in self.users:
-            # 处理用户设备数量（如果用户有设备属性则使用，否则默认为0）
+            # process user device count (if user has device attribute, use it, otherwise default to 0)
             user_device_count = 0
             if 'devices' in user:
                 user_device_count = len(user['devices'])
             elif 'device_count' in user:
                 user_device_count = user['device_count']
             
-            # 处理用户偏好（如果有偏好属性则使用，否则使用默认值）
+            # process user preferences (if user has preference attribute, use it, otherwise use default value)
             preferences = getattr(user, 'preferences', {})
             
             user_state = [
-                user_device_count,  # 设备数量
-                preferences.get('economic', 0.25),  # 经济偏好
-                preferences.get('comfort', 0.25),   # 舒适偏好
-                preferences.get('self_sufficient', 0.25),  # 自给自足偏好
-                preferences.get('environmental', 0.25)     # 环保偏好
+                user_device_count,  # device count
+                preferences.get('economic', 0.25),  # economic preference
+                preferences.get('comfort', 0.25),   # comfort preference
+                preferences.get('self_sufficient', 0.25),  # self-sufficient preference
+                preferences.get('environmental', 0.25)     # environmental preference
             ]
             user_states.extend(user_state)
         
-        # 组合观测
+        # combine observations
         observation = device_states + user_states
         
-        # 确保观测维度一致性（这里不做强制约束，因为观测维度是动态的）
+        # ensure observation dimension consistency (here no constraint, because observation dimension is dynamic)
         return np.array(observation, dtype=np.float32)
 
 class MultiAgentFlexOfferEnv(gym.Env):
-    """多智能体FlexOffer环境"""
+    """multi-agent FlexOffer environment"""
     
     def __init__(self, 
                  data_dir: str = "data",
@@ -1410,17 +1368,17 @@ class MultiAgentFlexOfferEnv(gym.Env):
                  trading_method: str = "bidding", 
                  disaggregation_method: str = "proportional"):
         """
-        初始化多智能体FlexOffer环境
+        initialize multi-agent FlexOffer environment
         
         Args:
-            data_dir: 数据目录
-            time_horizon: 时间范围
-            time_step: 时间步长
-            start_time: 开始时间
-            dec_pomdp_config: Dec-POMDP配置
-            aggregation_method: 聚合算法 ("LP", "DP")
-            trading_method: 交易算法 ("bidding", "market_clearing")
-            disaggregation_method: 分解算法 ("average", "proportional")
+            data_dir: data directory
+            time_horizon: time horizon
+            time_step: time step
+            start_time: start time
+            dec_pomdp_config: Dec-POMDP configuration
+            aggregation_method: aggregation algorithm ("LP", "DP")
+            trading_method: trading algorithm ("bidding", "market_clearing")
+            disaggregation_method: disaggregation algorithm ("average", "proportional")
         """
         
         self.data_dir = data_dir
@@ -1428,92 +1386,92 @@ class MultiAgentFlexOfferEnv(gym.Env):
         self.time_step = time_step
         self.start_time = start_time or datetime.now().replace(minute=0, second=0, microsecond=0)
         
-        # 算法配置
+        # algorithm configuration
         self.aggregation_method = aggregation_method
         self.trading_method = trading_method
         self.disaggregation_method = disaggregation_method
         
-        # 验证算法选择
+        # validate algorithm choices
         self._validate_algorithm_choices()
         
-        # Dec-POMDP配置
+        # Dec-POMDP configuration
         self.dec_pomdp_config = dec_pomdp_config or DecPOMDPConfig()
         self.dec_pomdp_obs_space = DecPOMDPObservationSpace(self.dec_pomdp_config)
         
-        # 观测历史（用于信息延迟）
+        # observation history (for information delay)
         self.observation_history: Dict[str, List[np.ndarray]] = {}
         
-        # 动态观测质量管理器（如果启用观测噪声，则启用动态质量）
+        # dynamic observation quality manager (if enable observation noise, enable dynamic quality)
         if self.dec_pomdp_config.enable_observation_noise:
             self.dynamic_quality_manager = DynamicObservationQuality()
         else:
             self.dynamic_quality_manager = None
         
-        # 数据加载器
+        # data loader
         self.data_loader = DataLoader(data_dir)
         
-        # 加载配置数据
+        # load configuration data
         self._load_configuration_data()
         
-        # 环境动态
+        # environment dynamics
         self.env_dynamics = EnvironmentDynamics(
             price_data=self.price_data,
             weather_data=self.weather_data
         )
         
-        # 创建Manager代理
+        # create Manager agents
         self._create_manager_agents()
         
-        # 为每个Manager设置算法配置
+        # set algorithm configuration for each Manager
         self._configure_manager_algorithms()
         
-        # 设置观测和动作空间
+        # set observation and action spaces
         self._setup_spaces()
         
-        # 时间状态
+        # time state
         self.current_time = self.start_time
         self.current_step = 0
         
-        logger.info(f"多智能体环境初始化完成: {len(self.manager_agents)} 个Manager")
-        logger.info(f"算法配置 - 聚合: {aggregation_method}, 交易: {trading_method}, 分解: {disaggregation_method}")
-        logger.info(f"Dec-POMDP模式: {self.dec_pomdp_config.enable_observation_noise}, "
-                   f"动态质量管理: {self.dynamic_quality_manager is not None}")
+        logger.info(f"multi-agent environment initialized: {len(self.manager_agents)} Managers")
+        logger.info(f"algorithm configuration - aggregation: {aggregation_method}, trading: {trading_method}, disaggregation: {disaggregation_method}")
+        logger.info(f"Dec-POMDP mode: {self.dec_pomdp_config.enable_observation_noise}, "
+                   f"dynamic quality management: {self.dynamic_quality_manager is not None}")
     
     def _validate_algorithm_choices(self):
-        """验证算法选择的有效性"""
-        # 验证聚合算法
+        """validate algorithm choices"""
+        # validate aggregation algorithm
         valid_aggregation = ["LP", "DP"]
         if self.aggregation_method not in valid_aggregation:
-            logger.warning(f"无效的聚合算法 '{self.aggregation_method}'，使用默认 'LP'")
+            logger.warning(f"invalid aggregation algorithm '{self.aggregation_method}', using default 'LP'")
             self.aggregation_method = "LP"
         
-        # 验证交易算法
+        # validate trading algorithm
         valid_trading = ["bidding", "market_clearing"]
         if self.trading_method not in valid_trading:
-            logger.warning(f"无效的交易算法 '{self.trading_method}'，使用默认 'bidding'")
+            logger.warning(f"invalid trading algorithm '{self.trading_method}', using default 'bidding'")
             self.trading_method = "bidding"
         
-        # 验证分解算法
+        # validate disaggregation algorithm
         valid_disaggregation = ["average", "proportional"]
         if self.disaggregation_method not in valid_disaggregation:
-            logger.warning(f"无效的分解算法 '{self.disaggregation_method}'，使用默认 'proportional'")
+            logger.warning(f"invalid disaggregation algorithm '{self.disaggregation_method}', using default 'proportional'")
             self.disaggregation_method = "proportional"
         
-        logger.info(f"算法验证完成 - 聚合: {self.aggregation_method}, "
-                   f"交易: {self.trading_method}, 分解: {self.disaggregation_method}")
+        logger.info(f"algorithm validation completed - aggregation: {self.aggregation_method}, "
+                   f"trading: {self.trading_method}, disaggregation: {self.disaggregation_method}")
     
     def _configure_manager_algorithms(self):
-        """为每个Manager配置算法选择"""
+        """configure algorithm selection for each Manager"""
         for manager_id, manager in self.manager_agents.items():
-            # 将算法配置传递给Manager（使用setattr动态设置属性）
+            # pass algorithm configuration to Manager (use setattr to dynamically set attributes)
             setattr(manager, 'aggregation_method', self.aggregation_method)
             setattr(manager, 'trading_method', self.trading_method)
             setattr(manager, 'disaggregation_method', self.disaggregation_method)
             
-            logger.debug(f"Manager {manager_id} 算法配置完成")
+            logger.debug(f"Manager {manager_id} algorithm configuration completed")
     
     def set_algorithms(self, aggregation: Optional[str] = None, trading: Optional[str] = None, disaggregation: Optional[str] = None):
-        """动态设置算法选择"""
+        """dynamically set algorithm selection"""
         if aggregation:
             self.aggregation_method = aggregation
         if trading:
@@ -1521,15 +1479,15 @@ class MultiAgentFlexOfferEnv(gym.Env):
         if disaggregation:
             self.disaggregation_method = disaggregation
         
-        # 重新验证和配置
+        # re-validate and configure
         self._validate_algorithm_choices()
         self._configure_manager_algorithms()
         
-        logger.info(f"算法配置已更新 - 聚合: {self.aggregation_method}, "
-                   f"交易: {self.trading_method}, 分解: {self.disaggregation_method}")
+        logger.info(f"algorithm configuration updated - aggregation: {self.aggregation_method}, "
+                   f"trading: {self.trading_method}, disaggregation: {self.disaggregation_method}")
     
     def get_algorithm_config(self) -> Dict[str, str]:
-        """获取当前算法配置"""
+        """get current algorithm configuration"""
         return {
             'aggregation': self.aggregation_method,
             'trading': self.trading_method,
@@ -1537,8 +1495,8 @@ class MultiAgentFlexOfferEnv(gym.Env):
         }
     
     def _load_configuration_data(self):
-        """加载配置数据"""
-        # 加载外部数据
+        """load configuration data"""
+        # load external data
         self.weather_data = self.data_loader.load_weather_data(
             start_time=self.start_time, hours=self.time_horizon * 2
         )
@@ -1550,45 +1508,45 @@ class MultiAgentFlexOfferEnv(gym.Env):
         )
         self.calendar_data = self.data_loader.load_calendar_data()
         
-        # 加载Manager和用户配置 - 使用实际存在的文件名
+        # load Manager and user configuration - use actual file names
         self.manager_config_df = self.data_loader.load_manager_config("manager_config_36users.csv")
         self.user_config_df = self.data_loader.load_user_config("user_config_36users.csv")
         self.device_config_df = self.data_loader.load_device_config("device_config_36users.csv")
         
-        logger.info("配置数据加载完成")
+        logger.info("configuration data loaded")
     
     def _create_manager_agents(self):
-        """创建Manager代理"""
+        """create Manager agents"""
         self.manager_agents: Dict[str, ManagerAgent] = {}
         
         for _, manager_row in self.manager_config_df.iterrows():
             manager_id = manager_row['manager_id']
             
-            # 获取该Manager的用户
+            # get users of this Manager
             manager_users = self.user_config_df[
                 self.user_config_df['manager_id'] == manager_id
             ].to_dict('records')  # type: ignore
             
-            # 获取该Manager用户的设备 - 处理用户ID格式不匹配问题
+            # get devices of this Manager's users - handle user ID format mismatch
             user_ids = [user['user_id'] for user in manager_users]
             
-            # 生成可能的用户ID格式进行匹配
-            # 格式1: user_01, user_02, ... (用户配置文件格式)
-            # 格式2: user_manager_1_1, user_manager_1_2, ... (设备配置文件格式)
-            extended_user_ids = set(user_ids)  # 原始用户ID
+            # generate possible user ID formats for matching
+            # format 1: user_01, user_02, ... (user configuration file format)
+            # format 2: user_manager_1_1, user_manager_1_2, ... (device configuration file format)
+            extended_user_ids = set(user_ids)  # original user IDs
             
-            # 为每个用户ID生成可能的设备配置格式
+            # generate possible device configuration formats for each user ID
             for user_id in user_ids:
-                # 从user_01提取manager和用户编号
+                # extract manager and user number from user_01
                 if user_id.startswith('user_'):
                     try:
-                        user_num_str = user_id.split('_')[1]  # 获取"01", "02"等
-                        user_num = int(user_num_str)  # 转换为数字
+                        user_num_str = user_id.split('_')[1]  # get "01", "02" etc.
+                        user_num = int(user_num_str)  # convert to number
                         
-                        # 根据manager_id生成对应的设备配置用户ID格式
-                        manager_num = str(manager_id).split('_')[1]  # 从manager_1获取"1"
+                        # generate corresponding device configuration user ID format based on manager_id
+                        manager_num = str(manager_id).split('_')[1]  # get "1" from manager_1
                         
-                        # 计算该用户在Manager内的局部编号
+                        # calculate local user number within Manager
                         # Manager 1: user_01-06 -> user_manager_1_1-6
                         # Manager 2: user_07-16 -> user_manager_2_1-10  
                         # Manager 3: user_17-24 -> user_manager_3_1-8
@@ -1603,23 +1561,23 @@ class MultiAgentFlexOfferEnv(gym.Env):
                         elif manager_id == "manager_4" and 25 <= user_num <= 36:
                             local_user_num = user_num - 24
                         else:
-                            continue  # 用户不属于当前Manager
+                            continue  # user does not belong to current Manager
                         
-                        # 生成设备配置格式的用户ID
+                        # generate user ID in device configuration format
                         device_user_id = f"user_manager_{manager_num}_{local_user_num}"
                         extended_user_ids.add(device_user_id)
                         
                     except (ValueError, IndexError):
-                        continue  # 无法解析的用户ID格式，跳过
+                        continue  # cannot parse user ID format, skip
             
-            # 使用扩展的用户ID列表匹配设备
+            # use extended user ID list to match devices
             manager_devices = self.device_config_df[
                 self.device_config_df['user_id'].isin(list(extended_user_ids))
             ].to_dict('records')  # type: ignore
             
-            logger.debug(f"{manager_id}: 原始用户IDs {user_ids}, 扩展用户IDs {list(extended_user_ids)}, 匹配设备 {len(manager_devices)} 个")
+            logger.debug(f"{manager_id}: original user IDs {user_ids}, extended user IDs {list(extended_user_ids)}, matched devices {len(manager_devices)}")
             
-            # 创建Manager代理
+            # create Manager agent
             manager_agent = ManagerAgent(
                 manager_id=str(manager_id),
                 manager_config=manager_row.to_dict(),
@@ -1630,39 +1588,39 @@ class MultiAgentFlexOfferEnv(gym.Env):
             self.manager_agents[str(manager_id)] = manager_agent
         
         self.manager_ids = list(self.manager_agents.keys())
-        logger.info(f"创建 {len(self.manager_agents)} 个Manager代理")
+        logger.info(f"created {len(self.manager_agents)} Manager agents")
     
     def _setup_spaces(self):
-        """设置观测和动作空间 - 更新为FlexOffer参数生成模式"""
+        """set observation and action spaces - update to FlexOffer parameter generation mode"""
         # 计算观测空间维度
         obs_dims = {}
         action_dims = {}
         
         for manager_id, manager in self.manager_agents.items():
-            # 获取单个Manager的状态特征维度
+            # get state feature dimension of single Manager
             state_features = manager.get_state_features()
             
-            # 环境特征维度 (时间4 + 价格5 + 天气4 = 13)
+            # environment feature dimension (time 4 + price 5 + weather 4 = 13)
             env_dim = 13
             
-            # 其他Manager信息维度 (每个Manager增强后的信息维度)
-            # 基础信息5维 + 增强信息9维 = 14维每个Manager
+            # other Manager information dimension (each Manager enhanced information dimension)
+            # base information 5D + enhanced information 9D = 14D for each Manager
             enhanced_manager_info_dim = 14
             other_managers_dim = (len(self.manager_agents) - 1) * enhanced_manager_info_dim
             
-            # 市场状态特征维度 (16维)
+            # market state feature dimension (16D)
             market_state_dim = 16
             
-            # 总观测维度
+            # total observation dimension
             total_obs_dim = len(state_features) + env_dim + other_managers_dim + market_state_dim
             
             obs_dims[manager_id] = total_obs_dim
             
-            # 新的动作空间：FlexOffer参数生成
-            # 每个可控设备需要5维FlexOffer参数：[start_flex, end_flex, energy_min_factor, energy_max_factor, priority_weight]
+            # new action space: FlexOffer parameter generation
+            # each controllable device needs 5 FlexOffer parameters: [start_flex, end_flex, energy_min_factor, energy_max_factor, priority_weight]
             action_dims[manager_id] = manager.get_action_space_size()
         
-        # 创建观测和动作空间
+        # create observation and action spaces
         self.observation_spaces = {}
         self.action_spaces = {}
         
@@ -1673,20 +1631,20 @@ class MultiAgentFlexOfferEnv(gym.Env):
                 dtype=np.float32
             )
             
-            # 新的动作空间定义：FlexOffer参数范围
+            # new action space definition: FlexOffer parameter range
             manager = self.manager_agents[manager_id]
             num_controllable_devices = len(manager.controllable_devices)
             fo_params_per_device = 5
             total_action_dim = num_controllable_devices * fo_params_per_device
             
             if total_action_dim > 0:
-                # FlexOffer参数的合理范围
+                # reasonable range of FlexOffer parameters
                 action_low = []
                 action_high = []
                 
                 for _ in range(num_controllable_devices):
                     action_low.extend([-1.0, -1.0, 0.1, 1.0, 0.1])   # [start_flex, end_flex, energy_min_factor, energy_max_factor, priority_weight]
-                    action_high.extend([1.0, 1.0, 1.0, 2.0, 2.0])    # 对应的上限
+                    action_high.extend([1.0, 1.0, 1.0, 2.0, 2.0])    # corresponding upper limits
                 
                 self.action_spaces[manager_id] = spaces.Box(
                     low=np.array(action_low, dtype=np.float32),
@@ -1694,42 +1652,42 @@ class MultiAgentFlexOfferEnv(gym.Env):
                     dtype=np.float32
                 )
                 
-                logger.info(f"Manager {manager_id} 动作空间: {total_action_dim}维 "
-                          f"({num_controllable_devices} 设备 × {fo_params_per_device} 参数/设备)")
+                logger.info(f"Manager {manager_id} action space: {total_action_dim}D "
+                          f"({num_controllable_devices} devices × {fo_params_per_device} parameters/device)")
             else:
-                # 如果没有可控设备，创建一个虚拟动作空间
+                # if no controllable devices, create a virtual action space
                 self.action_spaces[manager_id] = spaces.Box(
                     low=-1.0, high=1.0, shape=(5,), dtype=np.float32
                 )
-                logger.warning(f"Manager {manager_id} 没有可控设备，使用虚拟动作空间")
+                logger.warning(f"Manager {manager_id} has no controllable devices, using virtual action space")
         
-        logger.info("观测和动作空间设置完成 - FlexOffer参数生成模式")
+        logger.info("observation and action spaces set - FlexOffer parameter generation mode")
     
     def reset(self, seed=None, options=None):
-        """重置环境"""
+        """reset environment"""
         if seed is not None:
             np.random.seed(seed)
         
         self.current_time = self.start_time
         self.current_step = 0
         
-        # 重置公共信息缓存
+        # reset public information cache
         self._cached_public_features = None
         self._cache_time_step = -1
         
-        # 重置环境状态缓存
+        # reset environment state cache
         self._cached_env_state = None
         self._env_state_cache_time = -1
         
-        # 重置环境动态
+        # reset environment dynamics
         self.env_dynamics.price_history = []
         self.env_dynamics.weather_history = []
         
-        # 重置所有Manager
+        # reset all Managers
         for manager in self.manager_agents.values():
             manager.reset()
         
-        # 获取初始观测
+        # get initial observations
         observations = self._get_observations()
         infos = {manager_id: {'time': self.current_time, 'step': self.current_step} 
                 for manager_id in self.manager_ids}
@@ -1737,14 +1695,14 @@ class MultiAgentFlexOfferEnv(gym.Env):
         return observations, infos
     
     def step(self, actions: Dict[str, np.ndarray]):
-        """执行一步"""
-        # 获取当前环境状态
+        """execute one step"""
+        # get current environment state
         env_state = self.env_dynamics.get_current_state(self.current_time)
         
-        # 🔧 添加交易算法配置到环境状态
+        # add algorithm configuration to environment state
         env_state['trading_algorithm'] = self.trading_method
         
-        # 执行所有Manager的动作
+        # execute actions of all Managers
         rewards = {}
         infos = {}
         
@@ -1755,19 +1713,19 @@ class MultiAgentFlexOfferEnv(gym.Env):
                 rewards[manager_id] = reward
                 infos[manager_id] = info
         
-        # 更新时间
+        # update time
         self.current_time += timedelta(hours=self.time_step)
         self.current_step += 1
         
-        # 检查终止条件
+        # check termination conditions
         done = self.current_step >= self.time_horizon
         dones = {manager_id: done for manager_id in self.manager_ids}
         dones['__all__'] = done
         
-        # 获取下一个观测
+        # get next observations
         next_observations = self._get_observations()
         
-        # 添加环境信息
+        # add environment information
         for manager_id in self.manager_ids:
             infos[manager_id].update({
                 'time': self.current_time,
@@ -1778,73 +1736,64 @@ class MultiAgentFlexOfferEnv(gym.Env):
         return next_observations, rewards, dones, False, infos
     
     def _get_observations(self) -> Dict[str, np.ndarray]:
-        """
-        获取所有Manager的观测 - 增强Dec-POMDP版本
-        实现严格的分层观测空间：O_i = [O_private_i, O_public, O_limited_others_i]
-        
-        核心改进：
-        1. 严格限制其他Manager信息共享
-        2. 集成动态观测质量管理器
-        3. 增强信息传递延迟和丢失机制
-        4. 添加网络状况对观测质量的影响
-        """
+
         observations = {}
         
-        # 确保同一时间步内所有Manager获得相同的公共环境特征（无噪声）
+        # ensure all Managers get the same public environment features (no noise) at the same time step
         if not hasattr(self, '_cached_public_features') or self._cache_time_step != self.current_step:
             self._cached_public_features = self._get_dec_pomdp_public_features()
             self._cache_time_step = self.current_step
         
         public_features = self._cached_public_features
         
-        # 获取简化的Manager间协作信息（有限且带噪声）
+        # get simplified Manager-to-Manager collaboration information (limited and noisy)
         limited_collaboration_info = self._get_limited_collaboration_info()
         
-        # 更新动态观测质量（如果启用）
+        # update dynamic observation quality (if enabled)
         if self.dynamic_quality_manager:
             self.dynamic_quality_manager.step()
         
         for manager_id, manager in self.manager_agents.items():
-            # 1. 私有信息层：Manager自身的完整状态（无噪声）
+            # 1. private information layer: Manager's complete state (no noise)
             private_features = manager.get_state_features()
             
-            # 2. 公共信息层：环境状态（无噪声，所有Manager可见）
-            # public_features已经在上面获取
+            # 2. public information layer: environment state (no noise, all Managers visible)
+            # public_features already obtained above
             
-            # 3. 有限他者信息层：极度简化的协作信息（可配置噪声和质量降级）
+            # 3. limited others information layer: extremely simplified collaboration information (configurable noise and quality degradation)
             limited_others_features = self.dec_pomdp_obs_space.compute_limited_other_manager_info(
                 limited_collaboration_info, manager_id
             )
             
-            # 应用动态观测质量降级（如果启用）
+            # apply dynamic observation quality degradation (if enabled)
             if self.dynamic_quality_manager:
-                # 计算当前观测质量
+                # calculate current observation quality
                 other_manager_ids = [mid for mid in self.manager_ids if mid != manager_id]
                 quality_metrics = self.dynamic_quality_manager.calculate_observation_quality(
                     manager_id, other_manager_ids
                 )
                 
-                # 应用质量降级到他者信息
+                # apply quality degradation to others information
                 if len(limited_others_features) > 0:
                     limited_others_features = self.dynamic_quality_manager.apply_quality_degradation(
                         limited_others_features, quality_metrics
                     )
                 
-                # 更新质量历史
+                # update quality history
                 self.dynamic_quality_manager.update_quality_history(manager_id, quality_metrics)
             
-            # Dec-POMDP观测层组合（保证公共信息一致性）
-            # 私有信息：Manager自身状态（可以轻微处理）
-            processed_private_features = private_features  # 暂时不处理，保持完整性
+            # Dec-POMDP observation layer combination (ensure public information consistency)
+            # private information: Manager's own state (can be slightly processed)
+            processed_private_features = private_features  # temporarily not processed, maintain completeness
             
-            # 他者信息：应用信息传递机制（可能有噪声和延迟）
+            # others information: apply information transmission mechanism (may have noise and delay)
             if len(limited_others_features) > 0:
-                # 只对他者信息应用信息传递机制
+                # apply information transmission mechanism only to others information
                 processed_others_features = self._apply_enhanced_information_mechanisms(
                     limited_others_features, manager_id
                 )
                 
-                # 合并三层观测信息：私有 + 公共（无噪声） + 处理后的他者
+                # combine three layers of observations: private + public (no noise) + processed others
                 arrays_to_concat = []
                 if processed_private_features is not None:
                     arrays_to_concat.append(processed_private_features)
@@ -1855,7 +1804,7 @@ class MultiAgentFlexOfferEnv(gym.Env):
                 
                 dec_pomdp_observation = np.concatenate(arrays_to_concat) if arrays_to_concat else np.array([])
             else:
-                # 如果禁用了其他Manager信息，只包含私有和公共信息
+                # if other Manager information is disabled, only include private and public information
                 arrays_to_concat = []
                 if processed_private_features is not None:
                     arrays_to_concat.append(processed_private_features)
@@ -1864,22 +1813,22 @@ class MultiAgentFlexOfferEnv(gym.Env):
                 
                 dec_pomdp_observation = np.concatenate(arrays_to_concat) if arrays_to_concat else np.array([])
             
-            # 确保观测维度为73
+            # ensure observation dimension is 73
             current_dim = len(dec_pomdp_observation)
             if current_dim < 73:
-                # 如果维度小于73，填充到73
+                # if dimension is less than 73, pad to 73
                 padding = np.zeros(73 - current_dim)
                 dec_pomdp_observation = np.concatenate([dec_pomdp_observation, padding])
             elif current_dim > 73:
-                # 如果维度大于73，截断到73
+                # if dimension is greater than 73, truncate to 73
                 dec_pomdp_observation = dec_pomdp_observation[:73]
             
-            # 更新观测历史
+            # update observation history
             if manager_id not in self.observation_history:
                 self.observation_history[manager_id] = []
             self.observation_history[manager_id].append(dec_pomdp_observation.copy())
             
-            # 限制历史长度
+            # limit history length
             max_history_len = max(10, self.dec_pomdp_config.max_delay_steps + 5)
             if len(self.observation_history[manager_id]) > max_history_len:
                 self.observation_history[manager_id] = self.observation_history[manager_id][-max_history_len:]
@@ -1889,117 +1838,79 @@ class MultiAgentFlexOfferEnv(gym.Env):
         return observations
     
     def _get_dec_pomdp_public_features(self) -> np.ndarray:
-        """
-        获取Dec-POMDP的公共信息特征 - 优化版本
-        
-        公共信息层设计原则：
-        1. 所有Manager都能无噪声观测
-        2. 环境状态的完整表示
-        3. 标准化和归一化的信息编码
-        4. 语义明确的特征组织
-        5. 可配置的信息粒度
-        
-        公共信息层结构：
-        - 时间信息层（6维）：周期性时间编码 + 进度指标
-        - 市场信息层（7维）：价格状态 + 趋势 + 预测 + 市场阶段
-        - 环境信息层（5维）：天气状态 + 趋势 + 季节性
-        
-        Returns:
-            np.ndarray: 18维标准化公共信息向量
-        """
-        # 1. 时间信息层（6维）- 标准化时间表示
+
+        # 1. time information layer (6D) - standardized time representation
         time_layer = self._get_standardized_time_features()
         
-        # 2. 市场信息层（7维）- 完整市场状态
+        # 2. market information layer (7D) - complete market state
         market_layer = self._get_standardized_market_features()
         
-        # 3. 环境信息层（5维）- 标准化环境状态
+        # 3. environment information layer (5D) - standardized environment state
         environment_layer = self._get_standardized_environment_features()
         
-        # 组合所有公共信息层
+        # combine all public information layers
         public_features = np.concatenate([time_layer, market_layer, environment_layer])
         
-        # 验证公共信息层完整性
-        if self.dec_pomdp_config.enable_observation_noise:  # 仅在调试模式下验证
+        # validate public information layer completeness
+        if self.dec_pomdp_config.enable_observation_noise:  # only validate in debug mode
             self._validate_public_information_layer(public_features, time_layer, market_layer, environment_layer)
         
         return public_features
     
     def _get_standardized_time_features(self) -> np.ndarray:
-        """
-        获取标准化的时间特征层
-        
-        时间信息编码原则：
-        1. 周期性时间编码：sin/cos避免边界问题
-        2. 多尺度时间表示：小时、日、周、季节
-        3. 进度指标：任务完成度和剩余时间
-        
-        Returns:
-            np.ndarray: 6维时间特征向量
-        """
+
         hour = self.current_time.hour
         day_of_year = self.current_time.timetuple().tm_yday
         
-        # 周期性小时编码
+        # periodic hour encoding
         hour_sin = math.sin(2 * math.pi * hour / 24)
         hour_cos = math.cos(2 * math.pi * hour / 24)
         
-        # 工作日/周末编码
+        # weekday/weekend encoding
         is_weekday = 1.0 if self.current_time.weekday() < 5 else 0.0
         
-        # 季节性编码（基于年内天数）
+        # seasonal encoding (based on day of year)
         season_progress = math.sin(2 * math.pi * day_of_year / 365)
         
-        # 任务时间进度（标准化到[0,1]）
-        # 确保时间进度不超过1.0，current_step应该在[0, time_horizon-1]范围内
+        # task time progress (standardized to [0,1])
+        # ensure time progress does not exceed 1.0, current_step should be in [0, time_horizon-1] range
         time_progress = min(1.0, self.current_step / max(1, self.time_horizon))
         
-        # 剩余时间紧急度
+        # remaining time urgency
         time_urgency = min(1.0, (self.time_horizon - self.current_step) / max(1, self.time_horizon * 0.1))
         
         return np.array([hour_sin, hour_cos, is_weekday, season_progress, time_progress, time_urgency])
     
     def _get_standardized_market_features(self) -> np.ndarray:
-        """
-        获取标准化的市场特征层
-        
-        市场信息编码原则：
-        1. 价格标准化：相对于历史均值的标准化
-        2. 趋势量化：价格变化率和方向
-        3. 预测信息：未来价格趋势预期
-        4. 市场阶段：峰谷时段的明确标识
-        
-        Returns:
-            np.ndarray: 7维市场特征向量
-        """
-        # 确保使用缓存的环境状态，避免随机性导致的不一致
+ 
+        # ensure using cached environment state, avoid inconsistency caused by randomness
         if not hasattr(self, '_cached_env_state') or self._env_state_cache_time != self.current_step:
             self._cached_env_state = self.env_dynamics.get_current_state(self.current_time)
             self._env_state_cache_time = self.current_step
         
         env_state = self._cached_env_state
         
-        # 标准化当前价格（相对于基准价格）
-        base_price = 0.12  # 基准电价 $/kWh
+        # standardized current price (relative to base price)
+        base_price = 0.12  # base price $/kWh
         if env_state is None:
             env_state = {'price': base_price, 'price_trend': 0.0, 'future_prices': [base_price] * 3}
         
-        normalized_price = env_state['price'] / base_price  # 相对价格
+        normalized_price = env_state['price'] / base_price  # relative price
         
-        # 价格趋势强度（标准化）
-        price_trend_strength = np.tanh(env_state['price_trend'])  # 使用tanh限制到[-1,1]
+        # price trend strength (standardized)
+        price_trend_strength = np.tanh(env_state['price_trend'])  # use tanh to limit to [-1,1]
         
-        # 未来价格预测（标准化）
+        # future price prediction (standardized)
         future_prices = env_state.get('future_prices', [env_state['price']] * 3)
         future_price_1 = future_prices[0] / base_price if len(future_prices) > 0 else normalized_price
         future_price_2 = future_prices[1] / base_price if len(future_prices) > 1 else normalized_price
         future_price_3 = future_prices[2] / base_price if len(future_prices) > 2 else normalized_price
         
-        # 市场阶段明确标识
+        # market phase clearly identified
         hour = self.current_time.hour
-        # 峰时：7-9时、18-21时
+
         is_peak_period = 1.0 if (7 <= hour <= 9) or (18 <= hour <= 21) else 0.0
-        # 谷时：23-6时
+
         is_valley_period = 1.0 if (hour >= 23) or (hour <= 6) else 0.0
         
         return np.array([
@@ -2009,33 +1920,22 @@ class MultiAgentFlexOfferEnv(gym.Env):
         ])
     
     def _get_standardized_environment_features(self) -> np.ndarray:
-        """
-        获取标准化的环境特征层
-        
-        环境信息编码原则：
-        1. 温度标准化：相对于舒适温度的偏差
-        2. 辐照标准化：相对于标准测试条件
-        3. 趋势量化：环境变化的方向和强度
-        4. 季节性考虑：环境参数的季节调整
-        
-        Returns:
-            np.ndarray: 5维环境特征向量
-        """
+
         env_state = self.env_dynamics.get_current_state(self.current_time)
         
-        # 标准化温度（相对于舒适温度20°C）
+        # standardized temperature (relative to comfort temperature 20°C)
         comfort_temp = 20.0
-        normalized_temperature = (env_state['temperature'] - comfort_temp) / 15.0  # 假设±15°C为合理范围
+        normalized_temperature = (env_state['temperature'] - comfort_temp) / 15.0  # assume ±15°C is reasonable range
         
-        # 标准化太阳辐照度（相对于标准测试条件1000 W/m²）
+        # standardized solar irradiance (relative to standard test condition 1000 W/m²)
         standard_irradiance = 1000.0
         normalized_irradiance = env_state['solar_irradiance'] / standard_irradiance
         
-        # 环境趋势标准化
-        temp_trend = np.tanh(env_state['weather_trend']['temperature_trend'])  # 限制到[-1,1]
-        irradiance_trend = np.tanh(env_state['weather_trend']['irradiance_trend'])  # 限制到[-1,1]
+        # environment trend standardized
+        temp_trend = np.tanh(env_state['weather_trend']['temperature_trend'])  # limit to [-1,1]
+        irradiance_trend = np.tanh(env_state['weather_trend']['irradiance_trend'])  # limit to [-1,1]
         
-        # 日照质量指标（综合考虑辐照度和时间）
+        # daylight quality indicator (considering irradiance and time)
         hour = self.current_time.hour
         daylight_quality = float(normalized_irradiance * max(0, math.sin(math.pi * (hour - 6) / 12))) if 6 <= hour <= 18 else 0.0
         
@@ -2048,16 +1948,8 @@ class MultiAgentFlexOfferEnv(gym.Env):
                                          time_layer: np.ndarray, 
                                          market_layer: np.ndarray, 
                                          environment_layer: np.ndarray):
-        """
-        验证公共信息层的完整性和一致性
-        
-        验证原则：
-        1. 维度一致性：确保各层维度符合预期
-        2. 数值范围：确保标准化值在合理范围内
-        3. 语义完整：确保关键信息没有缺失
-        4. 时序一致：确保时间相关特征的一致性
-        """
-        # 维度验证
+
+        # dimension validation
         expected_dims = {
             'time_layer': 6,
             'market_layer': 7,
@@ -2065,70 +1957,59 @@ class MultiAgentFlexOfferEnv(gym.Env):
             'total': 18
         }
         
-        assert len(time_layer) == expected_dims['time_layer'], f"时间层维度错误: {len(time_layer)} != {expected_dims['time_layer']}"
-        assert len(market_layer) == expected_dims['market_layer'], f"市场层维度错误: {len(market_layer)} != {expected_dims['market_layer']}"
-        assert len(environment_layer) == expected_dims['environment_layer'], f"环境层维度错误: {len(environment_layer)} != {expected_dims['environment_layer']}"
-        assert len(public_features) == expected_dims['total'], f"公共信息总维度错误: {len(public_features)} != {expected_dims['total']}"
+        assert len(time_layer) == expected_dims['time_layer'], f"time layer dimension error: {len(time_layer)} != {expected_dims['time_layer']}"
+        assert len(market_layer) == expected_dims['market_layer'], f"market layer dimension error: {len(market_layer)} != {expected_dims['market_layer']}"
+        assert len(environment_layer) == expected_dims['environment_layer'], f"environment layer dimension error: {len(environment_layer)} != {expected_dims['environment_layer']}"
+        assert len(public_features) == expected_dims['total'], f"public information total dimension error: {len(public_features)} != {expected_dims['total']}"
         
-        # 数值范围验证
-        # 时间层验证：sin/cos值应在[-1,1]，其他应在[0,1]
-        assert -1.1 <= time_layer[0] <= 1.1, f"小时sin编码超范围: {time_layer[0]}"
-        assert -1.1 <= time_layer[1] <= 1.1, f"小时cos编码超范围: {time_layer[1]}"
-        assert 0 <= time_layer[4] <= 1.1, f"时间进度超范围: {time_layer[4]}"
+        # value range validation
+        # time layer validation: sin/cos values should be in [-1,1], others should be in [0,1]
+        assert -1.1 <= time_layer[0] <= 1.1, f"hour sin encoding out of range: {time_layer[0]}"
+        assert -1.1 <= time_layer[1] <= 1.1, f"hour cos encoding out of range: {time_layer[1]}"
+        assert 0 <= time_layer[4] <= 1.1, f"time progress out of range: {time_layer[4]}"
         
-        # 市场层验证：价格应为正值，趋势应在[-1,1]
-        assert market_layer[0] > 0, f"标准化价格应为正值: {market_layer[0]}"
-        assert -1.1 <= market_layer[1] <= 1.1, f"价格趋势超范围: {market_layer[1]}"
+        # market layer validation: price should be positive, trend should be in [-1,1]
+        assert market_layer[0] > 0, f"standardized price should be positive: {market_layer[0]}"
+        assert -1.1 <= market_layer[1] <= 1.1, f"price trend out of range: {market_layer[1]}"
         
-        # 环境层验证：辐照度应非负，趋势应在[-1,1]
-        assert environment_layer[1] >= 0, f"标准化辐照度应非负: {environment_layer[1]}"
-        assert -1.1 <= environment_layer[2] <= 1.1, f"温度趋势超范围: {environment_layer[2]}"
+        # environment layer validation: irradiance should be non-negative, trend should be in [-1,1]
+        assert environment_layer[1] >= 0, f"standardized irradiance should be non-negative: {environment_layer[1]}"
+        assert -1.1 <= environment_layer[2] <= 1.1, f"temperature trend out of range: {environment_layer[2]}"
         
-        # 时序一致性验证
+        # temporal consistency validation
         hour = self.current_time.hour
         expected_hour_sin = math.sin(2 * math.pi * hour / 24)
-        assert abs(time_layer[0] - expected_hour_sin) < 0.01, f"小时编码不一致: {time_layer[0]} vs {expected_hour_sin}"
+        assert abs(time_layer[0] - expected_hour_sin) < 0.01, f"hour encoding inconsistent: {time_layer[0]} vs {expected_hour_sin}"
     
     def _get_limited_collaboration_info(self) -> Dict[str, List[float]]:
-        """
-        获取智能聚合的Manager间协作信息 - 重设计版本
-        
-        新的聚合信息设计原则：
-        1. 自适应聚合：根据系统状态调整信息粒度
-        2. 层次化聚合：提供不同抽象层次的信息
-        3. 动态权重：基于相关性和重要性调整信息权重
-        4. 时序聚合：考虑历史趋势而非仅当前状态
-        
-        Returns:
-            Dict[str, List[float]]: 每个Manager的智能聚合信息
-        """
+
         manager_info = {}
         
-        # 计算系统级聚合统计
+        # calculate system-level aggregation statistics
         system_stats = self._calculate_system_aggregation_stats()
         
-        # 计算动态聚合权重
+        # calculate dynamic aggregation weights
         aggregation_weights = self._calculate_dynamic_aggregation_weights()
         
         for manager_id, manager in self.manager_agents.items():
-            # 1. 基础聚合指标（规模相关）
+            # 1. basic aggregation metrics (scale-related)
             scale_metrics = self._aggregate_scale_metrics(manager, system_stats)
             
-            # 2. 性能聚合指标（效率相关）
+            # 2. performance aggregation metrics (efficiency-related)
             performance_metrics = self._aggregate_performance_metrics(manager, system_stats, aggregation_weights)
             
-            # 3. 协作聚合指标（系统相关）
+            # 3. collaboration aggregation metrics (system-related)
             collaboration_metrics = self._aggregate_collaboration_metrics(manager, system_stats)
             
-            # 4. 时序聚合指标（趋势相关）
+            # 4. temporal aggregation metrics (trend-related)
             temporal_metrics = self._aggregate_temporal_metrics(manager, manager_id)
             
-            # 5. 自适应聚合策略
+            # 5. adaptive aggregation strategy
             adaptive_metrics = self._apply_adaptive_aggregation_strategy(
                 manager, manager_id, system_stats
             )
             
-            # 组合所有聚合指标
+            # combine all aggregation metrics
             aggregated_info = (
                 scale_metrics + 
                 performance_metrics + 
@@ -2142,7 +2023,7 @@ class MultiAgentFlexOfferEnv(gym.Env):
         return manager_info
     
     def _calculate_system_aggregation_stats(self) -> Dict[str, float]:
-        """计算系统级聚合统计信息"""
+        """calculate system-level aggregation statistics"""
         all_users = [len(m.users) for m in self.manager_agents.values()]
         all_devices = [len(m.device_mdps) for m in self.manager_agents.values()]
         all_energies = [m.markov_history['cumulative_energy'] for m in self.manager_agents.values()]
@@ -2161,36 +2042,36 @@ class MultiAgentFlexOfferEnv(gym.Env):
         }
     
     def _calculate_dynamic_aggregation_weights(self) -> Dict[str, float]:
-        """计算动态聚合权重"""
-        # 基于当前时间步和系统状态计算权重
+        """calculate dynamic aggregation weights"""
+        # based on current time step and system state
         time_progress = self.current_step / max(1, self.time_horizon)
         
-        # 早期阶段更关注规模和设置，后期更关注性能
+        # early stage more focused on scale and settings, later stage more focused on performance
         weights = {
-            'scale_weight': max(0.3, 1.0 - time_progress),  # 早期权重高
-            'performance_weight': min(1.0, 0.5 + time_progress),  # 后期权重高
-            'collaboration_weight': 0.6 + 0.2 * math.sin(time_progress * math.pi),  # 中期权重高
-            'temporal_weight': min(1.0, time_progress * 2),  # 随时间增加
+            'scale_weight': max(0.3, 1.0 - time_progress),  # early stage weight high
+            'performance_weight': min(1.0, 0.5 + time_progress),  # later stage weight high
+            'collaboration_weight': 0.6 + 0.2 * math.sin(time_progress * math.pi),  # mid-stage weight high
+            'temporal_weight': min(1.0, time_progress * 2),  # increase with time
         }
         
         return weights
     
     def _aggregate_scale_metrics(self, manager: 'ManagerAgent', system_stats: Dict[str, float]) -> List[float]:
-        """聚合规模相关指标"""
-        # 相对规模（标准化到[0,1]）
+        """aggregate scale-related metrics"""
+        # relative scale (standardized to [0,1])
         user_ratio = len(manager.users) / max(1, system_stats['total_users'])
         device_ratio = len(manager.device_mdps) / max(1, system_stats['total_devices'])
         
-        # 相对容量（基于设备数量估算）
-        capacity_indicator = min(1.0, len(manager.device_mdps) / 30.0)  # 假设30为高容量阈值
+        # relative capacity (estimated based on device number)
+        capacity_indicator = min(1.0, len(manager.device_mdps) / 30.0)  # assume 30 as high capacity threshold
         
         return [user_ratio, device_ratio, capacity_indicator]
     
     def _aggregate_performance_metrics(self, manager: 'ManagerAgent', 
                                      system_stats: Dict[str, float],
                                      weights: Dict[str, float]) -> List[float]:
-        """聚合性能相关指标"""
-        # 能效指标（能耗相对于规模）
+        """aggregate performance-related metrics"""
+        # energy efficiency metric (energy consumption relative to scale)
         manager_energy = manager.markov_history['cumulative_energy']
         manager_users = len(manager.users)
         
@@ -2200,82 +2081,82 @@ class MultiAgentFlexOfferEnv(gym.Env):
         else:
             energy_efficiency = 0.0
         
-        # 满意度相对水平
+        # relative satisfaction level
         satisfaction_level = manager.markov_history['user_satisfaction'] - system_stats['avg_satisfaction']
         satisfaction_level = np.clip(satisfaction_level, -1.0, 1.0)
         
-        # 综合性能指标
+        # comprehensive performance metric
         performance_score = (energy_efficiency * 0.6 + satisfaction_level * 0.4) * weights['performance_weight']
         
         return [energy_efficiency, satisfaction_level, performance_score]
     
     def _aggregate_collaboration_metrics(self, manager: 'ManagerAgent', 
                                        system_stats: Dict[str, float]) -> List[float]:
-        """聚合协作相关指标"""
-        # 系统贡献度（基于能耗占比）
+        """aggregate collaboration-related metrics"""
+        # system contribution (based on energy consumption ratio)
         if system_stats['total_energy'] > 0:
             contribution_ratio = manager.markov_history['cumulative_energy'] / system_stats['total_energy']
         else:
             contribution_ratio = 0.0
         
-        # 系统平衡度影响（该Manager对系统平衡的影响）
+        # system balance impact (the impact of this Manager on system balance)
         balance_impact = 1.0 - abs(contribution_ratio - (1.0 / len(self.manager_agents)))
         
-        # 协作活跃度（基于是否有实际活动）
+        # collaboration activity level (based on whether there is actual activity)
         activity_level = 1.0 if manager.markov_history['cumulative_energy'] > 0 else 0.0
         
         return [contribution_ratio, balance_impact, activity_level]
     
     def _aggregate_temporal_metrics(self, manager: 'ManagerAgent', manager_id: str) -> List[float]:
-        """聚合时序相关指标"""
-        # 获取历史数据（使用markov_history中的满意度历史）
-        # ManagerAgent类使用markov_history存储历史信息，而不是performance_history
+        """aggregate temporal-related metrics"""
+        # get history data (using user satisfaction history in markov_history)
+        # ManagerAgent class uses markov_history to store history information, not performance_history
         history = [manager.markov_history['user_satisfaction']]
         
-        # 趋势指标
+        # trend indicator
         if len(history) >= 2:
             recent_trend = history[-1] - history[-2]
             trend_indicator = np.clip(recent_trend, -1.0, 1.0)
         else:
             trend_indicator = 0.0
         
-        # 稳定性指标
+        # stability indicator
         if len(history) >= 3:
             stability = 1.0 - np.std(history[-3:]) / max(np.mean(history[-3:]), 0.1)
             stability = np.clip(stability, 0.0, 1.0)
         else:
             stability = 1.0
         
-        # 改进潜力（基于历史最佳表现）
+        # improvement potential (based on historical best performance)
         if history:
             current_performance = history[-1]
             best_performance = max(history)
             improvement_potential = max(0.0, best_performance - current_performance)
         else:
-            improvement_potential = 0.5  # 中性值
+            improvement_potential = 0.5  # neutral value
         
         return [float(trend_indicator), float(stability), float(improvement_potential)]
     
     def _apply_adaptive_aggregation_strategy(self, manager: 'ManagerAgent', 
                                            manager_id: str,
                                            system_stats: Dict[str, float]) -> List[float]:
-        """应用自适应聚合策略"""
-        # 基于系统状态调整聚合策略
+        """apply adaptive aggregation strategy"""
+        # adjust aggregation strategy based on system state
         
-        # 1. 系统压力指标
+        # 1. system pressure indicator
         if system_stats['total_energy'] > 0:
-            system_load = system_stats['total_energy'] / (system_stats['total_users'] * 24)  # 平均每用户每小时能耗
-            pressure_indicator = min(1.0, system_load / 5.0)  # 假设5kWh/用户/小时为高压力
+            system_load = system_stats['total_energy'] / (system_stats['total_users'] * 24)  # average energy consumption per user per hour
+            pressure_indicator = min(1.0, system_load / 5.0)  # assume 5kWh/user/hour as high pressure
         else:
             pressure_indicator = 0.0
         
-        # 2. 协调需求指标
-        coordination_need = 1.0 - system_stats['system_balance']  # 系统越不平衡，协调需求越高
+        # 2. coordination need indicator
+        coordination_need = 1.0 - system_stats['system_balance']  # system imbalance, higher coordination need
         
-        # 3. 自适应响应能力
+        # 3. adaptive response capability
         manager_flexibility = len(manager.controllable_devices) / max(1, len(manager.device_mdps))
         
-        # 4. 相对重要性（基于规模和性能）
+        # 4. relative importance (based on scale and performance)
         scale_importance = len(manager.users) / max(1, system_stats['total_users'])
         performance_importance = abs(manager.markov_history['user_satisfaction'] - system_stats['avg_satisfaction'])
         relative_importance = (scale_importance * 0.6 + performance_importance * 0.4)
@@ -2283,77 +2164,53 @@ class MultiAgentFlexOfferEnv(gym.Env):
         return [pressure_indicator, coordination_need, manager_flexibility, relative_importance]
     
     def _apply_enhanced_information_mechanisms(self, observation: np.ndarray, manager_id: str) -> np.ndarray:
-        """
-        应用增强的信息传递机制 - 完整Dec-POMDP版本
-        
-        集成全面的Dec-POMDP特性：
-        1. 多层次信息延迟机制（固定延迟、随机延迟、网络延迟）
-        2. 智能信息缺失机制（选择性丢失、时序丢失、重要性丢失）
-        3. 网络中断模拟（间歇性连接、分区容忍）
-        4. 传递质量降级（噪声、干扰、衰减）
-        5. 信息重传和恢复机制
-        
-        Args:
-            observation: 原始观测向量
-            manager_id: Manager标识
-            
-        Returns:
-            np.ndarray: 经过完整信息传递处理的观测向量
-        """
+
         processed_observation = observation.copy()
         
-        # 1. 应用多层次延迟机制
+        # 1. apply multi-level delay mechanism
         processed_observation = self._apply_multi_level_delay(processed_observation, manager_id)
         
-        # 2. 应用智能信息缺失机制
+        # 2. apply intelligent information loss mechanism
         processed_observation = self._apply_intelligent_information_loss(processed_observation, manager_id)
         
-        # 3. 应用网络中断模拟
+        # 3. apply network interruption simulation
         processed_observation = self._apply_network_interruption_simulation(processed_observation, manager_id)
         
-        # 4. 应用传递质量降级
+        # 4. apply transmission quality degradation
         processed_observation = self._apply_transmission_quality_degradation(processed_observation, manager_id)
         
-        # 5. 应用信息重传和恢复机制
+        # 5. apply information retransmission and recovery mechanism
         processed_observation = self._apply_information_recovery_mechanism(processed_observation, manager_id)
         
         return processed_observation
     
     def _apply_multi_level_delay(self, observation: np.ndarray, manager_id: str) -> np.ndarray:
-        """
-        应用多层次延迟机制
-        
-        延迟类型：
-        1. 固定延迟：基于配置的确定性延迟
-        2. 随机延迟：基于概率分布的随机延迟
-        3. 网络延迟：基于网络状况的动态延迟
-        4. 负载延迟：基于系统负载的自适应延迟
-        """
+
         if not self.dec_pomdp_config.enable_info_delay:
             return observation
         
         delayed_observation = observation.copy()
         
-        # 1. 固定延迟（基础配置）
+        # 1. fixed delay (basic configuration)
         if manager_id in self.observation_history and len(self.observation_history[manager_id]) > 0:
             fixed_delay_steps = self.dec_pomdp_config.max_delay_steps
             if len(self.observation_history[manager_id]) >= fixed_delay_steps:
                 delayed_observation = self.observation_history[manager_id][-fixed_delay_steps].copy()
         
-        # 2. 随机延迟（模拟网络抖动）
-        if np.random.random() < 0.3:  # 30%概率发生随机延迟
+        # 2. random delay (simulate network jitter)
+        if np.random.random() < 0.3:  # 30% probability of random delay
             random_delay = np.random.randint(1, min(3, len(self.observation_history[manager_id])) + 1)
             if manager_id in self.observation_history and len(self.observation_history[manager_id]) >= random_delay:
                 delayed_observation = self.observation_history[manager_id][-random_delay].copy()
         
-        # 3. 网络延迟（基于动态质量管理器）
+        # 3. network delay (based on dynamic quality manager)
         if self.dynamic_quality_manager:
             network_conditions = getattr(self.dynamic_quality_manager, 'network_history', [])
             if network_conditions:
                 from fo_common.dynamic_observation_quality import NetworkCondition
                 current_condition = network_conditions[-1] if network_conditions else NetworkCondition.GOOD
                 
-                # 网络状况越差，延迟越大
+                # network condition worse, delay larger
                 network_delay_prob = {
                     NetworkCondition.EXCELLENT: 0.05,
                     NetworkCondition.GOOD: 0.1,
@@ -2375,9 +2232,9 @@ class MultiAgentFlexOfferEnv(gym.Env):
                         len(self.observation_history[manager_id]) >= network_delay_steps):
                         delayed_observation = self.observation_history[manager_id][-network_delay_steps].copy()
         
-        # 4. 负载延迟（基于系统负载）
+        # 4. load delay (based on system load)
         system_load = len(self.manager_agents) * self.current_step / max(1, self.time_horizon)
-        if system_load > 0.7:  # 高负载时增加延迟
+        if system_load > 0.7:  # high load, increase delay
             load_delay_prob = (system_load - 0.7) * 0.5
             if np.random.random() < load_delay_prob:
                 if manager_id in self.observation_history and len(self.observation_history[manager_id]) >= 2:
@@ -2386,45 +2243,37 @@ class MultiAgentFlexOfferEnv(gym.Env):
         return delayed_observation
     
     def _apply_intelligent_information_loss(self, observation: np.ndarray, manager_id: str) -> np.ndarray:
-        """
-        应用智能信息缺失机制
-        
-        缺失类型：
-        1. 选择性丢失：重要信息优先保留
-        2. 时序丢失：基于时间模式的丢失
-        3. 分量丢失：按照观测分量类型的丢失
-        4. 累积丢失：随时间累积的信息损失
-        """
+
         if not self.dec_pomdp_config.enable_info_missing:
             return observation
         
         lost_observation = observation.copy()
         missing_prob = self.dec_pomdp_config.missing_probability
         
-        # 1. 选择性丢失（重要信息保护）
-        # 假设观测向量的前1/3是最重要的私有信息，不应丢失
+        # 1. choosen disable
+        # assume the first 1/3 of the observation vector is the most important private information, should not be lost
         protected_length = len(observation) // 3
         vulnerable_start = protected_length
         
-        # 2. 时序丢失（基于时间模式）
-        time_factor = math.sin(self.current_step * 0.1) * 0.1 + 1.0  # 周期性变化
+        # 2. time-based missing
+        time_factor = math.sin(self.current_step * 0.1) * 0.1 + 1.0  # periodic change
         adjusted_missing_prob = missing_prob * time_factor
         
-        # 3. 分量丢失（他者信息更容易丢失）
+        # 3. component missing
         for i in range(len(lost_observation)):
-            if i >= vulnerable_start:  # 保护私有信息
-                # 他者信息的丢失概率更高
+            if i >= vulnerable_start:  # protect private information
+                # the probability of losing other information is higher
                 component_missing_prob = adjusted_missing_prob * 1.5
                 
-                # 4. 累积丢失（距离当前时间越远的信息越容易丢失）
+                # 4. cumulative missing (the farther from the current time, the more likely to lose information)
                 distance_factor = 1.0 + (i - vulnerable_start) * 0.1
                 final_missing_prob = min(0.8, component_missing_prob * distance_factor)
                 
                 if np.random.random() < final_missing_prob:
-                    lost_observation[i] = 0.0  # 信息丢失
+                    lost_observation[i] = 0.0  # information loss
         
-        # 5. 批量丢失（模拟连接中断）
-        if np.random.random() < 0.05:  # 5%概率发生批量丢失
+        # 5. batch missing (simulate connection interruption)
+        if np.random.random() < 0.05:  # 5% probability of batch missing
             batch_start = max(vulnerable_start, np.random.randint(0, len(lost_observation) - 5))
             batch_length = min(5, len(lost_observation) - batch_start)
             lost_observation[batch_start:batch_start + batch_length] = 0.0
@@ -2432,60 +2281,52 @@ class MultiAgentFlexOfferEnv(gym.Env):
         return lost_observation
     
     def _apply_network_interruption_simulation(self, observation: np.ndarray, manager_id: str) -> np.ndarray:
-        """
-        应用网络中断模拟
-        
-        中断类型：
-        1. 瞬时中断：短时间完全断开
-        2. 间歇性中断：周期性连接问题
-        3. 分区中断：部分Manager间连接中断
-        4. 降级中断：连接质量严重下降
-        """
+
         interrupted_observation = observation.copy()
         
-        # 初始化Manager网络状态（如果不存在）
+        # initialize Manager network state (if not exist)
         if not hasattr(self, 'manager_network_states'):
             self.manager_network_states = {mid: 'connected' for mid in self.manager_ids}
         
-        # 1. 瞬时中断（短时间完全断开）
-        interruption_prob = 0.02  # 2%概率发生瞬时中断
+        # 1. instantaneous interruption (short-term complete interruption)
+        interruption_prob = 0.02  # 2% probability of instantaneous interruption
         if np.random.random() < interruption_prob:
             self.manager_network_states[manager_id] = 'interrupted'
-            # 瞬时中断期间，只保留私有信息
+            # during instantaneous interruption, only keep private information
             private_length = len(interrupted_observation) // 3
             interrupted_observation[private_length:] = 0.0
         
-        # 2. 间歇性中断（基于正弦波模式）
+        # 2. intermittent interruption (based on sine wave pattern)
         intermittent_factor = math.sin(self.current_step * 0.3) + 1.0
         if intermittent_factor < 0.5 and np.random.random() < 0.1:
             self.manager_network_states[manager_id] = 'intermittent'
-            # 间歇性中断期间，随机丢失50%的他者信息
+            # during intermittent interruption, randomly lose 50% of other information
             private_length = len(interrupted_observation) // 3
             for i in range(private_length, len(interrupted_observation)):
                 if np.random.random() < 0.5:
                     interrupted_observation[i] = 0.0
         
-        # 3. 分区中断（模拟Manager间连接问题）- 已注释，无噪声环境测试
+        # 3. partition interruption (simulate Manager connection problem) - commented, no noise environment test
         # if hasattr(self, 'network_partition_active'):
         #     if self.network_partition_active and manager_id in getattr(self, 'partitioned_managers', []):
         #         # 分区中的Manager无法获得其他Manager信息
         #         private_length = len(interrupted_observation) // 3
         #         interrupted_observation[private_length:] = interrupted_observation[private_length:] * 0.1
         
-        # 4. 降级中断（连接质量严重下降）
+        # 4. degradation interruption (connection quality seriously degraded)
         if self.dynamic_quality_manager:
             network_history = getattr(self.dynamic_quality_manager, 'network_history', [])
             if network_history:
                 from fo_common.dynamic_observation_quality import NetworkCondition
                 current_condition = network_history[-1]
                 if current_condition == NetworkCondition.CRITICAL:
-                    # 严重降级时，大幅减少他者信息质量
+                    # when severely degraded, significantly reduce the quality of other information
                     private_length = len(interrupted_observation) // 3
                     degradation_factor = 0.2
                     interrupted_observation[private_length:] = interrupted_observation[private_length:] * degradation_factor
         
-        # 网络状态恢复机制
-        recovery_prob = 0.3  # 30%概率恢复连接
+        # network state recovery mechanism
+        recovery_prob = 0.3  # 30% probability of recovery connection
         if (self.manager_network_states[manager_id] != 'connected' and 
             np.random.random() < recovery_prob):
             self.manager_network_states[manager_id] = 'connected'
@@ -2493,26 +2334,18 @@ class MultiAgentFlexOfferEnv(gym.Env):
         return interrupted_observation
     
     def _apply_transmission_quality_degradation(self, observation: np.ndarray, manager_id: str) -> np.ndarray:
-        """
-        应用传递质量降级
-        
-        降级类型：
-        1. 信噪比降级：添加传输噪声
-        2. 量化降级：减少数值精度
-        3. 压缩降级：信息压缩损失
-        4. 衰减降级：信号衰减
-        """
+
         degraded_observation = observation.copy()
         
-        # 1. 信噪比降级（传输噪声）- 已注释，无噪声环境测试
+        # 1. SNR degradation (transmission noise) - commented, no noise environment test
         # if hasattr(self.dec_pomdp_config, 'enable_transmission_noise'):
         #     enable_noise = self.dec_pomdp_config.enable_transmission_noise
         # else:
-        #     enable_noise = True  # 默认启用
-        enable_noise = False  # 无噪声环境测试
+        #     enable_noise = True  # default enabled
+        enable_noise = False  # no noise environment test
         
         if enable_noise:
-            # 基于网络状况调整噪声水平
+            # adjust noise level based on network conditions
             base_noise_level = 0.01
             if self.dynamic_quality_manager:
                 network_history = getattr(self.dynamic_quality_manager, 'network_history', [])
@@ -2531,19 +2364,19 @@ class MultiAgentFlexOfferEnv(gym.Env):
                     transmission_noise = np.random.normal(0, noise_level, degraded_observation.shape)
                     degraded_observation += transmission_noise
         
-        # 2. 量化降级（数值精度下降）
-        if np.random.random() < 0.1:  # 10%概率发生量化降级
-            quantization_levels = 256  # 8-bit量化
+        # 2. quantization degradation (numerical precision下降)
+        if np.random.random() < 0.1:  # 10% probability of quantization degradation
+            quantization_levels = 256  # 8-bit quantization
             degraded_observation = np.round(degraded_observation * quantization_levels) / quantization_levels
         
-        # 3. 压缩降级（模拟数据压缩损失）
-        if np.random.random() < 0.05:  # 5%概率发生压缩降级
+        # 3. compression degradation (simulate data compression loss)
+        if np.random.random() < 0.05:  # 5% probability of compression degradation
             compression_factor = 0.95
             degraded_observation = degraded_observation * compression_factor
         
-        # 4. 衰减降级（距离和时间相关的信号衰减）
-        distance_factor = 1.0  # 假设所有Manager距离相等
-        time_factor = 1.0 - (self.current_step / self.time_horizon) * 0.05  # 时间衰减
+        # 4. attenuation degradation (signal attenuation related to distance and time)
+        distance_factor = 1.0  # assume all Managers are at the same distance
+        time_factor = 1.0 - (self.current_step / self.time_horizon) * 0.05  # time attenuation
         attenuation_factor = distance_factor * time_factor
         
         if attenuation_factor < 1.0:
@@ -2552,68 +2385,60 @@ class MultiAgentFlexOfferEnv(gym.Env):
         return degraded_observation
     
     def _apply_information_recovery_mechanism(self, observation: np.ndarray, manager_id: str) -> np.ndarray:
-        """
-        应用信息重传和恢复机制
-        
-        恢复策略：
-        1. 缓存恢复：使用历史缓存填补丢失信息
-        2. 估计恢复：基于历史趋势估计丢失值
-        3. 插值恢复：使用邻近值进行插值
-        4. 默认值恢复：使用安全默认值
-        """
+
         recovered_observation = observation.copy()
         
-        # 初始化恢复缓存
+        # initialize recovery cache
         if not hasattr(self, 'recovery_cache'):
             self.recovery_cache = {}
         if manager_id not in self.recovery_cache:
             self.recovery_cache[manager_id] = []
         
-        # 1. 缓存恢复（使用最近的有效值）
-        valid_indices = np.where(np.abs(recovered_observation) > 1e-8)[0]  # 非零值认为有效
-        invalid_indices = np.where(np.abs(recovered_observation) <= 1e-8)[0]  # 零值认为丢失
+        # 1. cache recovery (use the most recent valid value)
+        valid_indices = np.where(np.abs(recovered_observation) > 1e-8)[0]  # non-zero value is considered valid
+        invalid_indices = np.where(np.abs(recovered_observation) <= 1e-8)[0]  # zero value is considered lost
         
         if len(self.recovery_cache[manager_id]) > 0 and len(invalid_indices) > 0:
             last_valid_observation = self.recovery_cache[manager_id][-1]
             
             for idx in invalid_indices:
                 if idx < len(last_valid_observation):
-                    # 2. 估计恢复（基于历史趋势）
+                    # 2. estimated recovery (based on historical trend)
                     if len(self.recovery_cache[manager_id]) >= 2:
                         recent_values = [cache[idx] for cache in self.recovery_cache[manager_id][-2:] 
                                        if idx < len(cache)]
                         if len(recent_values) >= 2:
                             trend = recent_values[-1] - recent_values[-2]
-                            estimated_value = recent_values[-1] + trend * 0.5  # 保守估计
+                            estimated_value = recent_values[-1] + trend * 0.5  # conservative estimate
                             recovered_observation[idx] = estimated_value
                         else:
                             recovered_observation[idx] = last_valid_observation[idx]
                     else:
                         recovered_observation[idx] = last_valid_observation[idx]
                 else:
-                    # 3. 默认值恢复
+                    # 3. default value recovery
                     recovered_observation[idx] = 0.0
         
-        # 4. 插值恢复（对连续丢失进行插值）
+        # 4. interpolation recovery (interpolate for continuous loss)
         for i in range(1, len(recovered_observation) - 1):
             if (abs(recovered_observation[i]) <= 1e-8 and 
                 abs(recovered_observation[i-1]) > 1e-8 and 
                 abs(recovered_observation[i+1]) > 1e-8):
-                # 线性插值
+                # linear interpolation
                 recovered_observation[i] = (recovered_observation[i-1] + recovered_observation[i+1]) / 2.0
         
-        # 更新恢复缓存
+        # update recovery cache
         self.recovery_cache[manager_id].append(recovered_observation.copy())
         
-        # 限制缓存大小
+        # limit cache size
         if len(self.recovery_cache[manager_id]) > 10:
             self.recovery_cache[manager_id] = self.recovery_cache[manager_id][-10:]
         
         return recovered_observation
     
     def _get_environment_features(self) -> np.ndarray:
-        """获取环境特征"""
-        # 时间特征
+
+        # time features
         hour = self.current_time.hour
         time_features = np.array([
             math.sin(2 * math.pi * hour / 24),
@@ -2622,10 +2447,10 @@ class MultiAgentFlexOfferEnv(gym.Env):
             self.current_step / self.time_horizon
         ])
         
-        # 环境状态
+        # environment state
         env_state = self.env_dynamics.get_current_state(self.current_time)
         
-        # 价格特征
+        # price features
         price_features = np.array([
             env_state['price'],
             env_state['price_trend'],
@@ -2634,7 +2459,7 @@ class MultiAgentFlexOfferEnv(gym.Env):
             env_state.get('future_prices', [0, 0, 0])[2] if env_state.get('future_prices') else 0
         ])
         
-        # 天气特征
+        # weather features
         weather_features = np.array([
             env_state['temperature'],
             env_state['solar_irradiance'],
@@ -2645,61 +2470,46 @@ class MultiAgentFlexOfferEnv(gym.Env):
         return np.concatenate([time_features, price_features, weather_features])
     
     def _get_all_manager_aggregated_info(self) -> Dict[str, List[float]]:
-        """
-        获取Manager聚合信息 - Dec-POMDP受限版本
-        
-        这是对原有方法的Dec-POMDP重构，现在：
-        1. 默认返回受限的协作信息
-        2. 不再提供详细的竞争力指标和地理信息
-        3. 遵循Dec-POMDP的信息共享限制原则
-        
-        注意：为了保持向后兼容性，这个方法保留了原有的接口，
-        但内部实现已经修改为调用受限信息方法
-        """
-        # 如果明确禁用了其他Manager信息，返回空信息
+
+        # if other Manager information is explicitly disabled, return empty information
         if not self.dec_pomdp_config.enable_other_manager_info:
             return {manager_id: [] for manager_id in self.manager_agents.keys()}
         
-        # 根据配置决定信息共享级别 - 已注释，无噪声环境测试
+        # determine information sharing level based on configuration - commented, no noise environment test
         # if hasattr(self.dec_pomdp_config, 'information_sharing_level'):
         #     sharing_level = self.dec_pomdp_config.information_sharing_level
         # else:
-        #     sharing_level = 'limited'  # 默认为受限模式
-        sharing_level = 'full'  # 无噪声环境测试，使用完整信息共享
+        #     sharing_level = 'limited'  # default is limited mode
+        sharing_level = 'full'  # no noise environment test, use full information sharing
         
         if sharing_level == 'none':
-            # 无信息共享模式：完全隔离的POMDP
+            # no information sharing mode: completely isolated POMDP
             return {manager_id: [] for manager_id in self.manager_agents.keys()}
         
         elif sharing_level == 'minimal':
-            # 最小信息共享：只有存在性指示
+            # minimal information sharing: only existence indicator
             minimal_info = {}
             for manager_id in self.manager_agents.keys():
-                minimal_info[manager_id] = [1.0]  # 仅表示Manager存在
+                minimal_info[manager_id] = [1.0]  # only represent Manager existence
             return minimal_info
         
         elif sharing_level == 'limited':
-            # 受限信息共享：调用新的受限协作信息方法
+            # limited information sharing: call new limited collaboration information method
             return self._get_limited_collaboration_info()
         
         elif sharing_level == 'legacy':
-            # 传统模式：保留原有详细信息（仅用于向后兼容和调试）
+            # traditional mode: keep original detailed information (only for backward compatibility and debugging)
             return self._get_legacy_detailed_manager_info()
         
         else:
-            # 默认使用受限模式
+            # default use limited mode
             return self._get_limited_collaboration_info()
     
     def _get_legacy_detailed_manager_info(self) -> Dict[str, List[float]]:
-        """
-        获取传统的详细Manager信息 - 仅用于向后兼容
-        
-        警告：此方法提供详细信息，违背Dec-POMDP原则，
-        仅应在调试或特殊兼容性需求时使用
-        """
+
         manager_info = {}
         
-        # 计算全系统统计信息
+        # calculate total system statistics
         total_users = sum(len(m.users) for m in self.manager_agents.values())
         total_devices = sum(len(m.device_mdps) for m in self.manager_agents.values())
         total_cost = sum(m.markov_history['cumulative_cost'] for m in self.manager_agents.values())
@@ -2707,15 +2517,15 @@ class MultiAgentFlexOfferEnv(gym.Env):
         avg_satisfaction = np.mean([m.markov_history['user_satisfaction'] for m in self.manager_agents.values()])
         
         for manager_id, manager in self.manager_agents.items():
-            # 传统的详细信息（已弃用，但保留兼容性）
+            # traditional detailed information (deprecated, but keep compatibility)
             legacy_info = [
-                len(manager.users),  # 绝对用户数
-                len(manager.device_mdps),  # 绝对设备数
-                manager.markov_history['cumulative_cost'],  # 精确成本
-                manager.markov_history['cumulative_energy'],  # 精确能耗
-                manager.markov_history['user_satisfaction'],  # 精确满意度
+                len(manager.users),  # absolute number of users
+                len(manager.device_mdps),  # absolute number of devices
+                manager.markov_history['cumulative_cost'],  # exact cost
+                manager.markov_history['cumulative_energy'],  # exact energy
+                manager.markov_history['user_satisfaction'],  # exact satisfaction
                 
-                # 相对指标（略微受限）
+                # relative indicators (slightly limited)
                 len(manager.users) / max(1, total_users),
                 len(manager.device_mdps) / max(1, total_devices),
                 manager.markov_history['cumulative_cost'] / max(1, total_cost) if total_cost > 0 else 0,
@@ -2728,70 +2538,70 @@ class MultiAgentFlexOfferEnv(gym.Env):
         return manager_info
     
     def _get_market_state_features(self) -> np.ndarray:
-        """获取全局市场状态特征"""
-        # 系统总体供需状态
+
+        # overall market state
         total_devices = sum(len(m.device_mdps) for m in self.manager_agents.values())
         total_controllable = sum(len(m.controllable_devices) for m in self.manager_agents.values())
         total_users = sum(len(m.users) for m in self.manager_agents.values())
         
-        # 计算系统总体能力指标
+        # calculate overall system capability indicators
         avg_devices_per_user = total_devices / max(1, total_users)
         controllability_ratio = total_controllable / max(1, total_devices)
         
-        # 计算Manager间的竞争强度
+        # calculate competition intensity between Managers
         manager_count = len(self.manager_agents)
         user_distribution_variance = 0.0
         if manager_count > 1:
             user_counts = [len(m.users) for m in self.manager_agents.values()]
             user_distribution_variance = np.var(user_counts) / max(1, np.mean(user_counts))
         
-        # 计算满意度分布情况
+        # calculate satisfaction distribution
         satisfactions = [m.markov_history['user_satisfaction'] for m in self.manager_agents.values()]
         satisfaction_mean = np.mean(satisfactions)
         satisfaction_std = np.std(satisfactions)
         
-        # 计算能耗分布情况
+        # calculate energy distribution
         energies = [m.markov_history['cumulative_energy'] for m in self.manager_agents.values()]
         energy_balance = np.std(energies) / max(1, np.mean(energies)) if np.mean(energies) > 0 else 0
         
-        # 时间相关的市场状态
+        # time-related market state
         time_progress = self.current_step / max(1, self.time_horizon)
         is_peak_hour = 1.0 if 7 <= self.current_time.hour <= 9 or 18 <= self.current_time.hour <= 21 else 0.0
         is_off_peak = 1.0 if 23 <= self.current_time.hour or self.current_time.hour <= 6 else 0.0
         
-        # 历史趋势特征（基于当前可用数据的简化版）
-        recent_activity = min(1.0, self.current_step / 5.0)  # 活跃度指标
+        # historical trend features (simplified version based on current available data)
+        recent_activity = min(1.0, self.current_step / 5.0)  # activity indicator
         
         market_features = np.array([
-            # 系统规模特征
+            # system size features
             total_users,
             total_devices,
             total_controllable,
             avg_devices_per_user,
             controllability_ratio,
             
-            # 竞争和分布特征
+            # competition and distribution features
             manager_count,
             user_distribution_variance,
             energy_balance,
             satisfaction_mean,
             satisfaction_std,
             
-            # 时间和活跃度特征
+            # time and activity features
             time_progress,
             is_peak_hour,
             is_off_peak,
             recent_activity,
             
-            # 系统状态指标
-            1.0 if satisfaction_mean > 0.5 else 0.0,  # 系统满意度是否良好
-            1.0 if energy_balance < 0.5 else 0.0,     # 能耗是否均衡
+            # system state indicators
+            1.0 if satisfaction_mean > 0.5 else 0.0,  # whether the system satisfaction is good
+            1.0 if energy_balance < 0.5 else 0.0,     # whether the energy consumption is balanced
         ])
         
         return market_features.astype(np.float32)
     
     def generate_all_dfos(self) -> Dict[str, Dict[str, DFOSystem]]:
-        """生成所有Manager的DFO系统"""
+        """generate all Manager's DFO systems"""
         all_dfos = {}
         
         for manager_id, manager in self.manager_agents.items():
@@ -2801,69 +2611,69 @@ class MultiAgentFlexOfferEnv(gym.Env):
         return all_dfos
     
     def get_manager_count(self) -> int:
-        """获取Manager数量"""
+        """get Manager count"""
         return len(self.manager_agents)
     
     def get_total_user_count(self) -> int:
-        """获取总用户数量"""
+        """get total user count"""
         return sum(len(manager.users) for manager in self.manager_agents.values())
     
     def get_total_device_count(self) -> int:
-        """获取总设备数量"""
+        """get total device count"""
         return sum(len(manager.device_mdps) for manager in self.manager_agents.values())
     
     def get_current_observations(self):
-        """获取当前时间步的观测"""
+        """get current time step observations"""
         obs = {}
         for manager_id, agent in self.manager_agents.items():
             obs[manager_id] = agent.get_observation()
         return obs
     
     def generate_current_dfos(self, timestep):
-        """生成当前时间步的DFO系统"""
+        """generate current time step DFO systems"""
         dfo_systems = {}
         for manager_id, agent in self.manager_agents.items():
             agent_dfos = {}
             
-            # 处理设备列表
+            # process device list
             if isinstance(agent.devices, dict):
                 devices_list = list(agent.devices.values())
             else:
                 devices_list = agent.devices
             
-            # 为每个设备生成DFO
+            # generate DFO for each device
             for device in devices_list:
                 device_id = getattr(device, 'device_id', f"{manager_id}_device_{len(agent_dfos)}")
                 
-                # 根据设备类型生成FlexOffer - 包含核心特征
+                # generate FlexOffer based on device type - include core features
                 from fo_generate.dfo import DFOSystem, DFOSlice
                 from datetime import datetime, timedelta
                 
-                # 生成基本的FlexOffer参数
-                energy_min = np.random.uniform(5, 20)     # 最小能量需求
-                energy_max = np.random.uniform(20, 50)    # 最大能量需求
-                power_min = np.random.uniform(-10, 0)     # 最小功率（负值表示放电）
-                power_max = np.random.uniform(5, 15)      # 最大功率（正值表示充电）
-                flexibility = np.random.uniform(0.2, 0.8) # 灵活性因子
+                # generate basic FlexOffer parameters
+                energy_min = np.random.uniform(5, 20)     # minimum energy demand
+                energy_max = np.random.uniform(20, 50)    # maximum energy demand
+                power_min = np.random.uniform(-10, 0)     # minimum power (negative value means discharge)
+                power_max = np.random.uniform(5, 15)      # maximum power (positive value means charge)
+                flexibility = np.random.uniform(0.2, 0.8) # flexibility factor
                 
-                # 创建时间窗口
+                # create time window
                 current_time = datetime.now() + timedelta(hours=timestep)
-                start_time = current_time  # 时间窗口开始
-                end_time = current_time + timedelta(hours=1)  # 时间窗口结束
+                start_time = current_time  # time window start
+                end_time = current_time + timedelta(hours=1)  # time window end
                 
-                # 创建DFO系统
+                # create DFO system
                 dfo_system = DFOSystem(
                     time_horizon=1,
                     device_id=device_id,
                     device_type=getattr(device, 'device_type', 'unknown')
                 )
                 
-                # 创建DFO片段
+                # create DFO slice
                 dfo_slice = DFOSlice(
                     time_step=timestep,
                     energy_min=energy_min,
                     energy_max=energy_max,
-                    constraints=[],  # 基本约束，可以后续扩展
+                    constraints=[],  # basic constraints, can be extended later
                     power_min=power_min,
                     power_max=power_max,
                     start_time=start_time,
@@ -2873,7 +2683,7 @@ class MultiAgentFlexOfferEnv(gym.Env):
                     device_id=device_id
                 )
                 
-                # 添加片段到DFO系统
+                # add slice to DFO system
                 dfo_system.add_slice(dfo_slice)
                 
                 agent_dfos[device_id] = dfo_system
@@ -2881,40 +2691,40 @@ class MultiAgentFlexOfferEnv(gym.Env):
             if agent_dfos:
                 dfo_systems[manager_id] = agent_dfos
         
-        # 合并DFO生成信息到一行
+        # merge DFO generation information into one line
         total_dfos = sum(len(dfos) for dfos in dfo_systems.values())
         manager_dfo_counts = [f"{manager_id}:{len(dfos)}" for manager_id, dfos in dfo_systems.items()]
         logger.info(f"时间步 {timestep} DFO生成: {', '.join(manager_dfo_counts)}, 总计 {total_dfos} 个")
         return dfo_systems
     
     def update_user_states(self, user_satisfied_energy, timestep):
-        """更新用户状态基于已分配的能源"""
+        """update user states based on allocated energy"""
         try:
-            # 根据用户满足的能源更新设备状态
+            # update device states based on user satisfied energy
             for manager_id, agent in self.manager_agents.items():
                 for user in agent.users:
-                    # 处理用户对象：users可能是字典列表
+                    # process user object: users may be a list of dictionaries
                     if isinstance(user, dict):
                         user_id = user.get('user_id', '')
                         user_devices = user.get('devices', [])
                     else:
-                        # 如果是对象，则直接访问属性
+                        # if it is an object, directly access the attributes
                         user_id = getattr(user, 'user_id', '')
                         user_devices = getattr(user, 'devices', [])
                     
                     if user_id:
                         try:
-                            # 解析用户ID格式：支持user_X和user_manager_X_Y格式
+                            # parse user ID format: support user_X and user_manager_X_Y format
                             if 'manager_' in user_id:
-                                # 格式：user_manager_X_Y，需要计算全局用户索引
+                                # format: user_manager_X_Y, need to calculate global user index
                                 parts = user_id.split('_')
                                 if len(parts) >= 4:
-                                    manager_num = int(parts[2])  # manager编号 (1, 2, 3, 4)
-                                    user_local_num = int(parts[3])  # manager内用户编号 (1, 2, ...)
+                                    manager_num = int(parts[2])  # manager number (1, 2, 3, 4)
+                                    user_local_num = int(parts[3])  # user number in manager (1, 2, ...)
                                     
-                                    # 根据Manager分布计算全局用户索引
-                                    # Manager 1: 6用户 (索引0-5), Manager 2: 10用户 (索引6-15), 
-                                    # Manager 3: 8用户 (索引16-23), Manager 4: 12用户 (索引24-35)
+                                    # calculate global user index based on Manager distribution
+                                    # Manager 1: 6 users (index 0-5), Manager 2: 10 users (index 6-15), 
+                                    # Manager 3: 8 users (index 16-23), Manager 4: 12 users (index 24-35)
                                     user_distributions = [6, 10, 8, 12]
                                     base_index = sum(user_distributions[:manager_num-1])
                                     user_idx = base_index + (user_local_num - 1)
@@ -2922,16 +2732,16 @@ class MultiAgentFlexOfferEnv(gym.Env):
                                     logger.warning(f"无法解析user_manager格式的ID: {user_id}")
                                     continue
                             else:
-                                # 格式：user_X
+                                # format: user_X
                                 user_idx = int(user_id.split('_')[1])
                             
                             if user_idx < user_satisfied_energy.shape[0]:
                                 satisfied_energy = user_satisfied_energy[user_idx, timestep]
-                                # 将满足的能源分配给用户的设备
+                                # allocate satisfied energy to user's devices
                                 if user_devices and satisfied_energy > 0:
                                     energy_per_device = satisfied_energy / len(user_devices)
                                     for device in user_devices:
-                                        # 处理设备对象：devices可能是字典
+                                        # process device object: devices may be a list of dictionaries
                                         if isinstance(device, dict):
                                             device_id = device.get('device_id', '')
                                         else:
@@ -2942,29 +2752,29 @@ class MultiAgentFlexOfferEnv(gym.Env):
                                             if device_key in agent.device_mdps:
                                                 mdp_device = agent.device_mdps[device_key]
                                                 if hasattr(mdp_device, 'env'):
-                                                    # 更新设备状态以反映获得的能源
+                                                    # update device state to reflect the obtained energy
                                                     device_env = getattr(mdp_device, 'env', None)
                                                     if device_env is not None:
                                                         self._update_device_state_with_energy(device_env, energy_per_device)
                         except (ValueError, IndexError) as e:
-                            logger.warning(f"解析用户ID时出错 {user_id}: {e}")
+                            logger.warning(f"error parsing user ID: {user_id}: {e}")
         except Exception as e:
-            logger.error(f"更新用户状态时出错: {e}")
+            logger.error(f"error updating user states: {e}")
     
     def _update_device_state_with_energy(self, device_env, allocated_energy):
-        """使用分配的能源更新设备状态"""
+        """update device state with allocated energy"""
         try:
-            # 根据设备类型更新状态
+            # update device state based on device type
             if hasattr(device_env, 'device_type'):
                 if device_env.device_type == DeviceType.BATTERY:
-                    # 电池：更新SOC状态
+                    # battery: update SOC state
                     if hasattr(device_env, 'battery_device') and hasattr(device_env.battery_device, 'charge'):
-                        # 将分配的能源用于充电
+                        # use allocated energy for charging
                         device_env.battery_device.charge(allocated_energy, device_env.time_step)
                 elif device_env.device_type == DeviceType.EV:
-                    # 电动车：更新充电状态
+                    # electric vehicle: update charging state
                     if hasattr(device_env, 'ev_device') and hasattr(device_env.ev_device, 'charge'):
                         device_env.ev_device.charge(allocated_energy, device_env.time_step)
-                # 其他设备类型的状态更新可以在这里添加
+                # other device types can be updated here
         except Exception as e:
-            logger.warning(f"更新设备状态时出现警告: {e}") 
+            logger.warning(f"warning updating device state: {e}") 
