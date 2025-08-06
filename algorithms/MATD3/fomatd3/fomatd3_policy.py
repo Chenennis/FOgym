@@ -1,10 +1,3 @@
-"""
-FlexOffer Multi-Agent Twin Delayed Deep Deterministic Policy Gradient Policy Networks
-
-This module implements FlexOffer-specific policy networks for MATD3 algorithm.
-The networks are designed to handle FlexOffer constraints and multi-agent coordination.
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -27,43 +20,43 @@ class FOActorNetwork(nn.Module):
         self.device = device
         self.name = name
         
-        # FlexOffer约束感知的网络架构
+        # FlexOffer constraint-aware network architecture
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, hidden_dim // 2)
         
-        # FlexOffer输出层
+        # FlexOffer output layer
         self.fo_output = nn.Linear(hidden_dim // 2, action_dim)
         
-        # 批归一化层（支持动态batch size）
+        # batch normalization layer (support dynamic batch size)
         self.bn1 = nn.BatchNorm1d(hidden_dim)
         self.bn2 = nn.BatchNorm1d(hidden_dim)
         
-        # Dropout层防止过拟合
+        # Dropout layer to prevent overfitting
         self.dropout = nn.Dropout(0.1)
         
-        # 初始化权重
+        # initialize weights
         self._init_weights()
         
-        # 优化器
+        # optimizer
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
         
-        # 移动到指定设备
+        # move to specified device
         self.to(device)
     
     def _init_weights(self):
-        """初始化网络权重"""
+        """initialize network weights"""
         for layer in [self.fc1, self.fc2, self.fc3, self.fo_output]:
             nn.init.xavier_uniform_(layer.weight)
             nn.init.constant_(layer.bias, 0.01)
     
     def forward(self, state: torch.Tensor) -> torch.Tensor:
-        """前向传播"""
+        """forward propagation"""
         batch_size = state.size(0)
         
         x = F.relu(self.fc1(state))
         
-        # 动态处理批归一化
+        # dynamic batch normalization
         if batch_size > 1:
             x = self.bn1(x)
         
@@ -75,19 +68,19 @@ class FOActorNetwork(nn.Module):
         x = self.dropout(x)
         x = F.relu(self.fc3(x))
         
-        # FlexOffer约束输出（使用tanh确保输出在[-1, 1]范围内）
+        # FlexOffer constraint output (use tanh to ensure output in [-1, 1] range)
         fo_actions = torch.tanh(self.fo_output(x))
         
         return fo_actions
     
     def save_checkpoint(self, checkpoint_dir: str):
-        """保存模型检查点"""
+        """save model checkpoint"""
         os.makedirs(checkpoint_dir, exist_ok=True)
         checkpoint_path = os.path.join(checkpoint_dir, f"{self.name}.pt")
         torch.save(self.state_dict(), checkpoint_path)
     
     def load_checkpoint(self, checkpoint_dir: str):
-        """加载模型检查点"""
+        """load model checkpoint"""
         checkpoint_path = os.path.join(checkpoint_dir, f"{self.name}.pt")
         if os.path.exists(checkpoint_path):
             self.load_state_dict(torch.load(checkpoint_path, map_location=self.device))
@@ -110,53 +103,53 @@ class FOCriticNetwork(nn.Module):
         self.device = device
         self.name = name
         
-        # 输入维度：状态 + 所有智能体动作
+        # input dimension: state + all agent actions
         input_dim = state_dim + action_dim * n_agents
         
-        # Q1网络
+        # Q1 network
         self.q1_fc1 = nn.Linear(input_dim, hidden_dim)
         self.q1_fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.q1_fc3 = nn.Linear(hidden_dim, hidden_dim // 2)
         self.q1_output = nn.Linear(hidden_dim // 2, 1)
         
-        # Q2网络（Twin Critic）
+        # Q2 network (Twin Critic)
         self.q2_fc1 = nn.Linear(input_dim, hidden_dim)
         self.q2_fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.q2_fc3 = nn.Linear(hidden_dim, hidden_dim // 2)
         self.q2_output = nn.Linear(hidden_dim // 2, 1)
         
-        # 批归一化层
+        # batch normalization layer
         self.q1_bn1 = nn.BatchNorm1d(hidden_dim)
         self.q1_bn2 = nn.BatchNorm1d(hidden_dim)
         self.q2_bn1 = nn.BatchNorm1d(hidden_dim)
         self.q2_bn2 = nn.BatchNorm1d(hidden_dim)
         
-        # Dropout层
+        # Dropout layer
         self.dropout = nn.Dropout(0.1)
         
-        # 初始化权重
+        # initialize weights
         self._init_weights()
         
-        # 优化器
+        # optimizer
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
         
-        # 移动到指定设备
+        # move to specified device
         self.to(device)
     
     def _init_weights(self):
-        """初始化网络权重"""
+        """initialize network weights"""
         for layer in [self.q1_fc1, self.q1_fc2, self.q1_fc3, self.q1_output,
                       self.q2_fc1, self.q2_fc2, self.q2_fc3, self.q2_output]:
             nn.init.xavier_uniform_(layer.weight)
             nn.init.constant_(layer.bias, 0.01)
     
     def forward(self, state: torch.Tensor, actions: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """前向传播，返回Q1和Q2值"""
-        # 拼接状态和动作
+        """forward propagation, return Q1 and Q2 values"""
+        # concatenate state and action
         x = torch.cat([state, actions], dim=1)
         batch_size = x.size(0)
         
-        # Q1网络
+        # Q1 network
         q1 = F.relu(self.q1_fc1(x))
         if batch_size > 1:
             q1 = self.q1_bn1(q1)
@@ -167,7 +160,7 @@ class FOCriticNetwork(nn.Module):
         q1 = F.relu(self.q1_fc3(q1))
         q1 = self.q1_output(q1)
         
-        # Q2网络
+        # Q2 network
         q2 = F.relu(self.q2_fc1(x))
         if batch_size > 1:
             q2 = self.q2_bn1(q2)
@@ -181,7 +174,7 @@ class FOCriticNetwork(nn.Module):
         return q1.squeeze(-1), q2.squeeze(-1)
     
     def Q1(self, state: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
-        """仅返回Q1值（用于策略更新）"""
+        """return Q1 value (for policy update)"""
         x = torch.cat([state, actions], dim=1)
         batch_size = x.size(0)
         
@@ -198,13 +191,13 @@ class FOCriticNetwork(nn.Module):
         return q1.squeeze(-1)
     
     def save_checkpoint(self, checkpoint_dir: str):
-        """保存模型检查点"""
+        """save model checkpoint"""
         os.makedirs(checkpoint_dir, exist_ok=True)
         checkpoint_path = os.path.join(checkpoint_dir, f"{self.name}.pt")
         torch.save(self.state_dict(), checkpoint_path)
     
     def load_checkpoint(self, checkpoint_dir: str):
-        """加载模型检查点"""
+        """load model checkpoint"""
         checkpoint_path = os.path.join(checkpoint_dir, f"{self.name}.pt")
         if os.path.exists(checkpoint_path):
             self.load_state_dict(torch.load(checkpoint_path, map_location=self.device))
@@ -213,25 +206,24 @@ class FOCriticNetwork(nn.Module):
 
 
 class FOMATd3Policy:
-    """FlexOffer MATD3 Policy - 单个智能体的策略"""
     
     def __init__(self, agent_id: int, state_dim: int, action_dim: int, n_agents: int,
                  hidden_dim: int = 256, lr_actor: float = 1e-4, lr_critic: float = 1e-3,
                  gamma: float = 0.99, tau: float = 0.005, device: str = "cpu"):
         """
-        初始化FOMATD3策略
+        initialize FOMATD3 policy
         
         Args:
-            agent_id: 智能体ID
-            state_dim: 状态空间维度
-            action_dim: 动作空间维度
-            n_agents: 智能体数量
-            hidden_dim: 隐藏层维度
-            lr_actor: Actor学习率
-            lr_critic: Critic学习率
-            gamma: 折扣因子
-            tau: 软更新参数
-            device: 计算设备
+            agent_id: agent ID
+            state_dim: state space dimension
+            action_dim: action space dimension
+            n_agents: number of agents
+            hidden_dim: hidden layer dimension
+            lr_actor: Actor learning rate
+            lr_critic: Critic learning rate
+            gamma: discount factor
+            tau: soft update parameter
+            device: computing device
         """
         self.agent_id = agent_id
         self.state_dim = state_dim
@@ -241,7 +233,7 @@ class FOMATd3Policy:
         self.tau = tau
         self.device = device
         
-        # 创建网络
+        # create network
         self.actor = FOActorNetwork(
             state_dim, action_dim, hidden_dim, lr_actor, device, 
             f"fo_actor_agent_{agent_id}"
@@ -251,7 +243,7 @@ class FOMATd3Policy:
             f"fo_critic_agent_{agent_id}"
         )
         
-        # 目标网络
+        # target network
         self.target_actor = FOActorNetwork(
             state_dim, action_dim, hidden_dim, lr_actor, device,
             f"fo_target_actor_agent_{agent_id}"
@@ -261,16 +253,16 @@ class FOMATd3Policy:
             f"fo_target_critic_agent_{agent_id}"
         )
         
-        # 初始化目标网络
+        # initialize target network
         self.hard_update(self.target_actor, self.actor)
         self.hard_update(self.target_critic, self.critic)
         
-        # 噪声参数
+        # noise parameters
         self.noise_scale = 0.1
         self.noise_clip = 0.2
         
     def select_action(self, state: np.ndarray, add_noise: bool = True) -> np.ndarray:
-        """选择动作"""
+        """select action"""
         state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         
         with torch.no_grad():
@@ -284,31 +276,31 @@ class FOMATd3Policy:
         return action
     
     def hard_update(self, target_net: nn.Module, source_net: nn.Module):
-        """硬更新目标网络"""
+        """hard update target network"""
         for target_param, source_param in zip(target_net.parameters(), source_net.parameters()):
             target_param.data.copy_(source_param.data)
     
     def soft_update(self, target_net: nn.Module, source_net: nn.Module):
-        """软更新目标网络"""
+        """soft update target network"""
         for target_param, source_param in zip(target_net.parameters(), source_net.parameters()):
             target_param.data.copy_(
                 target_param.data * (1.0 - self.tau) + source_param.data * self.tau
             )
     
     def update_target_networks(self):
-        """更新目标网络"""
+        """update target network"""
         self.soft_update(self.target_actor, self.actor)
         self.soft_update(self.target_critic, self.critic)
     
     def save_models(self, checkpoint_dir: str):
-        """保存模型"""
+        """save models"""
         self.actor.save_checkpoint(checkpoint_dir)
         self.critic.save_checkpoint(checkpoint_dir)
         self.target_actor.save_checkpoint(checkpoint_dir)
         self.target_critic.save_checkpoint(checkpoint_dir)
     
     def load_models(self, checkpoint_dir: str):
-        """加载模型"""
+        """load models"""
         self.actor.load_checkpoint(checkpoint_dir)
         self.critic.load_checkpoint(checkpoint_dir)
         self.target_actor.load_checkpoint(checkpoint_dir)

@@ -1,11 +1,3 @@
-"""
-FlexOffer Multi-Agent Twin Delayed Deep Deterministic Policy Gradient (FOMATD3)
-
-This module implements the main FOMATD3 algorithm for multi-agent reinforcement learning
-in FlexOffer systems. FOMATD3 extends MATD3 with FlexOffer-specific constraints and 
-multi-agent coordination mechanisms.
-"""
-
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -18,7 +10,7 @@ from .fomatd3_policy import FOMATd3Policy
 
 
 class FOReplayBuffer:
-    """FlexOffer-specific经验回放缓冲区"""
+    """FlexOffer-specific experience replay buffer"""
     
     def __init__(self, capacity: int, state_dim: int, action_dim: int, n_agents: int):
         self.capacity = capacity
@@ -28,21 +20,21 @@ class FOReplayBuffer:
         self.ptr = 0
         self.size = 0
         
-        # 存储缓冲区
+        # store buffer
         self.states = np.zeros((capacity, state_dim))
         self.actions = np.zeros((capacity, n_agents, action_dim))
         self.rewards = np.zeros((capacity, n_agents))
         self.next_states = np.zeros((capacity, state_dim))
         self.dones = np.zeros((capacity, n_agents), dtype=bool)
         
-        # FlexOffer特定信息
-        self.fo_constraints = np.zeros((capacity, n_agents, action_dim))  # FlexOffer约束
-        self.fo_satisfaction = np.zeros((capacity, n_agents))  # FlexOffer满意度
+        # FlexOffer specific information
+        self.fo_constraints = np.zeros((capacity, n_agents, action_dim))  # FlexOffer constraints
+        self.fo_satisfaction = np.zeros((capacity, n_agents))  # FlexOffer satisfaction
     
     def add(self, state: np.ndarray, actions: np.ndarray, rewards: np.ndarray,
             next_state: np.ndarray, dones: np.ndarray, fo_constraints: np.ndarray = None,
             fo_satisfaction: np.ndarray = None):
-        """添加经验到缓冲区"""
+        """add experience to buffer"""
         self.states[self.ptr] = state
         self.actions[self.ptr] = actions
         self.rewards[self.ptr] = rewards
@@ -58,7 +50,7 @@ class FOReplayBuffer:
         self.size = min(self.size + 1, self.capacity)
     
     def sample(self, batch_size: int) -> Tuple[np.ndarray, ...]:
-        """从缓冲区采样批次数据"""
+        """sample batch data from buffer"""
         indices = np.random.choice(self.size, batch_size, replace=False)
         
         return (
@@ -86,24 +78,24 @@ class FOMATD3:
                  buffer_capacity: int = 100000, batch_size: int = 64,
                  policy_delay: int = 2, device: str = "cpu"):
         """
-        初始化FOMATD3算法
+        initialize FOMATD3 algorithm
         
         Args:
-            n_agents: 智能体数量
-            state_dim: 状态空间维度
-            action_dim: 动作空间维度
-            lr_actor: Actor学习率
-            lr_critic: Critic学习率
-            hidden_dim: 隐藏层维度
-            max_action: 最大动作值
-            gamma: 折扣因子
-            tau: 软更新参数
-            noise_scale: 噪声尺度
-            noise_clip: 噪声裁剪
-            buffer_capacity: 经验回放缓冲区容量
-            batch_size: 批次大小
-            policy_delay: 策略延迟更新频率
-            device: 计算设备
+            n_agents: number of agents
+            state_dim: state space dimension
+            action_dim: action space dimension
+            lr_actor: Actor learning rate
+            lr_critic: Critic learning rate
+            hidden_dim: hidden layer dimension
+            max_action: maximum action value
+            gamma: discount factor
+            tau: soft update parameter
+            noise_scale: noise scale
+            noise_clip: noise clip
+            buffer_capacity: experience replay buffer capacity
+            batch_size: batch size
+            policy_delay: policy delay update frequency
+            device: device
         """
         self.n_agents = n_agents
         self.state_dim = state_dim
@@ -117,7 +109,7 @@ class FOMATD3:
         self.policy_delay = policy_delay
         self.device = device
         
-        # 创建每个智能体的策略
+        # create policy for each agent
         self.agents = []
         for i in range(n_agents):
             agent = FOMATd3Policy(
@@ -134,26 +126,26 @@ class FOMATD3:
             )
             self.agents.append(agent)
         
-        # 经验回放缓冲区
+        # experience replay buffer
         self.replay_buffer = FOReplayBuffer(buffer_capacity, state_dim, action_dim, n_agents)
         
-        # 训练计数器
+        # training counter
         self.total_iterations = 0
         
-        # FlexOffer约束权重
+        # FlexOffer constraint weight
         self.fo_constraint_weight = 0.1
         self.fo_satisfaction_weight = 0.2
     
     def select_actions(self, states: np.ndarray, add_noise: bool = True) -> np.ndarray:
-        """为所有智能体选择动作"""
+        """select actions for all agents"""
         actions = np.zeros((self.n_agents, self.action_dim))
         
         for i, agent in enumerate(self.agents):
-            # 为每个智能体传入正确的状态切片
-            if len(states.shape) == 2:  # 多智能体状态: (n_agents, state_dim)
-                agent_state = states[i]  # 选择第i个智能体的状态
-            else:  # 单智能体状态或全局状态: (state_dim,)
-                agent_state = states  # 使用全局状态
+            # pass correct state slice to each agent
+            if len(states.shape) == 2:  # multi-agent state: (n_agents, state_dim)
+                agent_state = states[i]  # select state of the i-th agent
+            else:  # single-agent state or global state: (state_dim,)
+                agent_state = states  # use global state
             
             actions[i] = agent.select_action(agent_state, add_noise)
         
@@ -162,12 +154,12 @@ class FOMATD3:
     def store_experience(self, states: np.ndarray, actions: np.ndarray, rewards: np.ndarray,
                         next_states: np.ndarray, dones: np.ndarray, fo_constraints: np.ndarray = None,
                         fo_satisfaction: np.ndarray = None):
-        """存储经验到回放缓冲区"""
-        # 🔧 修复：将多智能体状态展平为全局状态
-        if len(states.shape) == 2:  # 多智能体状态: (n_agents, obs_dim)
-            global_state = states.flatten()  # 展平为全局状态
+        """store experience to replay buffer"""
+        # flatten multi-agent state to global state
+        if len(states.shape) == 2:  # multi-agent state: (n_agents, obs_dim)
+            global_state = states.flatten()  # flatten to global state
             global_next_state = next_states.flatten()
-        else:  # 已经是全局状态
+        else:  # already global state
             global_state = states
             global_next_state = next_states
             
@@ -175,17 +167,17 @@ class FOMATD3:
                               fo_constraints, fo_satisfaction)
     
     def update(self) -> Optional[Dict[str, float]]:
-        """更新所有智能体的策略"""
+        """update all agents' policy"""
         if len(self.replay_buffer) < self.batch_size:
             return None
         
         self.total_iterations += 1
         
-        # 从缓冲区采样
+        # sample from replay buffer
         states, actions, rewards, next_states, dones, fo_constraints, fo_satisfaction = \
             self.replay_buffer.sample(self.batch_size)
         
-        # 转换为张量
+        # convert to tensor
         states = torch.FloatTensor(states).to(self.device)
         actions = torch.FloatTensor(actions).to(self.device)
         rewards = torch.FloatTensor(rewards).to(self.device)
@@ -194,21 +186,21 @@ class FOMATD3:
         fo_constraints = torch.FloatTensor(fo_constraints).to(self.device)
         fo_satisfaction = torch.FloatTensor(fo_satisfaction).to(self.device)
         
-        # 更新每个智能体的Critic
+        # update each agent's Critic
         critic_losses = []
         for i, agent in enumerate(self.agents):
             critic_loss = self._update_critic(agent, i, states, actions, rewards, 
                                             next_states, dones, fo_constraints, fo_satisfaction)
             critic_losses.append(critic_loss)
         
-        # 延迟更新Actor
+        # delay update Actor
         actor_losses = []
         if self.total_iterations % self.policy_delay == 0:
             for i, agent in enumerate(self.agents):
                 actor_loss = self._update_actor(agent, i, states, actions, fo_constraints)
                 actor_losses.append(actor_loss)
                 
-                # 更新目标网络
+                # update target network
                 agent.update_target_networks()
         
         return {
@@ -221,31 +213,31 @@ class FOMATD3:
                       actions: torch.Tensor, rewards: torch.Tensor, next_states: torch.Tensor,
                       dones: torch.Tensor, fo_constraints: torch.Tensor, 
                       fo_satisfaction: torch.Tensor) -> float:
-        """更新Critic网络"""
+        """update Critic network"""
         with torch.no_grad():
-            # 计算目标动作
+            # calculate target action
             next_actions = torch.zeros_like(actions)
             for i, next_agent in enumerate(self.agents):
                 next_action = next_agent.target_actor(next_states)
                 
-                # 添加目标策略噪声
+                # add target policy noise
                 noise = torch.randn_like(next_action) * self.noise_scale
                 noise = torch.clamp(noise, -self.noise_clip, self.noise_clip)
                 next_action = torch.clamp(next_action + noise, -self.max_action, self.max_action)
                 next_actions[:, i] = next_action
             
-            # 展平动作用于Critic输入
+            # flatten action for Critic input
             next_actions_flat = next_actions.view(next_actions.size(0), -1)
             
-            # 计算目标Q值
+            # calculate target Q value
             target_q1, target_q2 = agent.target_critic(next_states, next_actions_flat)
             target_q = torch.min(target_q1, target_q2)
             
-            # 计算目标值，包含FlexOffer约束奖励
+            # calculate target value, including FlexOffer constraint reward
             fo_reward = self._compute_fo_reward(fo_satisfaction[:, agent_idx], fo_constraints[:, agent_idx])
             target_q = rewards[:, agent_idx] + fo_reward + (1 - dones[:, agent_idx]) * self.gamma * target_q
         
-        # 当前Q值
+        # current Q value
         current_actions_flat = actions.view(actions.size(0), -1)
         current_q1, current_q2 = agent.critic(states, current_actions_flat)
         
@@ -262,8 +254,8 @@ class FOMATD3:
     
     def _update_actor(self, agent: FOMATd3Policy, agent_idx: int, states: torch.Tensor,
                      actions: torch.Tensor, fo_constraints: torch.Tensor) -> float:
-        """更新Actor网络"""
-        # 计算当前策略动作
+        """update Actor network"""
+        # calculate current policy action
         policy_actions = torch.zeros_like(actions)
         for i, policy_agent in enumerate(self.agents):
             if i == agent_idx:
@@ -272,20 +264,20 @@ class FOMATD3:
                 with torch.no_grad():
                     policy_actions[:, i] = policy_agent.actor(states)
         
-        # 展平动作
+        # flatten action
         policy_actions_flat = policy_actions.view(policy_actions.size(0), -1)
         
-        # Actor损失：最大化Q值
+        # Actor loss: maximize Q value
         actor_loss = -agent.critic.Q1(states, policy_actions_flat).mean()
         
-        # 添加FlexOffer约束损失
+        # add FlexOffer constraint loss
         fo_constraint_loss = self._compute_fo_constraint_loss(
             policy_actions[:, agent_idx], fo_constraints[:, agent_idx]
         )
         
         total_actor_loss = actor_loss + self.fo_constraint_weight * fo_constraint_loss
         
-        # 优化Actor
+        # optimize Actor
         agent.actor.optimizer.zero_grad()
         total_actor_loss.backward()
         torch.nn.utils.clip_grad_norm_(agent.actor.parameters(), 1.0)
@@ -294,37 +286,37 @@ class FOMATD3:
         return total_actor_loss.item()
     
     def _compute_fo_reward(self, fo_satisfaction: torch.Tensor, fo_constraints: torch.Tensor) -> torch.Tensor:
-        """计算FlexOffer约束奖励"""
-        # 基于FlexOffer满意度的奖励
+        """calculate FlexOffer constraint reward"""
+        # reward based on FlexOffer satisfaction
         satisfaction_reward = self.fo_satisfaction_weight * fo_satisfaction
         
-        # 约束违反惩罚
+        # constraint violation penalty
         constraint_penalty = -0.1 * torch.sum(torch.clamp(fo_constraints - 1.0, min=0.0), dim=-1)
         
         return satisfaction_reward + constraint_penalty
     
     def _compute_fo_constraint_loss(self, actions: torch.Tensor, constraints: torch.Tensor) -> torch.Tensor:
-        """计算FlexOffer约束损失"""
-        # 动作应该满足FlexOffer约束
+        """calculate FlexOffer constraint loss"""
+        # action should satisfy FlexOffer constraint
         constraint_violation = torch.clamp(torch.abs(actions) - torch.abs(constraints), min=0.0)
         return torch.mean(constraint_violation)
     
     def save_models(self, checkpoint_dir: str):
-        """保存所有智能体的模型"""
+        """save all agents' models"""
         os.makedirs(checkpoint_dir, exist_ok=True)
         for i, agent in enumerate(self.agents):
             agent_dir = os.path.join(checkpoint_dir, f"agent_{i}")
             agent.save_models(agent_dir)
     
     def load_models(self, checkpoint_dir: str):
-        """加载所有智能体的模型"""
+        """load all agents' models"""
         for i, agent in enumerate(self.agents):
             agent_dir = os.path.join(checkpoint_dir, f"agent_{i}")
             if os.path.exists(agent_dir):
                 agent.load_models(agent_dir)
     
     def set_eval_mode(self):
-        """设置为评估模式"""
+        """set to evaluation mode"""
         for agent in self.agents:
             agent.actor.eval()
             agent.critic.eval()
@@ -332,7 +324,7 @@ class FOMATD3:
             agent.target_critic.eval()
     
     def set_train_mode(self):
-        """设置为训练模式"""
+        """set to training mode"""
         for agent in self.agents:
             agent.actor.train()
             agent.critic.train()
@@ -340,7 +332,7 @@ class FOMATD3:
             agent.target_critic.train()
     
     def get_action_info(self) -> Dict[str, Any]:
-        """获取动作信息，用于调试"""
+        """get action information, for debugging"""
         return {
             'n_agents': self.n_agents,
             'action_dim': self.action_dim,

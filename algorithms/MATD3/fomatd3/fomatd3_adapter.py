@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""
-FOMATD3 FO Pipeline 适配器
-
-基于原始MATD3架构的FlexOffer多智能体TD3适配器。
-严格遵循原始MATD3设计：每个agent的critic接收全局状态+自己动作。
-
-原始MATD3架构特点：
-1. 每个agent独立的Actor网络：只接收自己的观测  
-2. 每个agent独立的Critic网络：接收全局状态+自己动作
-3. TD3双Q网络机制：每个critic有两个Q网络
-4. 延迟策略更新：减少actor更新频率
-5. FlexOffer约束集成
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -26,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 
 class FOTd3Agent:
-    """单个FlexOffer TD3 Agent - 严格按照原始MATD3架构"""
     
     def __init__(self, agent_id: str, obs_dim: int, action_dim: int, global_state_dim: int,
                  lr_actor: float = 1e-4, lr_critic: float = 1e-3, hidden_dim: int = 256,
@@ -41,25 +26,25 @@ class FOTd3Agent:
         self.max_action = max_action
         self.device = torch.device(device)
         
-        # Actor网络：只接收自己的观测（原始MATD3架构）
+        # Actor network: only receive own observation (original MATD3 architecture)
         self.actor, self.actor_optimizer = self._build_actor_network(obs_dim, action_dim, hidden_dim, lr_actor)
         self.actor_target, _ = self._build_actor_network(obs_dim, action_dim, hidden_dim, lr_actor)
         
-        # Critic网络：接收全局状态+自己动作（原始MATD3架构）
+        # Critic network: receive global state + own action (original MATD3 architecture)
         critic_input_dim = global_state_dim + action_dim
         self.critic, self.critic_optimizer = self._build_critic_network(critic_input_dim, hidden_dim, lr_critic)
         self.critic_target, _ = self._build_critic_network(critic_input_dim, hidden_dim, lr_critic)
         
-        # 初始化目标网络
+        # initialize target networks
         self._hard_update(self.actor_target, self.actor)
         self._hard_update(self.critic_target, self.critic)
         
-        # 训练统计
+        # training statistics
         self.actor_loss_history = deque(maxlen=100)
         self.critic_loss_history = deque(maxlen=100)
         
     def _build_actor_network(self, input_dim: int, output_dim: int, hidden_dim: int, lr: float):
-        """构建Actor网络"""
+        """build Actor network"""
         class ActorNetwork(nn.Module):
             def __init__(self):
                 super().__init__()
@@ -67,7 +52,7 @@ class FOTd3Agent:
                 self.fc2 = nn.Linear(hidden_dim, hidden_dim)
                 self.fc3 = nn.Linear(hidden_dim, output_dim)
                 
-                # 权重初始化
+                # weight initialization
                 nn.init.xavier_uniform_(self.fc1.weight)
                 nn.init.xavier_uniform_(self.fc2.weight)
                 nn.init.xavier_uniform_(self.fc3.weight, gain=0.01)
@@ -82,21 +67,21 @@ class FOTd3Agent:
         return network, optimizer
         
     def _build_critic_network(self, input_dim: int, hidden_dim: int, lr: float):
-        """构建Critic网络（双Q网络）"""
+        """build Critic network (Twin Q network)"""
         class CriticNetwork(nn.Module):
             def __init__(self):
                 super().__init__()
-                # Q1网络
+                # Q1 network
                 self.fc1_q1 = nn.Linear(input_dim, hidden_dim)
                 self.fc2_q1 = nn.Linear(hidden_dim, hidden_dim)
                 self.fc3_q1 = nn.Linear(hidden_dim, 1)
                 
-                # Q2网络  
+                # Q2 network  
                 self.fc1_q2 = nn.Linear(input_dim, hidden_dim)
                 self.fc2_q2 = nn.Linear(hidden_dim, hidden_dim)
                 self.fc3_q2 = nn.Linear(hidden_dim, 1)
                 
-                # 权重初始化
+                # weight initialization
                 for layer in [self.fc1_q1, self.fc2_q1, self.fc3_q1, 
                              self.fc1_q2, self.fc2_q2, self.fc3_q2]:
                     nn.init.xavier_uniform_(layer.weight)
@@ -124,7 +109,7 @@ class FOTd3Agent:
         return network, optimizer
         
     def select_action(self, obs: np.ndarray, add_noise: bool = True, noise_scale: float = 0.1) -> np.ndarray:
-        """选择动作"""
+        """select action"""
         obs_tensor = torch.FloatTensor(obs).to(self.device)
         if len(obs_tensor.shape) == 1:
             obs_tensor = obs_tensor.unsqueeze(0)
@@ -146,30 +131,30 @@ class FOTd3Agent:
                      reward: torch.Tensor, next_global_state: torch.Tensor, 
                      next_own_action: torch.Tensor, done: torch.Tensor,
                      noise_clip: float = 0.2, target_noise: float = 0.2) -> float:
-        """更新Critic网络 - 原始MATD3架构：全局状态+自己动作"""
+        """update Critic network - original MATD3 architecture: global state + own action"""
         with torch.no_grad():
-            # 目标策略噪声（只对自己的动作）
+            # target policy noise (only for own action)
             noise = torch.randn_like(next_own_action) * target_noise
             noise = torch.clamp(noise, -noise_clip, noise_clip)
             next_action_noisy = torch.clamp(next_own_action + noise, -self.max_action, self.max_action)
             
-            # 目标Q值计算（全局状态 + 自己动作）
+            # target Q value calculation (global state + own action)
             next_state_action = torch.cat([next_global_state, next_action_noisy], dim=1)
             target_q1, target_q2 = self.critic_target(next_state_action)
             target_q = torch.min(target_q1, target_q2)
             target_q = reward + (1 - done) * self.gamma * target_q
             
-        # 当前Q值（全局状态 + 自己动作）
+        # current Q value (global state + own action)
         current_state_action = torch.cat([global_state, own_action], dim=1)
         current_q1, current_q2 = self.critic(current_state_action)
         
-        # Critic损失
+        # Critic loss
         critic_loss = F.mse_loss(current_q1, target_q) + F.mse_loss(current_q2, target_q)
         
-        # 优化
+        # optimize
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
-        # 🔧 改进5: 梯度裁剪防止梯度爆炸
+        # gradient clipping to prevent gradient explosion
         torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1.0)
         self.critic_optimizer.step()
         
@@ -177,16 +162,16 @@ class FOTd3Agent:
         return critic_loss.item()
         
     def update_actor(self, global_state: torch.Tensor, own_obs: torch.Tensor) -> float:
-        """更新Actor网络"""
-        # 计算actor损失
+        """update Actor network"""
+        # calculate actor loss
         action = self.actor(own_obs)
         state_action = torch.cat([global_state, action], dim=1)
         actor_loss = -self.critic.Q1(state_action).mean()
         
-        # 优化
+        # optimize
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
-        # 🔧 改进6: 梯度裁剪防止梯度爆炸
+        # gradient clipping to prevent gradient explosion
         torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 1.0)
         self.actor_optimizer.step()
         
@@ -194,23 +179,23 @@ class FOTd3Agent:
         return actor_loss.item()
         
     def soft_update_targets(self):
-        """软更新目标网络"""
+        """soft update target networks"""
         self._soft_update(self.actor_target, self.actor, self.tau)
         self._soft_update(self.critic_target, self.critic, self.tau)
         
     def _soft_update(self, target, source, tau):
-        """软更新"""
+        """soft update"""
         for target_param, param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
             
     def _hard_update(self, target, source):
-        """硬更新"""
+        """hard update"""
         for target_param, param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_(param.data)
 
 
 class FOMATD3Adapter:
-    """FOMATD3算法的FO Pipeline适配器 - 严格遵循原始MATD3架构"""
+    """FOMATD3 algorithm FO Pipeline adapter - strictly follow original MATD3 architecture"""
     
     def __init__(self, 
                  state_dim: int,
@@ -231,7 +216,7 @@ class FOMATD3Adapter:
                  device: str = "cpu",
                  **kwargs):
         
-        self.state_dim = state_dim  # 单个agent的观测维度
+        self.state_dim = state_dim  # dimension of single agent's observation
         self.action_dim = action_dim
         self.num_agents = num_agents
         self.episode_length = episode_length
@@ -242,10 +227,10 @@ class FOMATD3Adapter:
         self.target_noise = target_noise
         self.device = device
         
-        # 全局状态维度（用于critic）
+        # global state dimension (for critic)
         self.global_state_dim = state_dim * num_agents
         
-        # 创建agents
+        # create agents
         self.agents = {}
         manager_ids = [f"manager_{i+1}" for i in range(num_agents)]
         
@@ -263,10 +248,10 @@ class FOMATD3Adapter:
                 device=device
             )
         
-        # 经验回放缓冲区
+        # experience replay buffer
         self.replay_buffer = self._create_replay_buffer(buffer_capacity)
         
-        # 训练统计
+        # training statistics
         self.total_iterations = 0
         self.training_history = {
             'actor_losses': [],
@@ -274,13 +259,13 @@ class FOMATD3Adapter:
             'rewards': []
         }
         
-        # 添加training_iterations属性
+        # add training_iterations attribute
         self.training_iterations = 0
         
-        # 管理器奖励统计
+        # manager reward statistics
         self._manager_rewards = {agent_id: [] for agent_id in manager_ids}
         
-        # 兼容性参数对象
+        # compatibility parameter object
         class Args:
             def __init__(self, policy_delay, noise_clip, noise_scale, target_noise):
                 self.policy_delay = policy_delay
@@ -290,28 +275,28 @@ class FOMATD3Adapter:
                 
         self.args = Args(policy_delay, noise_clip, noise_scale, target_noise)
         
-        # 初始化经验缓存变量（用于处理next_states）
+        # initialize experience cache variables (for handling next_states)
         self._prev_states = None
         self._prev_actions = None
         self._prev_rewards = None
         self._prev_dones = None
         
-        # 🔧 添加奖励标准化机制
+        # add reward normalization mechanism
         self.reward_normalizer = self._create_reward_normalizer()
         
-        # 🔧 添加训练改进参数
+        # add training improvement parameters
         self.training_improvement_config = {
             'reward_clipping': True,
-            'reward_clip_range': (-10.0, 10.0),  # 奖励裁剪范围
+            'reward_clip_range': (-10.0, 10.0),  # reward clipping range
             'adaptive_noise': True,
             'noise_decay_rate': 0.995,
             'min_noise': 0.01,
             'gradient_clip_value': 1.0,
-            'buffer_warm_up': 100,  # 🔧 修复1: 大幅减少预热期从1000到100
+            'buffer_warm_up': 100,  
         }
         
     def _create_replay_buffer(self, capacity: int):
-        """创建经验回放缓冲区"""
+        """create experience replay buffer"""
         return {
             'states': np.zeros((capacity, self.num_agents, self.state_dim)),
             'actions': np.zeros((capacity, self.num_agents, self.action_dim)),
@@ -324,25 +309,23 @@ class FOMATD3Adapter:
         }
         
     def _create_reward_normalizer(self):
-        """创建奖励标准化器"""
+        """create reward normalizer"""
         return {
             'running_min': float('inf'),
             'running_max': float('-inf'),
-            'running_mean': 0.0,  # 添加缺失的键
-            'running_var': 1.0,   # 添加缺失的键
+            'running_mean': 0.0,  
+            'running_var': 1.0,  
             'count': 0,
             'epsilon': 1e-8
         }
         
     def _normalize_rewards(self, rewards: np.ndarray) -> np.ndarray:
-        """标准化奖励值 - 简单缩放方法，保持相对关系"""
-        
-        # 🔧 方法1：固定除数缩放（推荐）- 假设奖励在500-600范围
-        # 将奖励从~575缩放到~0.575
+        """normalize rewards - scaling method, keep relative relationship"""
+
         fixed_scale_normalized = rewards / 1000.0
         
-        # 🔧 方法2：动态范围标准化（保持相对关系）
-        # 更新运行的最大值和最小值
+        # dynamic range normalization (keep relative relationship)
+        # update running max and min
         if self.reward_normalizer['count'] == 0:
             self.reward_normalizer['running_min'] = np.min(rewards)
             self.reward_normalizer['running_max'] = np.max(rewards)
@@ -356,29 +339,29 @@ class FOMATD3Adapter:
         
         self.reward_normalizer['count'] += len(rewards)
         
-        # 防止除零
+        # prevent division by zero
         reward_range = self.reward_normalizer['running_max'] - self.reward_normalizer['running_min']
         if reward_range > self.reward_normalizer['epsilon']:
-            # 标准化到[0,1]范围，保持相对关系
+            # normalize to [0,1] range, keep relative relationship
             range_normalized = (rewards - self.reward_normalizer['running_min']) / reward_range
-            # 进一步缩放到合适范围
-            range_normalized = range_normalized * 0.1  # 缩放到[0,0.1]
+            # further scale to appropriate range
+            range_normalized = range_normalized * 0.1  # scale to [0,0.1]
         else:
-            # 如果奖励变化很小，使用固定缩放
+            # if reward change is small, use fixed scaling
             range_normalized = fixed_scale_normalized
         
-        # 🔧 选择标准化方法：
-        # 如果奖励变化范围较大，使用动态范围标准化
-        # 如果奖励变化较小，使用固定缩放
-        if reward_range > 10.0:  # 奖励变化超过10，使用动态标准化
+        # choose normalization method:
+        # if reward change range is large, use dynamic range normalization
+        # if reward change is small, use fixed scaling
+        if reward_range > 10.0:  # if reward change is larger than 10, use dynamic normalization
             normalized_rewards = range_normalized
-        else:  # 奖励变化较小，使用固定缩放
+        else:  # if reward change is small, use fixed scaling
             normalized_rewards = fixed_scale_normalized
         
         return normalized_rewards
     
     def _update_exploration_noise(self):
-        """动态调整探索噪声"""
+        """dynamic adjust exploration noise"""
         if self.training_improvement_config['adaptive_noise']:
             current_noise = self.noise_scale
             decay_rate = self.training_improvement_config['noise_decay_rate']
@@ -387,33 +370,26 @@ class FOMATD3Adapter:
             new_noise = max(min_noise, current_noise * decay_rate)
             self.noise_scale = new_noise
             
-            # 更新所有agent的噪声
+            # update noise for all agents
             for agent in self.agents.values():
                 agent.noise_scale = new_noise
         
     def reset_buffers(self):
-        """重置缓冲区"""
+        """reset buffers"""
         self.replay_buffer['ptr'] = 0
         self.replay_buffer['size'] = 0
         
-        # 重置经验缓存变量
+        # reset experience cache variables
         self._prev_states = None
         self._prev_actions = None
         self._prev_rewards = None
         self._prev_dones = None
         
     def select_actions(self, obs: Dict[str, np.ndarray], deterministic: bool = False) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray]]:
-        """
-        选择FlexOffer参数生成动作（TD3连续动作优化）
-        
-        🔧 重构后的环境适配：
-        - 动作现在对应FlexOffer参数：[start_flex, end_flex, energy_min_factor, energy_max_factor, priority_weight] × 设备数量
-        - TD3双Q网络机制非常适合FlexOffer参数的稳定优化
-        - 延迟策略更新减少FlexOffer策略的过度更新
-        """
+
         actions = {}
-        action_log_probs = {}  # TD3不使用，保持兼容性
-        values = {}           # TD3不使用，保持兼容性
+        action_log_probs = {}  # TD3 not used, keep compatibility
+        values = {}           # TD3 not used, keep compatibility
         
         for manager_id, observation in obs.items():
             if manager_id in self.agents:
@@ -423,17 +399,16 @@ class FOMATD3Adapter:
                     noise_scale=self.noise_scale
                 )
                 
-                # 🔧 重构适配：将原始动作映射到FlexOffer参数范围
                 fo_action = self._map_action_to_fo_params(raw_action)
                 
                 actions[manager_id] = fo_action
-                action_log_probs[manager_id] = np.zeros(self.action_dim)  # 占位符
-                values[manager_id] = np.zeros(1)  # 占位符
+                action_log_probs[manager_id] = np.zeros(self.action_dim) 
+                values[manager_id] = np.zeros(1)  
                 
-                logger.debug(f"Manager {manager_id} TD3 FlexOffer动作: {fo_action.shape} 维, "
-                           f"前5个参数: {fo_action[:5]}")
+                logger.debug(f"Manager {manager_id} TD3 FlexOffer action: {fo_action.shape} dim, "
+                           f"first 5 parameters: {fo_action[:5]}")
             else:
-                logger.warning(f"未知的manager_id: {manager_id}")
+                logger.warning(f"unknown manager_id: {manager_id}")
                 actions[manager_id] = np.random.uniform(-1, 1, self.action_dim)
                 action_log_probs[manager_id] = np.zeros(self.action_dim)
                 values[manager_id] = np.zeros(1)
@@ -448,54 +423,54 @@ class FOMATD3Adapter:
                      infos: Dict[str, Any],
                      action_log_probs: Optional[Dict[str, np.ndarray]] = None,
                      values: Optional[Dict[str, np.ndarray]] = None):
-        """收集经验步骤 - 使用与FOMADDPG一致的接口"""
+        """collect experience step """
         try:
             manager_ids = list(obs.keys())
             
-            # 转换为数组格式
+            # convert to array format
             states = np.array([obs[mid] for mid in manager_ids])
             actions_array = np.array([actions[mid] for mid in manager_ids])
             rewards_array = np.array([rewards[mid] for mid in manager_ids])
             dones_array = np.array([dones[mid] for mid in manager_ids])
             
-            # 使用缓存机制处理next_states（模仿FOMADDPG的成功模式）
+            # use cache mechanism to handle next_states
             if hasattr(self, '_prev_states') and self._prev_states is not None:
-                # 如果有之前的状态，将其作为经验存储
+                # if there is previous state, store it as experience
                 ptr = self.replay_buffer['ptr']
                 self.replay_buffer['states'][ptr] = self._prev_states
                 self.replay_buffer['actions'][ptr] = self._prev_actions
                 self.replay_buffer['rewards'][ptr] = self._prev_rewards
-                self.replay_buffer['next_states'][ptr] = states  # 当前状态作为上一步的next_states
+                self.replay_buffer['next_states'][ptr] = states  # current state as previous step's next_states
                 self.replay_buffer['dones'][ptr] = self._prev_dones
                 
                 self.replay_buffer['ptr'] = (ptr + 1) % self.replay_buffer['capacity']
                 self.replay_buffer['size'] = min(self.replay_buffer['size'] + 1, self.replay_buffer['capacity'])
             
-            # 保存当前状态用于下次存储
+            # save current state for next storage
             self._prev_states = states.copy()
             self._prev_actions = actions_array.copy()
             self._prev_rewards = rewards_array.copy()
             self._prev_dones = dones_array.copy()
             
         except Exception as e:
-            logger.error(f"FOMATD3经验收集失败: {e}")
+            logger.error(f"FOMATD3 experience collection failed: {e}")
             
     def train_on_batch(self) -> Dict[str, Any]:
-        """训练一个batch - 严格按照原始MATD3架构（带奖励标准化改进）"""
-        # 🔧 改进1: 检查预热期
+        """train a batch - strictly follow original MATD3 architecture (with reward normalization improvement)"""
+        # check warm-up period
         warm_up_steps = self.training_improvement_config['buffer_warm_up']
         if self.replay_buffer['size'] < max(self.batch_size, warm_up_steps):
             return {'status': 'warming_up', 'buffer_size': self.replay_buffer['size']}
             
         self.total_iterations += 1
         
-        # 采样batch
+        # sample batch
         batch_indices = np.random.choice(self.replay_buffer['size'], self.batch_size, replace=False)
         
         states = torch.FloatTensor(self.replay_buffer['states'][batch_indices]).to(self.device)  # [batch, agents, obs_dim]
         actions = torch.FloatTensor(self.replay_buffer['actions'][batch_indices]).to(self.device)  # [batch, agents, action_dim]
         
-        # 🔧 改进2: 奖励标准化 - 关键修复！
+        # reward normalization
         raw_rewards = self.replay_buffer['rewards'][batch_indices]  # [batch, agents]
         normalized_rewards = np.zeros_like(raw_rewards)
         for agent_idx in range(self.num_agents):
@@ -506,11 +481,11 @@ class FOMATD3Adapter:
         next_states = torch.FloatTensor(self.replay_buffer['next_states'][batch_indices]).to(self.device)  # [batch, agents, obs_dim]
         dones = torch.FloatTensor(self.replay_buffer['dones'][batch_indices]).to(self.device)  # [batch, agents]
         
-        # 构建全局状态（拼接所有agent观测）
+        # build global state (concatenate all agent observations)
         global_states = states.view(self.batch_size, -1)  # [batch, agents*obs_dim]
         next_global_states = next_states.view(self.batch_size, -1)  # [batch, agents*obs_dim]
         
-        # 为下一状态生成动作（用于目标Q计算）
+        # generate action for next state (for target Q calculation)
         next_actions = []
         manager_ids = list(self.agents.keys())
         
@@ -520,7 +495,7 @@ class FOMATD3Adapter:
                 next_action = self.agents[manager_id].actor_target(agent_next_states)
                 next_actions.append(next_action)
         
-        # 训练每个agent - 原始MATD3架构
+        # train each agent - original MATD3 architecture
         training_stats = {}
         
         for i, manager_id in enumerate(manager_ids):
@@ -530,14 +505,14 @@ class FOMATD3Adapter:
             agent_dones = dones[:, i]  # [batch]
             agent_next_actions = next_actions[i]  # [batch, action_dim]
             
-            # 更新Critic - 原始MATD3：全局状态 + 自己动作
+            # update Critic - original MATD3: global state + own action
             critic_loss = self.agents[manager_id].update_critic(
                 global_states, agent_actions, agent_rewards,
                 next_global_states, agent_next_actions, agent_dones,
                 noise_clip=self.noise_clip, target_noise=self.target_noise
             )
             
-            # 延迟更新Actor
+            # delay update Actor
             if self.total_iterations % self.policy_delay == 0:
                 actor_loss = self.agents[manager_id].update_actor(global_states, agent_states)
                 self.agents[manager_id].soft_update_targets()
@@ -548,11 +523,11 @@ class FOMATD3Adapter:
                 
             training_stats[f'{manager_id}_critic_loss'] = critic_loss
         
-        # 🔧 改进3: 动态调整探索噪声
-        if self.total_iterations % 100 == 0:  # 每100步调整一次
+        # dynamic adjust exploration noise
+        if self.total_iterations % 100 == 0:  # adjust every 100 steps
             self._update_exploration_noise()
             
-        # 🔧 改进4: 添加训练统计
+        # add training statistics
         training_stats.update({
             'total_iterations': self.total_iterations,
             'buffer_size': self.replay_buffer['size'],
@@ -567,11 +542,10 @@ class FOMATD3Adapter:
         return training_stats
         
     def compute_returns(self):
-        """计算回报（TD3不需要，保持兼容性）"""
         pass
         
     def get_training_stats(self) -> Dict[str, Any]:
-        """获取训练统计"""
+        """get training statistics"""
         stats = {}
         for manager_id, agent in self.agents.items():
             if agent.actor_loss_history:
@@ -581,7 +555,7 @@ class FOMATD3Adapter:
         return stats
         
     def get_manager_rewards_summary(self) -> Dict[str, Any]:
-        """获取管理器奖励统计摘要"""
+        """get manager reward statistics summary"""
         summary = {}
         for manager_id, rewards in self._manager_rewards.items():
             if rewards:
@@ -599,14 +573,14 @@ class FOMATD3Adapter:
         return summary
 
     def save_models(self, save_path: str):
-        """保存模型"""
+        """save models"""
         os.makedirs(save_path, exist_ok=True)
         for manager_id, agent in self.agents.items():
             torch.save(agent.actor.state_dict(), f"{save_path}/{manager_id}_actor.pt")
             torch.save(agent.critic.state_dict(), f"{save_path}/{manager_id}_critic.pt")
             
     def load_models(self, load_path: str):
-        """加载模型"""
+        """load models"""
         for manager_id, agent in self.agents.items():
             actor_path = f"{load_path}/{manager_id}_actor.pt"
             critic_path = f"{load_path}/{manager_id}_critic.pt"
@@ -615,39 +589,23 @@ class FOMATD3Adapter:
                 agent.critic.load_state_dict(torch.load(critic_path, map_location=self.device))
                 agent._hard_update(agent.actor_target, agent.actor)
                 agent._hard_update(agent.critic_target, agent.critic)
-                logger.info(f"已加载{manager_id}的模型")
+                logger.info(f"model of {manager_id} loaded")
             else:
-                logger.warning(f"未找到{manager_id}的模型文件")
+                logger.warning(f"model file of {manager_id} not found")
     
     def _map_action_to_fo_params(self, raw_action: np.ndarray) -> np.ndarray:
-        """
-        将原始动作映射到FlexOffer参数范围
-        
-        FlexOffer参数范围：
-        - start_flex: [-1.0, 1.0] → 时间灵活性
-        - end_flex: [-1.0, 1.0] → 时间灵活性  
-        - energy_min_factor: [0.1, 1.0] → 最小能量因子
-        - energy_max_factor: [1.0, 2.0] → 最大能量因子
-        - priority_weight: [0.1, 2.0] → 优先级权重
-        
-        Args:
-            raw_action: 原始动作 [-1, 1]范围
-            
-        Returns:
-            fo_action: 映射到FlexOffer参数范围的动作
-        """
+
         fo_action = np.zeros_like(raw_action)
         
-        # 假设动作是5的倍数（每个设备5个参数）
         num_devices = len(raw_action) // 5 if len(raw_action) >= 5 else 1
         
         for i in range(num_devices):
             base_idx = i * 5
             if base_idx + 4 < len(raw_action):
-                # start_flex: [-1, 1] → [-1, 1] (保持不变)
+                # start_flex: [-1, 1] → [-1, 1] (keep unchanged)
                 fo_action[base_idx] = np.clip(raw_action[base_idx], -1.0, 1.0)
                 
-                # end_flex: [-1, 1] → [-1, 1] (保持不变)
+                # end_flex: [-1, 1] → [-1, 1] (keep unchanged)
                 fo_action[base_idx + 1] = np.clip(raw_action[base_idx + 1], -1.0, 1.0)
                 
                 # energy_min_factor: [-1, 1] → [0.1, 1.0]
@@ -662,8 +620,6 @@ class FOMATD3Adapter:
         return fo_action
     
     def _generate_default_fo_action(self) -> np.ndarray:
-        """生成默认的FlexOffer参数动作"""
-        # 生成合理的默认FlexOffer参数
         default_action = np.zeros(self.action_dim)
         num_devices = self.action_dim // 5 if self.action_dim >= 5 else 1
         
