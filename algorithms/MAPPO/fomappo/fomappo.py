@@ -6,34 +6,18 @@ import os
 import logging
 import traceback
 
-# 获取logger
 logger = logging.getLogger(__name__)
 
-# 添加onpolicy模块路径（修正版）
 current_dir = os.path.dirname(os.path.abspath(__file__))
 mappo_dir = os.path.dirname(current_dir)  # algorithms/MAPPO/
 
-# 🔧 关键修复：添加包含onpolicy的父目录，而不是onpolicy目录本身
 if mappo_dir not in sys.path:
     sys.path.insert(0, mappo_dir)
 
-# 现在可以安全导入onpolicy模块
 from onpolicy.utils.util import get_gard_norm, huber_loss, mse_loss, check
 from onpolicy.utils.valuenorm import ValueNorm
 
 class FOMAPPO():
-    """
-    FlexOffer Multi-Agent PPO (FOMAPPO) Algorithm
-    
-    专门为FlexOffer系统设计的多智能体PPO算法。
-    支持Manager级别的协作学习和设备级别的精确控制。
-    
-    主要特点：
-    - 设备级状态转移建模
-    - Manager间协作机制
-    - FlexOffer约束感知的奖励设计
-    - 分布式训练和集中式执行
-    """
     def __init__(self,
                  args,
                  policy,
@@ -42,7 +26,7 @@ class FOMAPPO():
         self.device = device
         self.tpdv = dict(dtype=torch.float32, device=device)
         self.policy = policy
-        self.args = args  # 保存args引用
+        self.args = args  # save args reference
 
         self.clip_param = args.clip_param
         self.ppo_epoch = args.ppo_epoch
@@ -63,7 +47,7 @@ class FOMAPPO():
         self._use_value_active_masks = args.use_value_active_masks
         self._use_policy_active_masks = args.use_policy_active_masks
         
-        # FlexOffer特定参数
+        # FlexOffer specific parameters
         self._use_device_coordination = getattr(args, 'use_device_coordination', True)
         self._device_coordination_weight = getattr(args, 'device_coordination_weight', 0.1)
         self._fo_constraint_weight = getattr(args, 'fo_constraint_weight', 0.2)
@@ -77,15 +61,15 @@ class FOMAPPO():
         else:
             self.value_normalizer = None
             
-        # 初始化buffer属性
+        # initialize buffer attribute
         self.buffer = None
         
-        # 从FOMAPPOAdapter获取buffer
+        # get buffer from FOMAPPOAdapter
         try:
-            # 尝试从adapter获取buffer
+            # try to get buffer from adapter
             from onpolicy.utils.shared_buffer import SharedReplayBuffer
             
-            # 如果args中有必要的空间信息，创建一个默认buffer
+            # if args has necessary space information, create a default buffer
             if hasattr(args, 'obs_space') and hasattr(args, 'share_obs_space') and hasattr(args, 'act_space'):
                 self.buffer = SharedReplayBuffer(
                     args=args,
@@ -94,15 +78,15 @@ class FOMAPPO():
                     cent_obs_space=args.share_obs_space,
                     act_space=args.act_space
                 )
-                logger.info("✅ 在FOMAPPO中成功创建默认buffer")
+                logger.info("✅ successfully create default buffer in FOMAPPO")
             else:
-                logger.warning("⚠️ 无法在FOMAPPO中创建默认buffer，缺少必要的空间信息")
+                logger.warning("⚠️ cannot create default buffer in FOMAPPO, missing necessary space information")
         except Exception as e:
-            logger.warning(f"⚠️ 初始化FOMAPPO buffer时出错: {e}")
-            # 不抛出异常，让代码继续执行
+            logger.warning(f"⚠️ initialize FOMAPPO buffer failed: {e}")
+            # do not throw exception, let the code continue
 
     def cal_value_loss(self, values, value_preds_batch, return_batch, active_masks_batch):
-        """计算价值函数损失"""
+        """calculate value function loss"""
         value_pred_clipped = value_preds_batch + (values - value_preds_batch).clamp(-self.clip_param,
                                                                                         self.clip_param)
         if self._use_popart or self._use_valuenorm:
@@ -111,7 +95,7 @@ class FOMAPPO():
                 error_clipped = self.value_normalizer.normalize(return_batch) - value_pred_clipped
                 error_original = self.value_normalizer.normalize(return_batch) - values
             else:
-                # Fallback when value_normalizer is None
+                # fallback when value_normalizer is None
                 error_clipped = return_batch - value_pred_clipped
                 error_original = return_batch - values
         else:
@@ -139,31 +123,31 @@ class FOMAPPO():
 
     def cal_device_coordination_loss(self, actions_batch, device_states_batch=None):
         """
-        计算设备协调损失
+        calculate device coordination loss
         
-        鼓励同一Manager内的设备协调工作，以及Manager间的协作
+        encourage coordination within the same Manager, and between Managers
         """
         if not self._use_device_coordination or device_states_batch is None:
             return torch.tensor(0.0, device=self.device)
         
-        # 计算设备动作的方差，鼓励协调
+        # calculate the variance of device actions, encourage coordination
         action_var = torch.var(actions_batch, dim=-1).mean()
         
-        # 设备协调损失：适度的方差有利于灵活性，过大的方差表示缺乏协调
-        coordination_loss = torch.clamp(action_var - 0.5, min=0.0)  # 目标方差为0.5
+        # device coordination loss: moderate variance is beneficial for flexibility, large variance indicates lack of coordination
+        coordination_loss = torch.clamp(action_var - 0.5, min=0.0)  # target variance is 0.5
         
         return self._device_coordination_weight * coordination_loss
 
     def cal_fo_constraint_loss(self, actions_batch, fo_constraints_batch=None):
         """
-        计算FlexOffer约束损失
+        calculate FlexOffer constraint loss
         
-        确保生成的动作符合FlexOffer的约束条件
+        ensure the generated actions meet FlexOffer constraints
         """
         if fo_constraints_batch is None:
             return torch.tensor(0.0, device=self.device)
         
-        # 简化实现：检查动作是否在允许范围内
+        # check if the actions are within the allowed range
         constraint_violations = torch.relu(actions_batch - 1.0) + torch.relu(-actions_batch)
         constraint_loss = constraint_violations.mean()
         
@@ -171,23 +155,23 @@ class FOMAPPO():
 
     def ppo_update(self, sample, update_actor=True):
         """
-        更新actor和critic网络
+        update actor and critic network
         
         Args:
-            sample: 训练数据批次
-            update_actor: 是否更新actor网络
+            sample: training data batch
+            update_actor: whether to update actor network
             
         Returns:
-            训练统计信息
+            training statistics
         """
-        # 解包样本数据
+        # unpack sample data
         if len(sample) == 12:
             share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, \
             value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
             adv_targ, available_actions_batch = sample
             device_states_batch = None
             fo_constraints_batch = None
-        elif len(sample) == 14:  # 扩展版本包含设备状态和FO约束
+        elif len(sample) == 14:  
             share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, \
             value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
             adv_targ, available_actions_batch, device_states_batch, fo_constraints_batch = sample
@@ -198,7 +182,7 @@ class FOMAPPO():
             device_states_batch = None
             fo_constraints_batch = None
 
-        # 🔧 修复：安全地转换tensor，避免None值导致错误
+        # safely convert tensor, avoid None value error
         if old_action_log_probs_batch is not None:
             old_action_log_probs_batch = check(old_action_log_probs_batch).to(**self.tpdv)
         else:
@@ -224,7 +208,7 @@ class FOMAPPO():
         else:
             active_masks_batch = torch.ones(1, 1, **self.tpdv)
 
-        # 🔧 修复：确保所有传递给evaluate_actions的参数都不是None
+        # ensure all parameters passed to evaluate_actions are not None
         if share_obs_batch is None:
             share_obs_batch = obs_batch
         if rnn_states_batch is None:
@@ -237,7 +221,7 @@ class FOMAPPO():
             batch_size = obs_batch.size(0) if obs_batch is not None else 1
             masks_batch = torch.ones(batch_size, 1, **self.tpdv)
 
-        # 前向传播
+        # forward propagation
         values, action_log_probs, dist_entropy = self.policy.evaluate_actions(share_obs_batch,
                                                                               obs_batch, 
                                                                               rnn_states_batch, 
@@ -246,7 +230,7 @@ class FOMAPPO():
                                                                               masks_batch, 
                                                                               available_actions_batch,
                                                                               active_masks_batch)
-        # Actor更新
+        # update actor
         imp_weights = torch.exp(action_log_probs - old_action_log_probs_batch)
 
         surr1 = imp_weights * adv_targ
@@ -259,7 +243,7 @@ class FOMAPPO():
         else:
             policy_action_loss = -torch.sum(torch.min(surr1, surr2), dim=-1, keepdim=True).mean()
 
-        # 添加FlexOffer特定损失
+        # add FlexOffer specific loss
         device_coord_loss = self.cal_device_coordination_loss(actions_batch, device_states_batch)
         fo_constraint_loss = self.cal_fo_constraint_loss(actions_batch, fo_constraints_batch)
         
@@ -277,7 +261,7 @@ class FOMAPPO():
 
         self.policy.actor_optimizer.step()
 
-        # Critic更新
+        # update critic
         value_loss = self.cal_value_loss(values, value_preds_batch, return_batch, active_masks_batch)
 
         self.policy.critic_optimizer.zero_grad()
@@ -294,15 +278,9 @@ class FOMAPPO():
         return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, device_coord_loss, fo_constraint_loss
 
     def train(self):
-        """
-        执行PPO训练
-            
-        Returns:
-            train_info: 训练信息字典
-        """
-        # 检查buffer是否有足够的数据
+        # check if buffer has enough data
         if not hasattr(self, 'buffer') or self.buffer is None:
-            logger.error("训练失败：FOMAPPO没有buffer属性")
+            logger.error("training failed: FOMAPPO has no buffer attribute")
             return {
                 'policy_loss': 0.0,
                 'value_loss': 0.0,
@@ -311,11 +289,11 @@ class FOMAPPO():
                 'ratio': 1.0
             }
             
-        # 使用adapter传递的buffer
+        # use buffer passed from adapter
         buffer = self.buffer
             
         if buffer.step == 0:
-            logger.error("训练失败：Buffer为空，step=0，没有收集到任何经验数据")
+            logger.error("training failed: buffer is empty, step=0, no experience data collected")
             return {
                 'policy_loss': 0.0,
                 'value_loss': 0.0,
@@ -324,14 +302,14 @@ class FOMAPPO():
                 'ratio': 1.0
             }
         
-        # 检查rewards数据质量
+        # check rewards data quality
         if hasattr(buffer, 'rewards'):
             non_zero_rewards = np.count_nonzero(buffer.rewards)
             total_rewards = np.prod(buffer.rewards.shape)
-            logger.info(f"训练前Buffer检查: rewards非零值比例={non_zero_rewards/total_rewards:.2%}, 数量={non_zero_rewards}/{total_rewards}")
+            logger.info(f"before training, buffer check: rewards non-zero ratio={non_zero_rewards/total_rewards:.2%}, number={non_zero_rewards}/{total_rewards}")
             
             if non_zero_rewards == 0:
-                logger.error("训练失败：Buffer中的rewards全为零，无法进行有效训练")
+                logger.error("training failed: all rewards in buffer are zero, cannot perform effective training")
                 return {
                     'policy_loss': 0.0,
                     'value_loss': 0.0,
@@ -340,36 +318,36 @@ class FOMAPPO():
                     'ratio': 1.0
                 }
         
-        # 计算优势（如果尚未计算）
+        # calculate advantage (if not calculated)
         if not hasattr(buffer, 'advantages') or buffer.advantages is None:
-            logger.warning("优势尚未计算，尝试计算")
+            logger.warning("advantage not calculated, try to calculate")
             try:
-                # 获取最后一步的值估计
+                # get the last step's value estimation
                 share_obs = np.concatenate(buffer.share_obs[-1])
                 rnn_states_critic = np.concatenate(buffer.rnn_states_critic[-1])
                 masks = np.concatenate(buffer.masks[-1])
                 
-                # 转换为tensor
+                # convert to tensor
                 share_obs = torch.FloatTensor(share_obs).to(self.device)
                 rnn_states_critic = torch.FloatTensor(rnn_states_critic).to(self.device)
                 masks = torch.FloatTensor(masks).to(self.device)
                 
-                # 获取值估计
+                # get value estimation
                 with torch.no_grad():
                     next_values = self.policy.get_values(share_obs, rnn_states_critic, masks)
                     
-                # 计算returns
+                # calculate returns
                 next_values = next_values.detach().cpu().numpy()
                 buffer.compute_returns(next_values, self.value_normalizer)
                 
-                # 检查计算结果
+                # check calculation result
                 if hasattr(buffer, 'returns'):
                     non_zero_returns = np.count_nonzero(buffer.returns)
                     total_returns = np.prod(buffer.returns.shape)
-                    logger.info(f"Returns计算结果: 非零值比例={non_zero_returns/total_returns:.2%}, 数量={non_zero_returns}/{total_returns}")
+                    logger.info(f"returns calculation result: non-zero ratio={non_zero_returns/total_returns:.2%}, number={non_zero_returns}/{total_returns}")
                     
                     if non_zero_returns == 0:
-                        logger.error("计算的returns全为零，无法进行有效训练")
+                        logger.error("calculation of returns is all zero, cannot perform effective training")
                         return {
                             'policy_loss': 0.0,
                             'value_loss': 0.0,
@@ -379,7 +357,7 @@ class FOMAPPO():
                         }
                 
             except Exception as e:
-                logger.error(f"计算优势失败: {e}")
+                logger.error(f"calculate advantage failed: {e}")
                 import traceback
                 logger.error(traceback.format_exc())
                 return {
@@ -396,7 +374,7 @@ class FOMAPPO():
         train_info['dist_entropy'] = 0.0
         train_info['ratio'] = 0.0
         
-        # 准备数据
+        # prepare data
         try:
             advantages = buffer.advantages
             if self.args.use_advantage_normalization:
@@ -405,10 +383,10 @@ class FOMAPPO():
                 advantages_copy[advantages_copy < -1e10] = -1e10
                 advantages = (advantages_copy - advantages_copy.mean()) / (advantages_copy.std() + 1e-5)
                 
-            # 记录优势信息
-            logger.info(f"优势统计: 均值={np.mean(advantages):.6f}, 标准差={np.std(advantages):.6f}, 最小值={np.min(advantages):.6f}, 最大值={np.max(advantages):.6f}")
+            # record advantage information
+            logger.info(f"advantage statistics: mean={np.mean(advantages):.6f}, std={np.std(advantages):.6f}, min={np.min(advantages):.6f}, max={np.max(advantages):.6f}")
         except Exception as e:
-            logger.error(f"准备优势数据失败: {e}")
+            logger.error(f"prepare advantage data failed: {e}")
             return {
                 'policy_loss': 0.0,
                 'value_loss': 0.0,
@@ -417,21 +395,21 @@ class FOMAPPO():
                 'ratio': 1.0
             }
         
-        # 记录PPO更新开始
-        logger.info(f"开始PPO更新: {self.args.ppo_epoch}个epoch, {self.args.num_mini_batch}个mini-batch")
+        # record PPO update start
+        logger.info(f"start PPO update: {self.args.ppo_epoch} epochs, {self.args.num_mini_batch} mini-batches")
         
-        # PPO更新
+        # PPO update
         for epoch in range(self.args.ppo_epoch):
             try:
                 data_generator = buffer.feed_forward_generator(advantages, self.args.num_mini_batch)
                 
                 for sample in data_generator:
-                    # 解包样本数据
+                    # unpack sample data
                     share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, \
                     value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
                     adv_targ, available_actions_batch = sample
                     
-                    # 转换为tensor
+                    # convert to tensor
                     share_obs_batch = torch.FloatTensor(share_obs_batch).to(self.device)
                     obs_batch = torch.FloatTensor(obs_batch).to(self.device)
                     rnn_states_batch = torch.FloatTensor(rnn_states_batch).to(self.device)
@@ -444,7 +422,7 @@ class FOMAPPO():
                     old_action_log_probs_batch = torch.FloatTensor(old_action_log_probs_batch).to(self.device)
                     adv_targ = torch.FloatTensor(adv_targ).to(self.device)
                     
-                    # 获取新的动作对数概率和值估计
+                    # get new action log probability and value estimation
                     values, action_log_probs, dist_entropy = self.policy.evaluate_actions(share_obs_batch,
                                                                                          obs_batch, 
                                                                                          rnn_states_batch,
@@ -453,17 +431,17 @@ class FOMAPPO():
                                                                                          masks_batch,
                                                                                          active_masks_batch)
                     
-                    # 计算比率
+                    # calculate ratio
                     ratio = torch.exp(action_log_probs - old_action_log_probs_batch)
                     
-                    # 裁剪比率
+                    # clip ratio
                     surr1 = ratio * adv_targ
                     surr2 = torch.clamp(ratio, 1.0 - self.args.clip_param, 1.0 + self.args.clip_param) * adv_targ
                     
-                    # 策略损失
+                    # policy loss
                     policy_loss = -torch.min(surr1, surr2).mean()
                     
-                    # 值损失
+                    # value loss
                     if self.args.use_clipped_value_loss:
                         value_pred_clipped = value_preds_batch + (values - value_preds_batch).clamp(-self.args.clip_param, self.args.clip_param)
                         value_losses = (values - return_batch).pow(2)
@@ -472,15 +450,15 @@ class FOMAPPO():
                     else:
                         value_loss = 0.5 * (return_batch - values).pow(2).mean()
                     
-                    # 总损失
+                    # total loss
                     loss = policy_loss + self.args.value_loss_coef * value_loss - self.args.entropy_coef * dist_entropy
                     
-                    # 更新策略
+                    # update policy
                     self.policy.actor_optimizer.zero_grad()
                     self.policy.critic_optimizer.zero_grad()
                     loss.backward()
                     
-                    # 梯度裁剪
+                    # gradient clipping
                     if self.args.use_max_grad_norm:
                         grad_norm = nn.utils.clip_grad_norm_(self.policy.actor.parameters(), self.args.max_grad_norm)
                     else:
@@ -489,7 +467,7 @@ class FOMAPPO():
                     self.policy.actor_optimizer.step()
                     self.policy.critic_optimizer.step()
 
-                    # 更新训练信息
+                    # update training information
                     train_info['policy_loss'] += policy_loss.item()
                     train_info['value_loss'] += value_loss.item()
                     train_info['dist_entropy'] += dist_entropy.item()
@@ -497,42 +475,41 @@ class FOMAPPO():
                     train_info['grad_norm'] = grad_norm
                     
             except Exception as e:
-                logger.error(f"PPO更新失败: {e}")
+                logger.error(f"PPO update failed: {e}")
                 import traceback
                 logger.error(traceback.format_exc())
                 continue
         
-        # 计算平均损失
+        # calculate average loss
         num_updates = self.args.ppo_epoch * self.args.num_mini_batch
         if num_updates > 0:
             for k in train_info.keys():
                 if k != 'grad_norm':
                     train_info[k] /= num_updates
         
-        # 确保返回值不为零（如果训练确实发生）
+        # ensure return value is not zero (if training actually happened)
         if num_updates > 0:
             for key in ['policy_loss', 'value_loss', 'dist_entropy']:
                 if key in train_info and abs(train_info[key]) < 1e-10:
-                    # 使用一个非常小的值，而不是0.001，以便区分真正的训练失败
                     train_info[key] = 1e-8
         
-        # 记录训练结果
-        logger.info(f"PPO训练完成: policy_loss={train_info['policy_loss']:.6f}, value_loss={train_info['value_loss']:.6f}, entropy={train_info['dist_entropy']:.6f}")
+        # record training result
+        logger.info(f"PPO training completed: policy_loss={train_info['policy_loss']:.6f}, value_loss={train_info['value_loss']:.6f}, entropy={train_info['dist_entropy']:.6f}")
         
-        # 训练后处理buffer
+        # after training, process buffer
         try:
             buffer.after_update()
         except Exception as e:
-            logger.error(f"Buffer更新后处理失败: {e}")
+            logger.error(f"after training, process buffer failed: {e}")
      
         return train_info
 
     def prep_training(self):
-        """准备训练模式"""
+        """prepare training mode"""
         self.policy.actor.train()
         self.policy.critic.train()
 
     def prep_rollout(self):
-        """准备推理模式"""
+        """prepare inference mode"""
         self.policy.actor.eval()
         self.policy.critic.eval() 
