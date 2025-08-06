@@ -1,11 +1,3 @@
-"""
-FlexOffer Shapley Q-value Deep Deterministic Policy Gradient (FOSQDDPG) Algorithm
-
-This module implements the main FOSQDDPG algorithm adapted for FlexOffer framework.
-FOSQDDPG combines Shapley value-based credit assignment with deterministic policy
-gradient for multi-agent FlexOffer optimization.
-"""
-
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -68,12 +60,6 @@ class FOReplayBuffer:
 
 
 class FOSQDDPG:
-    """
-    FlexOffer Shapley Q-value Deep Deterministic Policy Gradient Algorithm
-    
-    This algorithm combines SQDDPG's Shapley value-based credit assignment
-    with FlexOffer-specific constraints and multi-agent coordination.
-    """
     
     def __init__(self,
                  n_agents: int,

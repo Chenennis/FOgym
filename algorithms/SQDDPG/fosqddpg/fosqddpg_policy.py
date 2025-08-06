@@ -1,11 +1,3 @@
-"""
-FOSQDDPG Policy Networks for FlexOffer Framework
-
-This module implements Actor and Critic networks for FOSQDDPG algorithm,
-adapted for FlexOffer multi-agent environment with Shapley value-based
-credit assignment.
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,10 +6,6 @@ from typing import Dict, List, Tuple, Optional
 
 
 class FOActorNetwork(nn.Module):
-    """
-    Actor network for FOSQDDPG algorithm
-    Generates continuous actions for FlexOffer control
-    """
     
     def __init__(self, 
                  state_dim: int,
