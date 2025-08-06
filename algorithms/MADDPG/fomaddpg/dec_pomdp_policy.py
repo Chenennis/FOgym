@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""
-FOMADDPG Dec-POMDP策略网络
-
-为FOMADDPG算法提供支持Dec-POMDP的Actor-Critic网络架构。
-针对确定性策略梯度算法的特点，设计专门的网络结构。
-
-核心特性：
-1. Dec-POMDP感知的Actor网络（确定性策略）
-2. 集中式训练的Critic网络（多智能体价值评估）
-3. 信息融合层（私有+公共+他者信息整合）
-4. 目标网络软更新机制
-5. DDPG特定的网络结构优化
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -21,27 +7,21 @@ import numpy as np
 import sys
 import os
 
-# 添加项目路径
+# add project path
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 
 from fo_common.dec_pomdp_config import DecPOMDPConfig
 from .dec_pomdp_adapter import FOMaddpgDecPOMDPAdapter
 
 class DecPOMDPActor(nn.Module):
-    """
-    Dec-POMDP感知的Actor网络（FOMADDPG专用）
-    
-    专门为确定性策略梯度算法设计的Actor网络，
-    支持分层观测信息处理和确定性动作输出。
-    """
     
     def __init__(self, 
-                 private_dim: int = 40,    # 增强私有观测维度
-                 public_dim: int = 18,     # 公共观测维度
-                 others_dim: int = 15,     # 他者观测维度
-                 action_dim: int = 36,     # 动作维度
-                 hidden_dim: int = 256,    # 隐藏层维度
-                 max_action: float = 1.0,  # 最大动作值
+                 private_dim: int = 40,    # enhanced private observation dimension
+                 public_dim: int = 18,     # public observation dimension
+                 others_dim: int = 15,     # other observation dimension
+                 action_dim: int = 36,     # action dimension
+                 hidden_dim: int = 256,    # hidden layer dimension
+                 max_action: float = 1.0,  # maximum action value
                  device: str = "cpu"):
         super(DecPOMDPActor, self).__init__()
         
@@ -52,7 +32,7 @@ class DecPOMDPActor(nn.Module):
         self.max_action = max_action
         self.device = torch.device(device)
         
-        # 私有信息编码器（最重要）
+        # private information encoder (most important)
         self.private_encoder = nn.Sequential(
             nn.Linear(private_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
@@ -63,7 +43,7 @@ class DecPOMDPActor(nn.Module):
             nn.ReLU()
         )
         
-        # 公共信息编码器（次重要）
+        # public information encoder (second most important)
         self.public_encoder = nn.Sequential(
             nn.Linear(public_dim, hidden_dim // 2),
             nn.LayerNorm(hidden_dim // 2),
@@ -74,18 +54,18 @@ class DecPOMDPActor(nn.Module):
             nn.ReLU()
         )
         
-        # 他者信息编码器（辅助信息）
+        # other information encoder (auxiliary information)
         self.others_encoder = nn.Sequential(
             nn.Linear(others_dim, hidden_dim // 4),
             nn.LayerNorm(hidden_dim // 4),
             nn.ReLU(),
-            nn.Dropout(0.2),  # 更高的dropout，因为他者信息不太可靠
+            nn.Dropout(0.2),  # higher dropout, because other information is not reliable
             nn.Linear(hidden_dim // 4, hidden_dim // 8),
             nn.LayerNorm(hidden_dim // 8),
             nn.ReLU()
         )
         
-        # 信息融合网络（DDPG关键组件）
+        # information fusion network (DDPG key component)
         fusion_input_dim = hidden_dim // 2 + hidden_dim // 4 + hidden_dim // 8
         self.fusion_network = nn.Sequential(
             nn.Linear(fusion_input_dim, hidden_dim),
@@ -97,24 +77,24 @@ class DecPOMDPActor(nn.Module):
             nn.ReLU()
         )
         
-        # 确定性策略输出层（DDPG特性）
+        # deterministic policy output layer (DDPG feature)
         self.policy_head = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.LayerNorm(hidden_dim // 2),
             nn.ReLU(),
             nn.Dropout(0.1),
             nn.Linear(hidden_dim // 2, action_dim),
-            nn.Tanh()  # 确定性策略使用tanh激活
+            nn.Tanh()  # deterministic policy uses tanh activation
         )
         
-        # 动作缩放层
+        # action scaling layer
         self.action_scale = nn.Parameter(torch.ones(action_dim) * max_action, requires_grad=False)
         
-        # 初始化权重
+        # initialize weights
         self._init_weights()
     
     def _init_weights(self):
-        """Xavier初始化网络权重"""
+        """Xavier initialize network weights"""
         for module in self.modules():
             if isinstance(module, nn.Linear):
                 nn.init.xavier_uniform_(module.weight)
@@ -127,20 +107,20 @@ class DecPOMDPActor(nn.Module):
                 others_obs: torch.Tensor,
                 enable_others: bool = True) -> torch.Tensor:
         """
-        前向传播 - 确定性策略输出
+        forward propagation - deterministic policy output
         
         Args:
-            private_obs: 私有观测 [batch_size, private_dim]
-            public_obs: 公共观测 [batch_size, public_dim]
-            others_obs: 他者观测 [batch_size, others_dim]
-            enable_others: 是否启用他者信息
+            private_obs: private observation [batch_size, private_dim]
+            public_obs: public observation [batch_size, public_dim]
+            others_obs: other observation [batch_size, others_dim]
+            enable_others: whether to enable other information
             
         Returns:
-            确定性动作 [batch_size, action_dim]
+            deterministic action [batch_size, action_dim]
         """
         batch_size = private_obs.shape[0]
         
-        # 编码各层信息
+        # encode each layer of information
         private_features = self.private_encoder(private_obs)  # [batch, hidden//2]
         public_features = self.public_encoder(public_obs)     # [batch, hidden//4]
         
@@ -149,14 +129,14 @@ class DecPOMDPActor(nn.Module):
         else:
             others_features = torch.zeros(batch_size, self.hidden_dim // 8).to(self.device)
         
-        # 信息融合
+        # information fusion
         fused_features = torch.cat([private_features, public_features, others_features], dim=1)
         fused_representation = self.fusion_network(fused_features)
         
-        # 确定性策略输出
+        # deterministic policy output
         raw_actions = self.policy_head(fused_representation)
         
-        # 应用动作缩放
+        # apply action scaling
         scaled_actions = raw_actions * self.action_scale
         
         return scaled_actions
@@ -167,10 +147,10 @@ class DecPOMDPActor(nn.Module):
                     others_obs: torch.Tensor,
                     enable_others: bool = True) -> Dict[str, torch.Tensor]:
         """
-        获取特征表示（用于分析和调试）
+        get feature representation (for analysis and debugging)
         
         Returns:
-            Dict包含各层特征和融合表示
+            Dict containing each layer feature and fused representation
         """
         batch_size = private_obs.shape[0]
         
@@ -193,17 +173,12 @@ class DecPOMDPActor(nn.Module):
         }
 
 class DecPOMDPCritic(nn.Module):
-    """
-    Dec-POMDP感知的Critic网络（FOMADDPG专用）
-    
-    支持集中式训练的价值网络，能够处理多智能体的联合状态-动作信息。
-    """
     
     def __init__(self,
-                 state_dim: int,           # 单智能体状态维度
-                 action_dim: int,          # 单智能体动作维度
-                 n_agents: int = 4,        # 智能体数量
-                 hidden_dim: int = 256,    # 隐藏层维度
+                 state_dim: int,           # single agent state dimension
+                 action_dim: int,          # single agent action dimension
+                 n_agents: int = 4,        # number of agents
+                 hidden_dim: int = 256,    # hidden layer dimension
                  device: str = "cpu"):
         super(DecPOMDPCritic, self).__init__()
         
@@ -213,12 +188,12 @@ class DecPOMDPCritic(nn.Module):
         self.hidden_dim = hidden_dim
         self.device = torch.device(device)
         
-        # 集中式输入维度：所有智能体的状态和动作
+        # centralized input dimension: all agents' states and actions
         total_state_dim = state_dim * n_agents
         total_action_dim = action_dim * n_agents
         total_input_dim = total_state_dim + total_action_dim
         
-        # 状态编码网络
+        # state encoding network
         self.state_encoder = nn.Sequential(
             nn.Linear(total_state_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
@@ -229,7 +204,7 @@ class DecPOMDPCritic(nn.Module):
             nn.ReLU()
         )
         
-        # 动作编码网络
+        # action encoding network
         self.action_encoder = nn.Sequential(
             nn.Linear(total_action_dim, hidden_dim // 2),
             nn.LayerNorm(hidden_dim // 2),
@@ -240,7 +215,7 @@ class DecPOMDPCritic(nn.Module):
             nn.ReLU()
         )
         
-        # 状态-动作融合网络
+        # state-action fusion network
         fusion_input_dim = hidden_dim + hidden_dim // 2
         self.fusion_network = nn.Sequential(
             nn.Linear(fusion_input_dim, hidden_dim),
@@ -252,20 +227,20 @@ class DecPOMDPCritic(nn.Module):
             nn.ReLU()
         )
         
-        # Q值输出头
+        # Q value output head
         self.q_head = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.LayerNorm(hidden_dim // 2),
             nn.ReLU(),
             nn.Dropout(0.1),
-            nn.Linear(hidden_dim // 2, 1)  # 输出单个Q值
+            nn.Linear(hidden_dim // 2, 1)  # output single Q value
         )
         
-        # 初始化权重
+        # initialize weights
         self._init_weights()
     
     def _init_weights(self):
-        """Xavier初始化网络权重"""
+        """Xavier initialize network weights"""
         for module in self.modules():
             if isinstance(module, nn.Linear):
                 nn.init.xavier_uniform_(module.weight)
@@ -276,24 +251,24 @@ class DecPOMDPCritic(nn.Module):
                 global_states: torch.Tensor, 
                 global_actions: torch.Tensor) -> torch.Tensor:
         """
-        前向传播 - Q值估计
+        forward propagation - Q value estimation
         
         Args:
-            global_states: 所有智能体状态 [batch_size, n_agents * state_dim]
-            global_actions: 所有智能体动作 [batch_size, n_agents * action_dim]
+            global_states: all agents' states [batch_size, n_agents * state_dim]
+            global_actions: all agents' actions [batch_size, n_agents * action_dim]
             
         Returns:
-            Q值 [batch_size, 1]
+            Q value [batch_size, 1]
         """
-        # 分别编码状态和动作
+        # encode state and action separately
         state_features = self.state_encoder(global_states)
         action_features = self.action_encoder(global_actions)
         
-        # 状态-动作融合
+        # state-action fusion
         fused_features = torch.cat([state_features, action_features], dim=1)
         fused_representation = self.fusion_network(fused_features)
         
-        # Q值输出
+        # Q value output
         q_value = self.q_head(fused_representation)
         
         return q_value
@@ -302,10 +277,10 @@ class DecPOMDPCritic(nn.Module):
                     global_states: torch.Tensor, 
                     global_actions: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
-        获取特征表示（用于分析）
+        get feature representation (for analysis)
         
         Returns:
-            Dict包含状态特征、动作特征和融合表示
+            Dict containing state features, action features and fused representation
         """
         state_features = self.state_encoder(global_states)
         action_features = self.action_encoder(global_actions)
@@ -319,24 +294,18 @@ class DecPOMDPCritic(nn.Module):
         }
 
 class DecPOMDPFOMaddpgPolicy:
-    """
-    完整的FOMADDPG Dec-POMDP策略类
-    
-    集成Actor-Critic网络、观测适配器和训练逻辑，
-    专门为FOMADDPG算法的Dec-POMDP适配设计。
-    """
     
     def __init__(self, 
                  agent_id: int,
                  dec_pomdp_config: DecPOMDPConfig,
-                 state_dim: int = 73,      # 适配后状态维度
-                 action_dim: int = 36,     # 动作维度
-                 n_agents: int = 4,        # 智能体数量
-                 hidden_dim: int = 256,    # 隐藏层维度
-                 max_action: float = 1.0,  # 最大动作值
-                 lr_actor: float = 1e-4,   # Actor学习率
-                 lr_critic: float = 1e-3,  # Critic学习率
-                 tau: float = 0.005,       # 软更新系数
+                 state_dim: int = 73,      # adapted state dimension
+                 action_dim: int = 36,     # action dimension
+                 n_agents: int = 4,        # number of agents
+                 hidden_dim: int = 256,    # hidden layer dimension
+                 max_action: float = 1.0,  # maximum action value
+                 lr_actor: float = 1e-4,   # Actor learning rate
+                 lr_critic: float = 1e-3,  # Critic learning rate
+                 tau: float = 0.005,       # soft update coefficient
                  device: str = "cpu"):
         
         self.agent_id = agent_id
@@ -348,16 +317,16 @@ class DecPOMDPFOMaddpgPolicy:
         self.tau = tau
         self.device = torch.device(device)
         
-        # 创建观测适配器
+        # create observation adapter
         self.obs_adapter = FOMaddpgDecPOMDPAdapter(dec_pomdp_config, device)
         
-        # 获取适配后的观测维度
+        # get adapted observation dimension
         adapted_dims = self.obs_adapter.get_adapted_dimensions()
         private_dim = adapted_dims['private_dim']      # 40
         public_dim = adapted_dims['public_dim']        # 18
         others_dim = adapted_dims['others_dim']        # 15
         
-        # 创建Actor网络
+        # create Actor network
         self.actor = DecPOMDPActor(
             private_dim=private_dim,
             public_dim=public_dim,
@@ -368,7 +337,7 @@ class DecPOMDPFOMaddpgPolicy:
             device=device
         ).to(self.device)
         
-        # 创建Actor目标网络
+        # create Actor target network
         self.actor_target = DecPOMDPActor(
             private_dim=private_dim,
             public_dim=public_dim,
@@ -379,7 +348,7 @@ class DecPOMDPFOMaddpgPolicy:
             device=device
         ).to(self.device)
         
-        # 创建Critic网络
+        # create Critic network
         self.critic = DecPOMDPCritic(
             state_dim=state_dim,
             action_dim=action_dim,
@@ -388,7 +357,7 @@ class DecPOMDPFOMaddpgPolicy:
             device=device
         ).to(self.device)
         
-        # 创建Critic目标网络
+        # create Critic target network
         self.critic_target = DecPOMDPCritic(
             state_dim=state_dim,
             action_dim=action_dim,
@@ -397,45 +366,45 @@ class DecPOMDPFOMaddpgPolicy:
             device=device
         ).to(self.device)
         
-        # 初始化目标网络
+        # initialize target network
         self.hard_update(self.actor_target, self.actor)
         self.hard_update(self.critic_target, self.critic)
         
-        # 优化器
+        # optimizer
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=lr_actor)
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=lr_critic)
         
-        # 训练统计
+        # training statistics
         self.train_step = 0
     
     def select_action(self, observation: np.ndarray, noise_scale: float = 0.0) -> np.ndarray:
         """
-        选择动作（确定性策略+噪声探索）
+        select action (deterministic policy + noise exploration)
         
         Args:
-            observation: 原始观测
-            noise_scale: 噪声比例
+            observation: original observation
+            noise_scale: noise ratio
             
         Returns:
-            选择的动作
+            selected action
         """
-        # 适配观测
+        # adapt observation
         adapted_obs = self.obs_adapter.adapt_observation_for_fomaddpg(
             observation, f"manager_{self.agent_id}"
         )
         
-        # 提取各层观测
+        # extract each layer of observation
         private_obs = adapted_obs['private']
         public_obs = adapted_obs['public']
         others_obs = adapted_obs['others']
         
-        # 确定性策略输出
+        # deterministic policy output
         with torch.no_grad():
             action = self.actor(private_obs, public_obs, others_obs, 
                               enable_others=self.config.enable_other_manager_info)
             action = action.cpu().numpy()[0]
         
-        # 添加探索噪声
+        # add exploration noise
         if noise_scale > 0:
             noise = np.random.normal(0, noise_scale, size=action.shape)
             action = np.clip(action + noise, -self.max_action, self.max_action)
@@ -443,17 +412,17 @@ class DecPOMDPFOMaddpgPolicy:
         return action
     
     def soft_update(self, target: nn.Module, source: nn.Module, tau: float):
-        """软更新目标网络"""
+        """soft update target network"""
         for target_param, param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_(target_param.data * (1.0 - tau) + param.data * tau)
     
     def hard_update(self, target: nn.Module, source: nn.Module):
-        """硬更新目标网络"""
+        """hard update target network"""
         for target_param, param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_(param.data)
     
     def update_networks(self, tau: Optional[float] = None):
-        """更新目标网络"""
+        """update target network"""
         if tau is None:
             tau = self.tau
         
@@ -461,21 +430,21 @@ class DecPOMDPFOMaddpgPolicy:
         self.soft_update(self.critic_target, self.critic, tau)
     
     def save_models(self, filepath_prefix: str):
-        """保存模型"""
+        """save models"""
         torch.save(self.actor.state_dict(), f"{filepath_prefix}_actor.pt")
         torch.save(self.critic.state_dict(), f"{filepath_prefix}_critic.pt")
         torch.save(self.actor_target.state_dict(), f"{filepath_prefix}_actor_target.pt")
         torch.save(self.critic_target.state_dict(), f"{filepath_prefix}_critic_target.pt")
     
     def load_models(self, filepath_prefix: str):
-        """加载模型"""
+        """load models"""
         self.actor.load_state_dict(torch.load(f"{filepath_prefix}_actor.pt", map_location=self.device))
         self.critic.load_state_dict(torch.load(f"{filepath_prefix}_critic.pt", map_location=self.device))
         self.actor_target.load_state_dict(torch.load(f"{filepath_prefix}_actor_target.pt", map_location=self.device))
         self.critic_target.load_state_dict(torch.load(f"{filepath_prefix}_critic_target.pt", map_location=self.device))
     
     def get_network_info(self) -> Dict[str, int]:
-        """获取网络参数信息"""
+        """get network parameter information"""
         actor_params = sum(p.numel() for p in self.actor.parameters())
         critic_params = sum(p.numel() for p in self.critic.parameters())
         

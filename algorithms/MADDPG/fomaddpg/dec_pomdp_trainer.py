@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""
-FOMADDPG Dec-POMDP训练器
-
-为FOMADDPG算法提供支持Dec-POMDP的确定性策略梯度训练逻辑。
-专门针对多智能体部分可观测环境设计的训练优化。
-
-核心特性：
-1. Dec-POMDP感知的经验回放缓冲区
-2. 确定性策略梯度的目标网络更新
-3. 多智能体协作的Critic损失计算
-4. 信息不确定性的策略梯度调整
-5. 探索噪声的自适应调节机制
-"""
-
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -22,19 +8,12 @@ import random
 import sys
 import os
 
-# 添加项目路径
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 
 from fo_common.dec_pomdp_config import DecPOMDPConfig
 from .dec_pomdp_policy import DecPOMDPFOMaddpgPolicy
 
 class DecPOMDPReplayBuffer:
-    """
-    Dec-POMDP感知的经验回放缓冲区
-    
-    专门为FOMADDPG设计的多智能体经验存储，
-    支持分层观测信息的存储和采样。
-    """
     
     def __init__(self, 
                  capacity: int = 1000000,
@@ -46,15 +25,15 @@ class DecPOMDPReplayBuffer:
         self.state_dim = state_dim
         self.action_dim = action_dim
         
-        # 经验存储
+        # experience buffer
         self.experiences = deque(maxlen=capacity)
         
-        # Dec-POMDP特定存储
+        # Dec-POMDP specific buffer
         self.private_observations = deque(maxlen=capacity)
         self.public_observations = deque(maxlen=capacity)
         self.others_observations = deque(maxlen=capacity)
         
-        # 信息质量记录
+        # information quality record
         self.observation_quality = deque(maxlen=capacity)
         self.noise_levels = deque(maxlen=capacity)
         
@@ -62,23 +41,23 @@ class DecPOMDPReplayBuffer:
         self.size = 0
     
     def push(self,
-             states: np.ndarray,           # 当前状态 [n_agents, state_dim]
-             actions: np.ndarray,          # 动作 [n_agents, action_dim]
-             rewards: np.ndarray,          # 奖励 [n_agents]
-             next_states: np.ndarray,      # 下一状态 [n_agents, state_dim]
-             dones: np.ndarray,            # 完成标志 [n_agents]
-             private_obs: np.ndarray,      # 私有观测 [n_agents, private_dim]
-             public_obs: np.ndarray,       # 公共观测 [n_agents, public_dim]
-             others_obs: np.ndarray,       # 他者观测 [n_agents, others_dim]
-             obs_quality: float = 1.0,     # 观测质量
-             noise_level: float = 0.0):    # 噪声水平
-        """添加经验到缓冲区"""
+             states: np.ndarray,           # current state [n_agents, state_dim]
+             actions: np.ndarray,          # action [n_agents, action_dim]
+             rewards: np.ndarray,          # reward [n_agents]
+             next_states: np.ndarray,      # next state [n_agents, state_dim]
+             dones: np.ndarray,            # done flag [n_agents]
+             private_obs: np.ndarray,      # private observation [n_agents, private_dim]
+             public_obs: np.ndarray,       # public observation [n_agents, public_dim]
+             others_obs: np.ndarray,       # others observation [n_agents, others_dim]
+             obs_quality: float = 1.0,     # observation quality
+             noise_level: float = 0.0):    # noise level
+        """add experience to buffer"""
         
-        # 标准经验
+        # standard experience
         experience = (states, actions, rewards, next_states, dones)
         self.experiences.append(experience)
         
-        # Dec-POMDP特定信息
+        # Dec-POMDP specific information
         self.private_observations.append(private_obs)
         self.public_observations.append(public_obs)
         self.others_observations.append(others_obs)
@@ -88,20 +67,20 @@ class DecPOMDPReplayBuffer:
         self.size = min(self.size + 1, self.capacity)
     
     def sample(self, batch_size: int) -> Dict[str, torch.Tensor]:
-        """采样批次数据"""
+        """sample batch data"""
         if self.size < batch_size:
             return None
         
         indices = random.sample(range(self.size), batch_size)
         
-        # 基础经验
+        # standard experience
         batch_states = []
         batch_actions = []
         batch_rewards = []
         batch_next_states = []
         batch_dones = []
         
-        # Dec-POMDP特定
+        # Dec-POMDP specific
         batch_private_obs = []
         batch_public_obs = []
         batch_others_obs = []
@@ -140,12 +119,6 @@ class DecPOMDPReplayBuffer:
         return self.size
 
 class DecPOMDPFOMaddpgTrainer:
-    """
-    FOMADDPG Dec-POMDP训练器
-    
-    专门为Dec-POMDP环境设计的FOMADDPG训练逻辑，
-    支持确定性策略梯度的多智能体协作训练。
-    """
     
     def __init__(self,
                  dec_pomdp_config: DecPOMDPConfig,
@@ -171,7 +144,7 @@ class DecPOMDPFOMaddpgTrainer:
         self.batch_size = batch_size
         self.device = torch.device(device)
         
-        # 创建智能体策略
+        # create agent policies
         self.agents = []
         for i in range(n_agents):
             agent = DecPOMDPFOMaddpgPolicy(
@@ -189,7 +162,7 @@ class DecPOMDPFOMaddpgTrainer:
             )
             self.agents.append(agent)
         
-        # Dec-POMDP经验回放缓冲区
+        # Dec-POMDP experience replay buffer
         self.replay_buffer = DecPOMDPReplayBuffer(
             capacity=buffer_capacity,
             n_agents=n_agents,
@@ -197,17 +170,17 @@ class DecPOMDPFOMaddpgTrainer:
             action_dim=action_dim
         )
         
-        # 训练参数
-        self.exploration_noise = 0.1    # 初始探索噪声
-        self.noise_decay = 0.999        # 噪声衰减
-        self.min_noise = 0.01           # 最小噪声
+        # training parameters
+        self.exploration_noise = 0.1    # initial exploration noise
+        self.noise_decay = 0.999        # noise decay
+        self.min_noise = 0.01           # minimum noise
         
-        # Dec-POMDP特定参数
-        self.uncertainty_weight = 0.1   # 不确定性权重
-        self.collaboration_weight = 0.05 # 协作权重
-        self.observation_quality_threshold = 0.7  # 观测质量阈值
+        # Dec-POMDP specific parameters
+        self.uncertainty_weight = 0.1   # uncertainty weight
+        self.collaboration_weight = 0.05 # collaboration weight
+        self.observation_quality_threshold = 0.7  # observation quality threshold
         
-        # 训练统计
+        # training statistics
         self.train_step = 0
         self.actor_losses = []
         self.critic_losses = []
@@ -218,14 +191,14 @@ class DecPOMDPFOMaddpgTrainer:
                       observations: Dict[str, np.ndarray],
                       add_noise: bool = True) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
-        为所有智能体选择动作
+        select actions for all agents
         
         Args:
-            observations: 各智能体的Dec-POMDP观测
-            add_noise: 是否添加探索噪声
+            observations: Dec-POMDP observations for each agent
+            add_noise: whether to add exploration noise
             
         Returns:
-            (actions, info)：动作和信息字典
+            (actions, info): actions and information dictionary
         """
         actions = []
         action_info = {
@@ -237,16 +210,16 @@ class DecPOMDPFOMaddpgTrainer:
         noise_scale = self.exploration_noise if add_noise else 0.0
         
         for i, agent in enumerate(self.agents):
-            # 获取单智能体观测
+            # get single agent observation
             obs = observations[f'agent_{i}']
             
-            # 选择动作
+            # select action
             action = agent.select_action(obs, noise_scale)
             actions.append(action)
             
             action_info['agent_actions'][f'agent_{i}'] = action
         
-        # 计算平均观测质量
+        # calculate average observation quality
         avg_quality = self._estimate_observation_quality(observations)
         action_info['observation_quality'] = avg_quality
         
@@ -260,9 +233,9 @@ class DecPOMDPFOMaddpgTrainer:
                         dones: np.ndarray,
                         observations: Dict[str, Any],
                         obs_quality: float = 1.0):
-        """存储经验"""
+        """store experience"""
         
-        # 提取Dec-POMDP观测信息
+        # extract Dec-POMDP observations
         private_obs = []
         public_obs = []
         others_obs = []
@@ -273,7 +246,7 @@ class DecPOMDPFOMaddpgTrainer:
             public_obs.append(agent_obs.get('public', np.zeros(18)))
             others_obs.append(agent_obs.get('others', np.zeros(15)))
         
-        # 存储到回放缓冲区
+        # store to replay buffer
         self.replay_buffer.push(
             states=states,
             actions=actions,
@@ -289,47 +262,47 @@ class DecPOMDPFOMaddpgTrainer:
     
     def update(self) -> Dict[str, float]:
         """
-        更新所有智能体的策略
+        update all agent policies
         
         Returns:
-            训练统计信息
+            training statistics
         """
         if len(self.replay_buffer) < self.batch_size:
             return {}
         
-        # 采样经验
+        # sample experience
         batch = self.replay_buffer.sample(self.batch_size)
         if batch is None:
             return {}
         
-        # 移动到设备
+        # move to device
         for key in batch:
             batch[key] = batch[key].to(self.device)
         
-        # 训练统计
+        # training statistics
         total_actor_loss = 0.0
         total_critic_loss = 0.0
         total_q_value = 0.0
         
-        # 为每个智能体更新策略
+        # update policy for each agent
         for i, agent in enumerate(self.agents):
             
-            # 更新Critic
+            # update Critic
             critic_loss, q_val = self._update_critic(agent, batch, i)
             total_critic_loss += critic_loss
             total_q_value += q_val
             
-            # 更新Actor
+            # update Actor
             actor_loss = self._update_actor(agent, batch, i)
             total_actor_loss += actor_loss
             
-            # 更新目标网络
+            # update target network
             agent.update_networks(self.tau)
         
-        # 更新探索噪声
+        # update exploration noise
         self._update_exploration_noise()
         
-        # 记录统计信息
+        # record statistics
         self.train_step += 1
         avg_actor_loss = total_actor_loss / self.n_agents
         avg_critic_loss = total_critic_loss / self.n_agents
@@ -352,32 +325,32 @@ class DecPOMDPFOMaddpgTrainer:
                       agent: DecPOMDPFOMaddpgPolicy, 
                       batch: Dict[str, torch.Tensor], 
                       agent_idx: int) -> Tuple[float, float]:
-        """更新Critic网络"""
+        """update Critic network"""
         
-        # 提取批次数据
+        # extract batch data
         states = batch['states']  # [batch_size, n_agents, state_dim]
         actions = batch['actions']  # [batch_size, n_agents, action_dim]
         rewards = batch['rewards'][:, agent_idx].unsqueeze(1)  # [batch_size, 1]
         next_states = batch['next_states']
         dones = batch['dones'][:, agent_idx].unsqueeze(1)
         
-        # 观测质量信息
+        # observation quality information
         obs_quality = batch['obs_quality'].unsqueeze(1)  # [batch_size, 1]
         
-        # 展平为集中式输入
+        # flatten to centralized input
         global_states = states.view(states.shape[0], -1)  # [batch_size, n_agents*state_dim]
         global_actions = actions.view(actions.shape[0], -1)  # [batch_size, n_agents*action_dim]
         global_next_states = next_states.view(next_states.shape[0], -1)
         
-        # 当前Q值
+        # current Q value
         current_q = agent.critic(global_states, global_actions)
         
-        # 目标Q值计算
+        # target Q value calculation
         with torch.no_grad():
-            # 获取所有智能体的下一状态动作
+            # get next state action for all agents
             next_actions = []
             for j, other_agent in enumerate(self.agents):
-                # 使用目标Actor网络
+                # use target Actor network
                 next_private = batch['private_obs'][:, j]  # [batch_size, private_dim]
                 next_public = batch['public_obs'][:, j]    # [batch_size, public_dim]
                 next_others = batch['others_obs'][:, j]    # [batch_size, others_dim]
@@ -390,24 +363,24 @@ class DecPOMDPFOMaddpgTrainer:
             
             global_next_actions = torch.cat(next_actions, dim=1)
             
-            # 目标Q值
+            # target Q value
             target_q = agent.critic_target(global_next_states, global_next_actions)
             
-            # Dec-POMDP不确定性调整
+            # Dec-POMDP uncertainty adjustment
             uncertainty_factor = self._compute_uncertainty_factor(obs_quality)
             target_q = target_q * uncertainty_factor
             
-            # Bellman方程
+            # Bellman equation
             target_q = rewards + (self.gamma * target_q * (1 - dones))
         
-        # Critic损失
+        # Critic loss
         critic_loss = F.mse_loss(current_q, target_q)
         
-        # Dec-POMDP特定损失调整
+        # Dec-POMDP specific loss adjustment
         quality_weight = torch.clamp(obs_quality, 0.1, 1.0)
         weighted_loss = critic_loss * quality_weight.mean()
         
-        # 反向传播
+        # backpropagation
         agent.critic_optimizer.zero_grad()
         weighted_loss.backward()
         torch.nn.utils.clip_grad_norm_(agent.critic.parameters(), 0.5)
@@ -419,21 +392,21 @@ class DecPOMDPFOMaddpgTrainer:
                      agent: DecPOMDPFOMaddpgPolicy, 
                      batch: Dict[str, torch.Tensor], 
                      agent_idx: int) -> float:
-        """更新Actor网络"""
+        """update Actor network"""
         
-        # 获取当前智能体的观测
+        # get current agent observation
         private_obs = batch['private_obs'][:, agent_idx]  # [batch_size, private_dim]
         public_obs = batch['public_obs'][:, agent_idx]    # [batch_size, public_dim]
         others_obs = batch['others_obs'][:, agent_idx]    # [batch_size, others_dim]
         obs_quality = batch['obs_quality']
         
-        # 计算当前智能体的动作
+        # calculate current agent action
         agent_actions = agent.actor(
             private_obs, public_obs, others_obs,
             enable_others=self.config.enable_other_manager_info
         )
         
-        # 构建所有智能体的动作（其他使用批次中的动作）
+        # build all agent actions (other use batch actions)
         all_actions = []
         for j in range(self.n_agents):
             if j == agent_idx:
@@ -444,27 +417,27 @@ class DecPOMDPFOMaddpgTrainer:
         global_actions = torch.cat(all_actions, dim=1)
         global_states = batch['states'].view(batch['states'].shape[0], -1)
         
-        # Actor损失（确定性策略梯度）
+        # Actor loss (deterministic policy gradient)
         actor_loss = -agent.critic(global_states, global_actions).mean()
         
-        # Dec-POMDP特定损失
+        # Dec-POMDP specific loss
         
-        # 1. 不确定性损失
+        # 1. uncertainty loss
         uncertainty_loss = self._compute_uncertainty_loss(
             agent_actions, obs_quality
         )
         
-        # 2. 协作损失
+        # 2. collaboration loss
         collaboration_loss = self._compute_collaboration_loss(
             agent_actions, all_actions, agent_idx
         )
         
-        # 总损失
+        # total loss
         total_loss = (actor_loss + 
                      self.uncertainty_weight * uncertainty_loss +
                      self.collaboration_weight * collaboration_loss)
         
-        # 反向传播
+        # backpropagation
         agent.actor_optimizer.zero_grad()
         total_loss.backward()
         torch.nn.utils.clip_grad_norm_(agent.actor.parameters(), 0.5)
@@ -473,20 +446,20 @@ class DecPOMDPFOMaddpgTrainer:
         return total_loss.item()
     
     def _compute_uncertainty_factor(self, obs_quality: torch.Tensor) -> torch.Tensor:
-        """计算不确定性因子"""
-        # 观测质量越低，不确定性越高，折扣因子越小
+        """compute uncertainty factor"""
+        # lower observation quality, higher uncertainty, smaller discount factor
         uncertainty_factor = torch.clamp(obs_quality, 0.5, 1.0)
         return uncertainty_factor
     
     def _compute_uncertainty_loss(self, 
                                  actions: torch.Tensor, 
                                  obs_quality: torch.Tensor) -> torch.Tensor:
-        """计算不确定性损失"""
-        # 观测质量低时，鼓励更保守的动作
+        """compute uncertainty loss"""
+        # when observation quality is low, encourage more conservative actions
         if not self.config.enable_observation_noise:
             return torch.tensor(0.0, device=self.device)
         
-        # 动作方差损失（质量低时鼓励较小的动作方差）
+        # action variance loss (when quality is low, encourage smaller action variance)
         action_variance = torch.var(actions, dim=1).mean()
         quality_factor = torch.clamp(1.0 - obs_quality.mean(), 0.0, 1.0)
         
@@ -497,23 +470,23 @@ class DecPOMDPFOMaddpgTrainer:
                                    agent_actions: torch.Tensor,
                                    all_actions: List[torch.Tensor],
                                    agent_idx: int) -> torch.Tensor:
-        """计算协作损失"""
+        """compute collaboration loss"""
         if not self.config.enable_other_manager_info:
             return torch.tensor(0.0, device=self.device)
         
-        # 计算与其他智能体动作的相似性
+        # compute similarity between agent actions and other agent actions
         collaboration_loss = 0.0
         num_others = 0
         
         for j, other_actions in enumerate(all_actions):
             if j != agent_idx:
-                # 动作相似性（余弦相似度）
+                # action similarity (cosine similarity)
                 similarity = F.cosine_similarity(
                     agent_actions, other_actions, dim=1
                 ).mean()
                 
-                # 鼓励适度的协作（不完全相同，但有一定相似性）
-                target_similarity = 0.3  # 目标相似度
+                # encourage moderate collaboration (not exactly the same, but has some similarity)
+                target_similarity = 0.3  # target similarity
                 collaboration_loss += torch.abs(similarity - target_similarity)
                 num_others += 1
         
@@ -523,15 +496,14 @@ class DecPOMDPFOMaddpgTrainer:
         return collaboration_loss
     
     def _estimate_observation_quality(self, observations: Dict[str, Any]) -> float:
-        """估计观测质量"""
-        # 简化的观测质量估计
+        """estimate observation quality"""
         total_quality = 0.0
         count = 0
         
         for i in range(self.n_agents):
             obs = observations.get(f'agent_{i}', {})
             
-            # 基于观测完整性估计质量
+            # estimate quality based on observation completeness
             private_quality = 1.0 if 'private' in obs else 0.5
             public_quality = 1.0 if 'public' in obs else 0.5
             others_quality = 1.0 if 'others' in obs and self.config.enable_other_manager_info else 0.8
@@ -543,24 +515,24 @@ class DecPOMDPFOMaddpgTrainer:
         return total_quality / count if count > 0 else 1.0
     
     def _update_exploration_noise(self):
-        """更新探索噪声"""
+        """update exploration noise"""
         self.exploration_noise = max(
             self.min_noise,
             self.exploration_noise * self.noise_decay
         )
     
     def save_models(self, filepath_prefix: str):
-        """保存所有智能体模型"""
+        """save all agent models"""
         for i, agent in enumerate(self.agents):
             agent.save_models(f"{filepath_prefix}_agent_{i}")
     
     def load_models(self, filepath_prefix: str):
-        """加载所有智能体模型"""
+        """load all agent models"""
         for i, agent in enumerate(self.agents):
             agent.load_models(f"{filepath_prefix}_agent_{i}")
     
     def get_training_stats(self) -> Dict[str, Any]:
-        """获取训练统计信息"""
+        """get training statistics"""
         return {
             'train_step': self.train_step,
             'exploration_noise': self.exploration_noise,

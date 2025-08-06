@@ -13,8 +13,6 @@ Key Features:
 - Multi-agent coordination
 - FlexOffer constraint awareness
 
-创建日期: 2025-01-13
-作者: AI Assistant
 """
 
 import numpy as np
@@ -31,27 +29,27 @@ from .fomaddpg import FOMADDPG
 logger = logging.getLogger(__name__)
 
 class FOMAddpgArgs:
-    """FOMADDPG参数配置类 - 继承MADDPG参数并添加FlexOffer特定参数"""
+    """FOMADDPG parameter configuration class - inherit MADDPG parameters and add FlexOffer specific parameters"""
     
     def __init__(self, **kwargs):
-        # ========== 核心MADDPG参数 ==========
+        # ========== core MADDPG parameters ==========
         self.episode_length = kwargs.get('episode_length', 24)
         self.n_rollout_threads = kwargs.get('n_rollout_threads', 1)
         self.buffer_capacity = kwargs.get('buffer_capacity', 100000)
         self.batch_size = kwargs.get('batch_size', 64)
         
-        # 学习率参数 - 🔧 使用稳定的学习率
+        # learning rate parameters
         self.lr = kwargs.get('lr_actor', 1e-4)
         self.lr_actor = kwargs.get('lr_actor', 1e-4)
         self.critic_lr = kwargs.get('lr_critic', 1e-3)
-        self.tau = kwargs.get('tau', 0.005)  # 软更新参数
+        self.tau = kwargs.get('tau', 0.005)  # soft update parameter
         
-        # DDPG特定参数
+        # DDPG specific parameters
         self.gamma = kwargs.get('gamma', 0.99)
         self.noise_scale = kwargs.get('noise_scale', 0.1)
         self.max_action = kwargs.get('max_action', 1.0)
         
-        # 网络参数
+        # network parameters
         self.hidden_dim = kwargs.get('hidden_dim', 256)
         self.layer_N = kwargs.get('layer_N', 2)
         self.use_orthogonal = kwargs.get('use_orthogonal', True)
@@ -60,42 +58,26 @@ class FOMAddpgArgs:
         self.activation_id = kwargs.get('activation_id', 1)
         self.use_ReLU = kwargs.get('use_ReLU', False)
         
-        # 训练选项
+        # training options
         self.use_max_grad_norm = kwargs.get('use_max_grad_norm', True)
         self.max_grad_norm = kwargs.get('max_grad_norm', 0.5)
         
-        # 算法名称
+        # algorithm name
         self.algorithm_name = kwargs.get('algorithm_name', 'fomaddpg')
         
-        # ========== FOMADDPG特定参数 ==========
+        # ========== FOMADDPG specific parameters ==========
         self.use_device_coordination = kwargs.get('use_device_coordination', True)
         self.device_coordination_weight = kwargs.get('device_coordination_weight', 0.1)
         self.fo_constraint_weight = kwargs.get('fo_constraint_weight', 0.2)
         self.use_manager_coordination = kwargs.get('use_manager_coordination', True)
         self.manager_coordination_weight = kwargs.get('manager_coordination_weight', 0.05)
         
-        # 网络架构特定参数
+        # network architecture specific parameters
         self.num_managers = kwargs.get('num_managers', 4)
         self.devices_per_manager = kwargs.get('devices_per_manager', 10)
 
 class FOMAddpgAdapter:
-    """
-    FOMADDPG适配器 - 基于MADDPG的多智能体强化学习 (FlexOffer Multi-Agent DDPG)
-    
-    核心设计原则：
-    1. 基于MADDPG的off-policy算法架构
-    2. 使用经验回放缓冲区进行训练
-    3. 支持连续动作空间
-    4. 保留FOMADDPG的FlexOffer特殊功能
-    5. 与FO Pipeline无缝集成
-    
-    优势：
-    - Off-policy学习：更高的样本效率
-    - 连续动作：适合FlexOffer的连续参数调节
-    - 经验回放：更稳定的训练过程
-    - Actor-Critic：策略和价值函数分离优化
-    """
-    
+   
     def __init__(self, 
                  state_dim: int,
                  action_dim: int,
@@ -106,16 +88,16 @@ class FOMAddpgAdapter:
                  device: str = "cpu",
                  **kwargs):
         """
-        初始化FOMADDPG适配器
+        initialize FOMADDPG adapter
         
         Args:
-            state_dim: 状态维度
-            action_dim: 动作维度
-            num_agents: 智能体数量（Manager数量）
-            episode_length: Episode长度
-            lr_actor: Actor学习率
-            lr_critic: Critic学习率
-            device: 计算设备
+            state_dim: state dimension
+            action_dim: action dimension
+            num_agents: number of agents (number of Managers)
+            episode_length: episode length
+            lr_actor: Actor learning rate
+            lr_critic: Critic learning rate
+            device: computing device
         """
         self.device = torch.device(device)
         self.state_dim = state_dim
@@ -123,10 +105,10 @@ class FOMAddpgAdapter:
         self.num_agents = num_agents
         self.episode_length = episode_length
         
-        logger.info(f"🔧 初始化FOMADDPG适配器（基于MADDPG架构）")
-        logger.info(f"   参数: {num_agents}个Manager, 状态{state_dim}维, 动作{action_dim}维")
+        logger.info(f"🔧 initialize FOMADDPG adapter (based on MADDPG architecture)")
+        logger.info(f"    parameters: {num_agents} Managers, {state_dim} state dimension, {action_dim} action dimension")
         
-        # 创建参数对象
+        # create parameter object
         self.args = FOMAddpgArgs(
             episode_length=episode_length,
             lr_actor=lr_actor,
@@ -135,7 +117,7 @@ class FOMAddpgAdapter:
             **kwargs
         )
         
-        # 初始化FOMADDPG算法
+        # initialize FOMADDPG algorithm
         self.fomaddpg = FOMADDPG(
             n_agents=num_agents,
             state_dim=state_dim,
@@ -152,11 +134,11 @@ class FOMAddpgAdapter:
             device=device
         )
         
-        # 训练统计
+        # training statistics
         self.training_iterations = 0
         self.total_episodes = 0
         
-        # Manager统计
+        # Manager statistics
         self.manager_stats = {}
         for i in range(num_agents):
             manager_id = f"manager_{i + 1}"
@@ -168,41 +150,24 @@ class FOMAddpgAdapter:
                 'training_updates': 0
             }
         
-        logger.info("✅ FOMADDPG适配器初始化完成")
-        logger.info(f"   架构: Off-policy MADDPG，经验回放缓冲区，连续动作空间")
+        logger.info("✅ FOMADDPG adapter initialized")
+        logger.info(f"    architecture: Off-policy MADDPG, experience replay buffer, continuous action space")
     
     def reset_buffers(self):
-        """重置缓冲区 - MADDPG使用经验回放，不需要episode级重置"""
-        # MADDPG使用经验回放缓冲区，不需要像PPO那样的episode重置
-        # 这里保持接口兼容性，但实际上MADDPG的buffer是持续累积的
-        logger.debug("FOMADDPG使用经验回放缓冲区，无需episode级重置")
+        """reset buffers - MADDPG uses experience replay, no episode-level reset"""
+        # MADDPG uses experience replay buffer, no episode-level reset
+        # here maintain interface compatibility, but in reality MADDPG's buffer is continuously accumulated
+        logger.debug("FOMADDPG uses experience replay buffer, no episode-level reset")
         pass
     
     def select_actions(self, obs: Dict[str, np.ndarray], deterministic: bool = False) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray]]:
-        """
-        为所有Manager选择FlexOffer参数生成动作（MADDPG连续动作）
-        
-        🔧 重构后的环境适配：
-        - 动作现在对应FlexOffer参数：[start_flex, end_flex, energy_min_factor, energy_max_factor, priority_weight] × 设备数量
-        - MADDPG适合连续动作空间，非常适合FlexOffer参数的连续调节
-        - 使用经验回放和off-policy学习，样本效率更高
-        
-        Args:
-            obs: 观测字典 {manager_id: observation}
-            deterministic: 是否确定性动作
-            
-        Returns:
-            actions: FlexOffer参数动作字典 {manager_id: fo_params_action}
-            action_log_probs: 动作对数概率字典（MADDPG中为空，保持接口兼容）
-            values: 价值函数预测字典（MADDPG中为空，保持接口兼容）
-        """
         actions = {}
-        action_log_probs = {}  # MADDPG不使用，但保持接口兼容
-        values = {}  # MADDPG不使用，但保持接口兼容
+        action_log_probs = {}  # MADDPG does not use, but maintain interface compatibility
+        values = {}  # MADDPG does not use, but maintain interface compatibility
         
         manager_ids = list(obs.keys())
         
-        # 准备states数组格式，MADDPG期望numpy数组
+        # prepare states array format, MADDPG expects numpy array
         states = []
         for manager_id in manager_ids:
             current_obs = obs[manager_id]
@@ -213,26 +178,25 @@ class FOMAddpgAdapter:
         
         states = np.array(states)  # Shape: (num_agents, state_dim)
         
-        # 使用FOMADDPG选择动作
+        # use FOMADDPG to select actions
         try:
-            # 调用FOMADDPG的select_actions方法
+            # call FOMADDPG's select_actions method
             agent_actions = self.fomaddpg.select_actions(states, add_noise=not deterministic)
             
-            # 转换为字典格式并映射到FlexOffer参数范围
+            # convert to dictionary format and map to FlexOffer parameter range
             for i, manager_id in enumerate(manager_ids):
                 raw_action = agent_actions[i]
                 fo_action = self._map_action_to_fo_params(raw_action)
                 
                 actions[manager_id] = fo_action
-                action_log_probs[manager_id] = np.zeros_like(fo_action)  # 占位符
-                values[manager_id] = np.array([0.0])  # 占位符
+                action_log_probs[manager_id] = np.zeros_like(fo_action)  # placeholder
+                values[manager_id] = np.array([0.0])  # placeholder
                 
-                logger.debug(f"Manager {manager_id} MADDPG FlexOffer动作: {fo_action.shape} 维, "
-                           f"前5个参数: {fo_action[:5]}")
+                logger.debug(f"Manager {manager_id} MADDPG FlexOffer action: {fo_action.shape} dimension, "
+                           f"first 5 parameters: {fo_action[:5]}")
                 
         except Exception as e:
-            logger.error(f"FOMADDPG动作选择失败: {e}")
-            # 提供备用随机动作
+            logger.error(f"FOMADDPG action selection failed: {e}")
             for manager_id in manager_ids:
                 actions[manager_id] = np.random.uniform(-1, 1, self.action_dim)
                 action_log_probs[manager_id] = np.zeros(self.action_dim)
@@ -249,71 +213,67 @@ class FOMAddpgAdapter:
                      action_log_probs: Optional[Dict[str, np.ndarray]] = None,
                      values: Optional[Dict[str, np.ndarray]] = None):
         """
-        收集一步的经验数据到经验回放缓冲区
+        collect one step of experience data to experience replay buffer
         
         Args:
-            obs: 当前观测
-            actions: 执行的动作
-            rewards: 获得的奖励
-            dones: 是否结束
-            infos: 额外信息
-            action_log_probs: 动作对数概率（MADDPG不使用）
-            values: 价值函数预测（MADDPG不使用）
+            obs: current observation
+            actions: executed actions
+            rewards: received rewards
+            dones: whether to end
+            infos: additional information
+            action_log_probs: action log probabilities (MADDPG does not use)
+            values: value function predictions (MADDPG does not use)
         """
-        # 🔧 数值稳定性：检查和修复奖励
+        # numerical stability: check and fix rewards
         manager_ids = list(obs.keys())
         
-        # 准备MADDPG格式的数据
+        # prepare MADDPG format data
         states = []
         agent_actions = []
         agent_rewards = []
         agent_dones = []
         
         for manager_id in manager_ids:
-            # 观测
+            # observation
             current_obs = obs[manager_id]
             if isinstance(current_obs, np.ndarray):
                 states.append(current_obs)
             else:
                 states.append(np.array(current_obs))
             
-            # 动作
+            # action
             action = actions[manager_id]
             if isinstance(action, np.ndarray):
                 agent_actions.append(action)
             else:
                 agent_actions.append(np.array(action))
             
-            # 奖励 - 🔧 数值稳定性修复和奖励缩放优化
+            # reward 
             raw_reward = rewards[manager_id]
             if np.isnan(raw_reward) or np.isinf(raw_reward):
-                logger.warning(f"Manager {manager_id} 奖励无效({raw_reward})，设置为0")
+                logger.warning(f"Manager {manager_id} reward invalid ({raw_reward}), set to 0")
                 raw_reward = 0.0
             
-            # 🔧 优化的奖励缩放 - 不过度压缩奖励信号
-            # 原来的0.1倍缩放太激进，改为轻微缩放并保留更多信息
-            normalized_reward = np.clip(raw_reward, -50.0, 50.0) * 0.5  # 从0.1改为0.5，范围从±10改为±50
+            # optimized reward scaling
+            normalized_reward = np.clip(raw_reward, -50.0, 50.0) * 0.5  
             agent_rewards.append(normalized_reward)
             
-            # 完成标志
+            # done flag
             agent_dones.append(dones[manager_id])
             
-            # 更新Manager统计
+            # update Manager statistics
             self.manager_stats[manager_id]['total_reward'] += normalized_reward
             if normalized_reward > self.manager_stats[manager_id]['best_reward']:
                 self.manager_stats[manager_id]['best_reward'] = normalized_reward
         
-        # 转换为numpy数组
+        # convert to numpy array
         states = np.array(states)
         agent_actions = np.array(agent_actions)
         agent_rewards = np.array(agent_rewards)
         agent_dones = np.array(agent_dones)
         
-        # 存储到FOMADDPG的经验回放缓冲区
-        # 注意：我们需要next_states，但在这个接口中没有提供
-        # 我们将在下一次调用时提供next_states
         if hasattr(self, '_prev_states'):
-            # 如果有之前的状态，将其作为next_states存储
+            # if there are previous states, store them as next_states
             try:
                 self.fomaddpg.store_experience(
                     states=self._prev_states,
@@ -323,31 +283,31 @@ class FOMAddpgAdapter:
                     dones=self._prev_dones
                 )
             except Exception as e:
-                logger.warning(f"FOMADDPG经验存储失败: {e}")
+                logger.warning(f"FOMADDPG experience storage failed: {e}")
         
-        # 保存当前状态用于下次存储
+        # save current state for next storage
         self._prev_states = states.copy()
         self._prev_actions = agent_actions.copy()
         self._prev_rewards = agent_rewards.copy()
         self._prev_dones = agent_dones.copy()
     
     def compute_returns(self):
-        """计算returns - MADDPG不需要像PPO那样计算returns"""
-        # MADDPG是off-policy算法，不需要像PPO那样计算episode-level的returns
-        # 保持接口兼容性
+        """compute returns - MADDPG does not need to compute returns like PPO"""
+        # MADDPG is off-policy algorithm, does not need to compute episode-level returns
+        # maintain interface compatibility
         pass
     
     def train_on_batch(self) -> Dict[str, Any]:
         """
-        执行一次MADDPG训练更新
+        perform one MADDPG training update
         
         Returns:
-            训练信息字典
+            training information dictionary
         """
         try:
-            # 检查是否有足够的经验进行训练
+            # check if there is enough experience for training
             if len(self.fomaddpg.replay_buffer) < self.fomaddpg.batch_size:
-                logger.debug(f"经验缓冲区不足({len(self.fomaddpg.replay_buffer)}/{self.fomaddpg.batch_size})，跳过训练")
+                logger.debug(f"experience buffer insufficient ({len(self.fomaddpg.replay_buffer)}/{self.fomaddpg.batch_size}), skip training")
                 return {
                     'actor_loss': 0.0,
                     'critic_loss': 0.0,
@@ -355,13 +315,13 @@ class FOMAddpgAdapter:
                     'buffer_size': len(self.fomaddpg.replay_buffer)
                 }
             
-            # 执行MADDPG更新
+            # perform MADDPG update
             update_info = self.fomaddpg.update()
             
             if update_info:
                 self.training_iterations += 1
                 
-                # 更新Manager统计
+                # update Manager statistics
                 for manager_id in self.manager_stats:
                     self.manager_stats[manager_id]['training_updates'] += 1
                 
@@ -380,7 +340,7 @@ class FOMAddpgAdapter:
                 }
                 
         except Exception as e:
-            logger.error(f"FOMADDPG训练更新失败: {e}")
+            logger.error(f"FOMADDPG training update failed: {e}")
             return {
                 'actor_loss': 0.0,
                 'critic_loss': 0.0,
@@ -390,7 +350,7 @@ class FOMAddpgAdapter:
             }
     
     def get_training_stats(self) -> Dict[str, Any]:
-        """获取训练统计信息"""
+        """get training statistics"""
         return {
             'training_iterations': self.training_iterations,
             'total_episodes': self.total_episodes,
@@ -399,7 +359,7 @@ class FOMAddpgAdapter:
         }
     
     def get_manager_rewards_summary(self) -> Dict[str, Any]:
-        """获取Manager奖励总结"""
+        """get Manager reward summary"""
         summary = {}
         for manager_id, stats in self.manager_stats.items():
             if stats['episode_count'] > 0:
@@ -408,55 +368,38 @@ class FOMAddpgAdapter:
         return summary
     
     def save_models(self, save_path: str):
-        """保存模型"""
+        """save models"""
         try:
-            # 确保目录存在
+            # ensure directory exists
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
             
-            # 使用FOMADDPG的保存方法
+            # use FOMADDPG's save method
             self.fomaddpg.save_models(save_path)
-            logger.info(f"FOMADDPG模型已保存至 {save_path}")
+            logger.info(f"FOMADDPG models saved to {save_path}")
         except Exception as e:
-            logger.error(f"保存FOMADDPG模型失败: {e}")
+            logger.error(f"save FOMADDPG models failed: {e}")
     
     def load_models(self, load_path: str):
-        """加载模型"""
+        """load models"""
         try:
-            # 使用FOMADDPG的加载方法
+            # use FOMADDPG's load method
             self.fomaddpg.load_models(load_path)
-            logger.info(f"FOMADDPG模型已从 {load_path} 加载")
+            logger.info(f"FOMADDPG models loaded from {load_path}")
         except Exception as e:
-            logger.error(f"加载FOMADDPG模型失败: {e}")
+            logger.error(f"load FOMADDPG models failed: {e}")
     
     def _map_action_to_fo_params(self, raw_action: np.ndarray) -> np.ndarray:
-        """
-        将原始动作映射到FlexOffer参数范围
-        
-        FlexOffer参数范围：
-        - start_flex: [-1.0, 1.0] → 时间灵活性
-        - end_flex: [-1.0, 1.0] → 时间灵活性  
-        - energy_min_factor: [0.1, 1.0] → 最小能量因子
-        - energy_max_factor: [1.0, 2.0] → 最大能量因子
-        - priority_weight: [0.1, 2.0] → 优先级权重
-        
-        Args:
-            raw_action: 原始动作 [-1, 1]范围
-            
-        Returns:
-            fo_action: 映射到FlexOffer参数范围的动作
-        """
         fo_action = np.zeros_like(raw_action)
         
-        # 假设动作是5的倍数（每个设备5个参数）
         num_devices = len(raw_action) // 5 if len(raw_action) >= 5 else 1
         
         for i in range(num_devices):
             base_idx = i * 5
             if base_idx + 4 < len(raw_action):
-                # start_flex: [-1, 1] → [-1, 1] (保持不变)
+                # start_flex: [-1, 1] → [-1, 1] 
                 fo_action[base_idx] = np.clip(raw_action[base_idx], -1.0, 1.0)
                 
-                # end_flex: [-1, 1] → [-1, 1] (保持不变)
+                # end_flex: [-1, 1] → [-1, 1] 
                 fo_action[base_idx + 1] = np.clip(raw_action[base_idx + 1], -1.0, 1.0)
                 
                 # energy_min_factor: [-1, 1] → [0.1, 1.0]
@@ -471,8 +414,6 @@ class FOMAddpgAdapter:
         return fo_action
     
     def _generate_default_fo_action(self) -> np.ndarray:
-        """生成默认的FlexOffer参数动作"""
-        # 生成合理的默认FlexOffer参数
         default_action = np.zeros(self.action_dim)
         num_devices = self.action_dim // 5 if self.action_dim >= 5 else 1
         
