@@ -8,22 +8,22 @@
 # - device parameters: heat pump performance parameters
 # - time parameters: typical operation period and scheduling information
 
-room_id,房间类型,room_area,room_volume,temp_min,temp_max,initial_temp,cop,heat_loss_coef,主要使用时段,次要使用时段,主要时段目标温度,次要时段目标温度,最大功率,保温等级,房间特征,用户类型,用途说明
-1-1-101-LR,客厅,30,90,18,28,22,3.2,0.023,07:00-22:00,22:00-07:00,24,20,3500,A级,大开间,居家型,三口之家主要活动区
-1-1-101-MB,主卧,20,60,18,26,22,3.2,0.021,21:00-08:00,08:00-21:00,23,19,2000,A级,标准间带卫,居家型,夫妻卧室
-1-1-101-SB,次卧,15,45,18,26,22,3.2,0.022,20:00-07:00,07:00-20:00,22,19,1500,A级,标准间,学生型,孩子房间
-1-1-101-ST,书房,12,36,18,26,22,3.2,0.020,09:00-22:00,22:00-09:00,23,19,1200,A级,小间,工作型,居家办公区
-1-1-102-LR,客厅,35,105,18,28,22,3.2,0.023,08:00-23:00,23:00-08:00,24,20,4000,A级,大开间,老年型,退休老人起居室
-1-1-102-MB,主卧,22,66,18,26,22,3.2,0.021,20:00-08:00,08:00-20:00,23,20,2200,A级,标准间带卫,老年型,老年夫妻卧室
-1-1-102-SB,次卧,16,48,18,26,22,3.2,0.022,19:00-07:00,07:00-19:00,22,19,1600,A级,标准间,访客型,偶尔使用
-1-2-201-LR,客厅,28,84,18,28,22,3.2,0.024,18:00-23:00,23:00-18:00,24,19,3000,B级,大开间,上班型,双职工家庭
-1-2-201-MB,主卧,18,54,18,26,22,3.2,0.022,22:00-07:00,07:00-22:00,23,19,1800,B级,标准间带卫,上班型,双职工卧室
-1-2-202-LR,客厅,32,96,18,28,22,3.2,0.023,全天,全天,23,21,3500,A级,大开间,婴幼型,有婴儿家庭
-1-2-202-MB,主卧,20,60,18,26,22,3.2,0.021,20:00-08:00,08:00-20:00,23,21,2000,A级,标准间带卫,婴幼型,婴儿房
-2-1-101-LR,客厅,40,120,18,28,22,3.2,0.022,07:00-23:00,23:00-07:00,24,20,4500,A级,复式大开间,居家型,大家庭活动区
-2-1-101-MB,主卧,25,75,18,26,22,3.2,0.020,21:00-08:00,08:00-21:00,23,19,2500,A级,套间带卫,居家型,主卧带书房
-2-1-101-SB1,次卧1,18,54,18,26,22,3.2,0.021,20:00-07:00,07:00-20:00,22,19,1800,A级,标准间,学生型,高中生房间
-2-1-101-SB2,次卧2,18,54,18,26,22,3.2,0.021,21:00-07:00,07:00-21:00,22,19,1800,A级,标准间,学生型,小学生房间
+room_id,room_type,room_area,room_volume,temp_min,temp_max,initial_temp,cop,heat_loss_coef,primary_use_period,secondary_use_period,primary_target_temp,secondary_target_temp,max_power,insulation_level,room_feature,user_type,usage_description
+1-1-101-LR,living_room,30,90,18,28,22,3.2,0.023,07:00-22:00,22:00-07:00,24,20,3500,A_level,large_open_space,residential_type,three-person family main activity area
+1-1-101-MB,master_bedroom,20,60,18,26,22,3.2,0.021,21:00-08:00,08:00-21:00,23,19,2000,A_level,standard_room_with_bathroom,residential_type,couple's bedroom
+1-1-101-SB,secondary_bedroom,15,45,18,26,22,3.2,0.022,20:00-07:00,07:00-20:00,22,19,1500,A_level,standard_room,student_type,child's bedroom
+1-1-101-ST,study,12,36,18,26,22,3.2,0.020,09:00-22:00,22:00-09:00,23,19,1200,A_level,small_room,working_type,home office
+1-1-102-LR,living_room,35,105,18,28,22,3.2,0.023,08:00-23:00,23:00-08:00,24,20,4000,A_level,large_open_space,elderly_type,retirement home living room
+1-1-102-MB,master_bedroom,22,66,18,26,22,3.2,0.021,20:00-08:00,08:00-20:00,23,20,2200,A_level,standard_room_with_bathroom,elderly_type,elderly couple's bedroom
+1-1-102-SB,secondary_bedroom,16,48,18,26,22,3.2,0.022,19:00-07:00,07:00-19:00,22,19,1600,A_level,standard_room,visitor_type,occasional use
+1-2-201-LR,living_room,28,84,18,28,22,3.2,0.024,18:00-23:00,23:00-18:00,24,19,3000,B_level,large_open_space,working_type,double-income family
+1-2-201-MB,master_bedroom,18,54,18,26,22,3.2,0.022,22:00-07:00,07:00-22:00,23,19,1800,B_level,standard_room_with_bathroom,working_type,double-income bedroom
+1-2-202-LR,living_room,32,96,18,28,22,3.2,0.023,all_day,all_day,23,21,3500,A_level,large_open_space,infant_type,family with infants
+1-2-202-MB,master_bedroom,20,60,18,26,22,3.2,0.021,20:00-08:00,08:00-20:00,23,21,2000,A_level,standard_room_with_bathroom,infant_type,infant room
+2-1-101-LR,living_room,40,120,18,28,22,3.2,0.022,07:00-23:00,23:00-07:00,24,20,4500,A_level,duplex_large_open_space,residential_type,large family activity area
+2-1-101-MB,master_bedroom,25,75,18,26,22,3.2,0.020,21:00-08:00,08:00-21:00,23,19,2500,A_level,suite_with_bathroom,residential_type,master bedroom with study
+2-1-101-SB1,secondary_bedroom,18,54,18,26,22,3.2,0.021,20:00-07:00,07:00-20:00,22,19,1800,A_level,standard_room,student_type,high school student room
+2-1-101-SB2,secondary_bedroom,18,54,18,26,22,3.2,0.021,20:00-07:00,07:00-20:00,22,19,1800,A_level,standard_room,student_type,high school student room
 
 # additional notes:
 # 1. room_id format: building number-unit number-room number-room type

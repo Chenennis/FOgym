@@ -8,7 +8,7 @@ from fo_generate.dfo import DFOSystem, DFOSlice
 
 @dataclass
 class BatteryParameters:
-    """电池参数"""
+    """battery parameters"""
     battery_id: str   # battery id
     soc_min: float    # minimum state of charge
     soc_max: float    # maximum state of charge
@@ -21,7 +21,7 @@ class BatteryParameters:
 
 @dataclass
 class BatteryScheduleParams:
-    """电池调度参数"""
+    """battery schedule parameters"""
     battery_id: str     # battery id
     time_horizon: int   # time horizon
     start_time: datetime # start time

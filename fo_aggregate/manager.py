@@ -430,7 +430,7 @@ class Manager:
                     try:
                         uncertain_model = UncertainModel.from_csv(
                             os.path.join(data_dir, "uncertain_energy_data.csv"),
-                            "光伏发电"  # randomly select an energy type, can be improved to randomly select from file
+                            "photovoltaic_generation"  # randomly select an energy type, can be improved to randomly select from file
                         )
                         device = Device(device_id, device_type, uncertain_model.params_list, uncertain_model)
                         user.add_device(device)
