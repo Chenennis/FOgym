@@ -36,4 +36,13 @@ dist/
 Thumbs.db
 .coverage
 htmlcov/
-.pytest_cache/ 
+.pytest_cache/
+
+# Results and saved models (not needed for running)
+**/SavedResult/
+**/figures/
+algorithms/Model_based/documents/
+
+# Paper writing docs (do not upload)
+EVALUATION_METRICS_GUIDE.md
+PAPER_WRITING_PROMPTS.md 
