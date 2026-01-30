@@ -12,7 +12,7 @@ This system (FOgym) is a complete platform for FlexOffer (flexibility offer) gen
 - **MADDPG**: FlexOffer multi-agent deep deterministic policy gradient  
 - **MATD3**: FlexOffer multi-agent twin delayed DDPG
 - **SQDDPG**: SQDDPG based on Shapley value fair credit assignment
-- **FOModelBased**: Traditional model-based optimization benchmark (no training required)
+
 
 ### 🧠 Dec-POMDP Architecture
 - **Decentralized Partially Observable Markov Decision Process**: Real multi-agent environment modeling
