@@ -76,13 +76,11 @@ class EnvironmentConfig:
         3: list(range(27, 36))  # Manager 3: Users 27-35
     })
     
-    # reward configuration
-    reward_weights: Dict[str, float] = field(default_factory=lambda: {
-        'user_satisfaction': 0.4,
-        'system_efficiency': 0.3,
-        'cost_optimization': 0.2,
-        'fairness': 0.1
-    })
+    # reward configuration (Eq.10: r_m = α·r_e + β·r_u + δ·r_c + λ·r_o)
+    reward_alpha: float = 0.4    # α - economic efficiency weight
+    reward_beta: float = 0.3     # β - user satisfaction weight
+    reward_delta: float = 0.1    # δ - constraint penalty weight
+    reward_lambda: float = 0.2   # λ - coordination/trading weight
 
 
 @dataclass

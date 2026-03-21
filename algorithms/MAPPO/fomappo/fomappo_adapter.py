@@ -141,14 +141,14 @@ class FOMAPPOAdapter:
             device: compute device
         """
         self.device = torch.device(device)
-        self.state_dim = max(state_dim, 73)
+        self.state_dim = state_dim
         self.action_dim = action_dim
         self.num_agents = num_agents
         self.episode_length = episode_length
-        self.actual_obs_dim = max(state_dim, 73)  
-        
+        self.actual_obs_dim = state_dim
+
         # increase dimension change tracking
-        self.initial_state_dim = max(state_dim, 73)
+        self.initial_state_dim = state_dim
         self.has_dimension_changed = False
         self.dimension_change_count = 0
         self.new_obs_dimension_history = []  

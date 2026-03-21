@@ -390,14 +390,18 @@ class BatteryMDPDevice(DeviceMDPInterface):
     
     def transition_state(self, action: float, env_state: Dict) -> Dict[str, Any]:
         """battery state transition"""
+        # Action projection: clip power to feasible range before transition
+        max_power = getattr(self.battery.params, 'max_power', 5.0)
+        action = np.clip(action, -max_power, max_power)
+
         soc = self.battery.current_soc
-        
+
         # calculate SOC change
         if action > 0:  # charge
             energy_change = action * self.efficiency
         else:  # discharge
             energy_change = action / self.efficiency
-        
+
         new_soc = soc + energy_change / self.capacity
         new_soc = np.clip(new_soc, self.battery.params.soc_min, self.battery.params.soc_max)
         
@@ -557,6 +561,10 @@ class HeatPumpMDPDevice(DeviceMDPInterface):
     
     def transition_state(self, action: float, env_state: Dict) -> Dict[str, Any]:
         """heat pump state transition"""
+        # Action projection: clip power to feasible range [0, max_power]
+        max_power = getattr(self.heatpump.params, 'max_power', 5.0)
+        action = np.clip(action, 0.0, max_power)
+
         current_temp = self.heatpump.current_temp
         outside_temp = env_state['temperature']
         
@@ -702,6 +710,11 @@ class EVMDPDevice(DeviceMDPInterface):
     
     def transition_state(self, action: float, env_state: Dict) -> Dict[str, Any]:
         """EV state transition"""
+        # Action projection: clip power to feasible range [0, max_charging_power]
+        max_charge = getattr(self.ev.params, 'max_charging_power',
+                             getattr(self.ev.params, 'max_power', 7.0))
+        action = np.clip(action, 0.0, max_charge)
+
         soc = self.ev.current_soc
         is_connected = self._is_connected()
         

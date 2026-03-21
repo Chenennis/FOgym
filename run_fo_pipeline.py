@@ -299,6 +299,19 @@ class FOPipeline:
         self.trading_strategy = config.get("trading_strategy", "market_clearing")
         self.disaggregation_method = config.get("disaggregation_method", "proportional")
         self.scheduling_method = config.get("scheduling_method", "priority")
+
+        # Reward weights (Eq.10: r_m = α·r_e + β·r_u + δ·r_c + λ·r_o)
+        self.reward_weights = {
+            'alpha': config.get("reward_alpha", 0.4),
+            'beta': config.get("reward_beta", 0.3),
+            'delta': config.get("reward_delta", 0.1),
+            'lambda': config.get("reward_lambda", 0.2),
+        }
+        logger.info(f"Reward weights: α={self.reward_weights['alpha']}, β={self.reward_weights['beta']}, "
+                     f"δ={self.reward_weights['delta']}, λ={self.reward_weights['lambda']}")
+
+        # Data configuration
+        self.data_config = config.get("data_config", "36users")
         
         # Global observation space configuration
         self.use_global_observation = config.get("use_global_observation", False)
@@ -2034,7 +2047,9 @@ class FOPipeline:
             multi_env = MultiAgentFlexOfferEnv(
                 data_dir="data",
                 time_horizon=self.time_horizon,
-                time_step=self.time_step
+                time_step=self.time_step,
+                reward_weights=self.reward_weights,
+                data_config=self.data_config
             )
             
             # Get Manager count and observation/action space
@@ -2377,7 +2392,9 @@ class FOPipeline:
             multi_env = MultiAgentFlexOfferEnv(
                 data_dir="data",
                 time_horizon=self.time_horizon,
-                time_step=self.time_step
+                time_step=self.time_step,
+                reward_weights=self.reward_weights,
+                data_config=self.data_config
             )
             
             # Get Manager count and observation/action space
@@ -2643,7 +2660,9 @@ class FOPipeline:
             multi_env = MultiAgentFlexOfferEnv(
                 data_dir="data",
                 time_horizon=self.time_horizon,
-                time_step=self.time_step
+                time_step=self.time_step,
+                reward_weights=self.reward_weights,
+                data_config=self.data_config
             )
             
             # Get Manager count and observation/action space
@@ -2753,7 +2772,9 @@ class FOPipeline:
             multi_env = MultiAgentFlexOfferEnv(
                 data_dir="data",
                 time_horizon=self.time_horizon,
-                time_step=self.time_step
+                time_step=self.time_step,
+                reward_weights=self.reward_weights,
+                data_config=self.data_config
             )
             
             # Get Manager count and observation/action space
@@ -2933,7 +2954,9 @@ class FOPipeline:
             multi_env = MultiAgentFlexOfferEnv(
                 data_dir="data",
                 time_horizon=self.time_horizon,
-                time_step=self.time_step
+                time_step=self.time_step,
+                reward_weights=self.reward_weights,
+                data_config=self.data_config
             )
             
             # Get Manager count and observation/action space
@@ -3189,7 +3212,9 @@ class FOPipeline:
                         time_step=self.time_step,
                         aggregation_method=self.aggregation_method,
                         trading_method=self.trading_strategy,
-                        disaggregation_method=self.disaggregation_method
+                        disaggregation_method=self.disaggregation_method,
+                        reward_weights=self.reward_weights,
+                        data_config=self.data_config
                     )
                     logger.info("✅ Successfully created multi_agent_env")
                 except Exception as e:
@@ -5219,9 +5244,11 @@ class FOPipeline:
                 time_step=self.time_step,
                 aggregation_method=self.aggregation_method,
                 trading_method=self.trading_strategy,
-                disaggregation_method=self.disaggregation_method
+                disaggregation_method=self.disaggregation_method,
+                reward_weights=self.reward_weights,
+                data_config=self.data_config
             )
-            
+
             # 2. Get environment information
             num_managers = multi_env.get_manager_count()
             manager_ids = list(multi_env.manager_agents.keys())
@@ -5645,7 +5672,9 @@ class FOPipeline:
                 time_step=self.time_step,
                 aggregation_method=self.aggregation_method,  # Explicitly pass aggregation method
                 trading_method=self.trading_method,
-                disaggregation_method=self.disaggregation_method
+                disaggregation_method=self.disaggregation_method,
+                reward_weights=self.reward_weights,
+                data_config=self.data_config
             )
             
             # Record used algorithm configuration
@@ -5933,7 +5962,9 @@ class FOPipeline:
             multi_env = MultiAgentFlexOfferEnv(
                 data_dir="data",
                 time_horizon=self.time_horizon,
-                time_step=self.time_step
+                time_step=self.time_step,
+                reward_weights=self.reward_weights,
+                data_config=self.data_config
             )
             
             # 2. Get environment information
@@ -6253,7 +6284,9 @@ class FOPipeline:
             multi_env = MultiAgentFlexOfferEnv(
                 data_dir="data",
                 time_horizon=self.time_horizon,
-                time_step=self.time_step
+                time_step=self.time_step,
+                reward_weights=self.reward_weights,
+                data_config=self.data_config
             )
             
             # Get environment configuration
@@ -6611,7 +6644,9 @@ class FOPipeline:
             multi_env = MultiAgentFlexOfferEnv(
                 data_dir="data",
                 time_horizon=self.time_horizon,
-                time_step=self.time_step
+                time_step=self.time_step,
+                reward_weights=self.reward_weights,
+                data_config=self.data_config
             )
             
             # Get environment configuration
@@ -6949,7 +6984,9 @@ class FOPipeline:
             multi_env = MultiAgentFlexOfferEnv(
                 data_dir="data",
                 time_horizon=self.time_horizon,
-                time_step=self.time_step
+                time_step=self.time_step,
+                reward_weights=self.reward_weights,
+                data_config=self.data_config
             )
             
             # Get environment configuration
@@ -7697,6 +7734,17 @@ def parse_args():
     # Test parameters
     parser.add_argument("--test_aggregation", action="store_true", help="Test different aggregation methods (LP and DP)")
     parser.add_argument("--verbose", action="store_true", help="Show detailed output")
+
+    # Reward weight parameters (Eq.10: r_m = α·r_e + β·r_u + δ·r_c + λ·r_o)
+    parser.add_argument("--reward_alpha", type=float, default=0.4, help="Economic efficiency reward weight (α)")
+    parser.add_argument("--reward_beta", type=float, default=0.3, help="User satisfaction reward weight (β)")
+    parser.add_argument("--reward_delta", type=float, default=0.1, help="Constraint penalty reward weight (δ)")
+    parser.add_argument("--reward_lambda", type=float, default=0.2, help="Coordination/trading reward weight (λ)")
+
+    # Data configuration
+    parser.add_argument("--data_config", type=str, default="36users",
+                        choices=["36users", "4manager", "10manager"],
+                        help="Data configuration: 36users (default), 4manager, 10manager")
     
     return parser.parse_args()
 
@@ -7892,7 +7940,57 @@ def main():
         logger.warning("⚠️ pipeline.training_history['episode_rewards'] is empty, no training or training failed")
     
     print("==============================\n")
-    
+
+    # Export experiment metrics (for run_experiments.py integration)
+    try:
+        from fo_common.experiment_metrics import ExperimentMetricsTracker
+
+        # Build experiment name from config
+        algo_name = pipeline.actual_running_algorithm or pipeline.rl_algorithm
+        agg = pipeline.aggregation_method
+        trade = pipeline.trading_strategy
+        disagg = pipeline.disaggregation_method
+        exp_name = config.get("experiment_name",
+                              f"{algo_name}_{agg}_{trade}_{disagg}")
+
+        tracker = ExperimentMetricsTracker(
+            experiment_name=exp_name,
+            results_dir=pipeline.results_dir,
+            num_managers=pipeline.num_managers,
+            num_users=pipeline.num_users,
+        )
+
+        # Populate from training_history
+        episode_rewards = pipeline.training_history.get("episode_rewards", {})
+        if isinstance(episode_rewards, dict) and episode_rewards:
+            # Multi-agent: average across managers per episode
+            manager_ids = list(episode_rewards.keys())
+            if manager_ids:
+                num_ep = len(episode_rewards[manager_ids[0]])
+                for ep_idx in range(num_ep):
+                    tracker.start_episode()
+                    ep_total = sum(episode_rewards[mid][ep_idx]
+                                   for mid in manager_ids if ep_idx < len(episode_rewards[mid]))
+                    mgr_rewards = {mid: episode_rewards[mid][ep_idx]
+                                   for mid in manager_ids if ep_idx < len(episode_rewards[mid])}
+                    tracker.record_episode(
+                        episode_num=ep_idx,
+                        total_reward=ep_total,
+                        manager_rewards=mgr_rewards,
+                        reward_info={
+                            'economic': 0.0, 'user_satisfaction': 0.0,
+                            'coordination': 0.0, 'trade_success_rate': 0.0,
+                            'net_benefit': 0.0,
+                        },
+                    )
+
+        tracker.export_episode_csv()
+        tracker.export_summary_csv()
+        summary = tracker.get_summary_dict()
+        print(f"Experiment metrics exported: total_reward={summary['total_reward']}")
+    except Exception as e:
+        logger.warning(f"Failed to export experiment metrics: {e}")
+
     logger.info("FlexOffer complete pipeline execution completed")
 
 if __name__ == "__main__":

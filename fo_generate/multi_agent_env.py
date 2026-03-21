@@ -27,11 +27,17 @@ logger = logging.getLogger(__name__)
 class ManagerAgent:
     """Manager class, manage a group of users and devices"""
     
-    def __init__(self, manager_id: str, manager_config: Dict, users: List[Dict], devices: List[Dict]):
+    def __init__(self, manager_id: str, manager_config: Dict, users: List[Dict], devices: List[Dict],
+                 reward_weights: Optional[Dict[str, float]] = None):
         self.manager_id = manager_id
         self.config = manager_config
         self.users = users
         self.devices = devices
+
+        # reward weights (Eq.10: r_m = α·r_e + β·r_u + δ·r_c + λ·r_o)
+        self.reward_weights = reward_weights or {
+            'alpha': 0.4, 'beta': 0.3, 'delta': 0.1, 'lambda': 0.2
+        }
         
         # location and coverage information
         self.location = (manager_config['location_x'], manager_config['location_y'])
@@ -476,42 +482,94 @@ class ManagerAgent:
     def step(self, actions: np.ndarray, env_state: Dict) -> Tuple[float, Dict]:
         """
         execute one step action
-        
+
         new process:
-        1. map actions to FlexOffer parameters
-        2. generate device-level FlexOffer
-        3. execute Pipeline process: aggregate → trade → disaggregate → schedule
-        4. calculate Pipeline execution reward
+        1. project raw actions to feasible region (hard constraint)
+        2. compute constraint violation score from raw vs projected (soft constraint r_c)
+        3. map projected actions to FlexOffer parameters
+        4. generate device-level FlexOffer
+        5. execute Pipeline process: aggregate → trade → disaggregate → schedule
+        6. calculate Pipeline execution reward (including r_c penalty)
         """
-        # Step 1: map actions to FlexOffer parameters
-        fo_params = self._map_actions_to_fo_params(actions)
-        
-        # Step 2: generate device-level FlexOffer
+        # Step 1: project actions (Two-Layer Constraint Enforcement - Layer 2)
+        raw_actions = actions.copy()
+        projected_actions, constraint_violation_score, constraint_violation_count = \
+            self._project_actions(raw_actions)
+
+        # Step 2: map projected actions to FlexOffer parameters
+        fo_params = self._map_actions_to_fo_params(projected_actions)
+
+        # Step 3: generate device-level FlexOffer
         device_flexoffers = self._generate_device_flexoffers(fo_params, env_state)
-        
-        # Step 3: execute complete Pipeline process
+
+        # Step 4: execute complete Pipeline process
         pipeline_results = self._execute_full_pipeline(device_flexoffers, env_state)
-        
-        # Step 4: calculate Pipeline reward
+
+        # Step 5: calculate Pipeline reward (with constraint penalty from raw actions)
         pipeline_reward, reward_info = self._calculate_pipeline_reward(
-            pipeline_results, env_state
+            pipeline_results, env_state, constraint_penalty=constraint_violation_score
         )
-        
+
         # update history
-        self.markov_history['prev_actions'] = actions.copy()
+        self.markov_history['prev_actions'] = projected_actions.copy()
         self.markov_history['prev_reward'] = pipeline_reward
         self.markov_history['cumulative_cost'] += reward_info.get('total_cost', 0.0)
         self.markov_history['cumulative_energy'] += reward_info.get('total_energy', 0.0)
         self.markov_history['user_satisfaction'] = reward_info.get('user_satisfaction', 0.0)
-        
+
         info = {
             'pipeline_results': pipeline_results,
             'reward_components': reward_info,
             'fo_params': fo_params,
-            'device_flexoffers': device_flexoffers
+            'device_flexoffers': device_flexoffers,
+            'constraint_violations': constraint_violation_count,
+            'constraint_violation_score': constraint_violation_score
         }
-        
+
         return pipeline_reward, info
+
+    def _project_actions(self, actions: np.ndarray) -> Tuple[np.ndarray, float, int]:
+        """
+        Project raw actions to device-specific feasible regions.
+        (Two-Layer Constraint Enforcement - Layer 2: Hard constraint)
+
+        For FO parameters per device (5 dims each):
+        - start_flex: [-1.0, 1.0]
+        - end_flex: [-1.0, 1.0]
+        - energy_min_factor: [0.1, 1.0]
+        - energy_max_factor: [1.0, 2.0]
+        - priority_weight: [0.1, 2.0]
+
+        Returns:
+            projected_actions: clipped actions within feasible region
+            constraint_violation_score: sum of |raw - projected| (for r_c penalty)
+            constraint_violation_count: number of action dimensions that were clipped
+        """
+        projected = actions.copy()
+        fo_params_per_device = 5
+        violation_score = 0.0
+        violation_count = 0
+
+        # FO parameter bounds per device: [start_flex, end_flex, e_min, e_max, priority]
+        bounds_low = np.array([-1.0, -1.0, 0.1, 1.0, 0.1])
+        bounds_high = np.array([1.0, 1.0, 1.0, 2.0, 2.0])
+
+        for i in range(len(self.controllable_devices)):
+            start_idx = i * fo_params_per_device
+            end_idx = start_idx + fo_params_per_device
+
+            if end_idx <= len(actions):
+                raw_slice = actions[start_idx:end_idx]
+                clipped = np.clip(raw_slice, bounds_low, bounds_high)
+
+                # Compute violation metrics from raw vs projected
+                diff = np.abs(raw_slice - clipped)
+                violation_score += np.sum(diff)
+                violation_count += int(np.sum(diff > 1e-6))
+
+                projected[start_idx:end_idx] = clipped
+
+        return projected, violation_score, violation_count
     
     def _map_actions_to_fo_params(self, actions: np.ndarray) -> Dict[str, Dict]:
         """map agent actions to FlexOffer parameters"""
@@ -1126,8 +1184,15 @@ class ManagerAgent:
         
         return stats
     
-    def _calculate_pipeline_reward(self, pipeline_results: Dict, env_state: Dict) -> Tuple[float, Dict]:
-        """calculate reward based on Pipeline execution results"""
+    def _calculate_pipeline_reward(self, pipeline_results: Dict, env_state: Dict,
+                                    constraint_penalty: float = 0.0) -> Tuple[float, Dict]:
+        """calculate reward based on Pipeline execution results
+
+        Args:
+            pipeline_results: pipeline execution results
+            env_state: environment state
+            constraint_penalty: constraint violation score from action projection (for r_c)
+        """
         stats = pipeline_results.get('stats', {})
         
         total_cost = stats.get('total_cost', 0.0)
@@ -1193,11 +1258,22 @@ class ManagerAgent:
                     strategy_consistency_reward = 15.0  # average strategy
         
         # target range: 30-270
+        # Use configurable reward weights (Eq.10: r_m = α·r_e + β·r_u + δ·r_c + λ·r_o)
+        alpha = self.reward_weights.get('alpha', 0.4) if hasattr(self, 'reward_weights') else 0.4
+        beta = self.reward_weights.get('beta', 0.3) if hasattr(self, 'reward_weights') else 0.3
+        delta = self.reward_weights.get('delta', 0.1) if hasattr(self, 'reward_weights') else 0.1
+        lam = self.reward_weights.get('lambda', 0.2) if hasattr(self, 'reward_weights') else 0.2
+
+        # r_c: constraint penalty from action projection (negative reward for violations)
+        # Scale constraint_penalty to match reward magnitude (penalty per violation ~10-30 range)
+        constraint_reward = -constraint_penalty * 10.0
+
+        # Combine: strategy_consistency acts as part of coordination/quality signal
         total_reward = (
-            0.4 * economic_reward +           # 40% weight: 0-40
-            0.3 * satisfaction_reward +       # 30% weight: 3-24
-            0.2 * coordination_reward +       # 20% weight: 1-12
-            0.1 * strategy_consistency_reward # 10% weight: 0-3
+            alpha * economic_reward +
+            beta * satisfaction_reward +
+            lam * (coordination_reward + strategy_consistency_reward * 0.5) +
+            delta * constraint_reward
         )  # total range: 4-79, plus base reward
         
         # add base reward, ensure total reward is positive
@@ -1238,6 +1314,8 @@ class ManagerAgent:
             'satisfaction': satisfaction_reward,
             'coordination': coordination_reward,
             'strategy_consistency': strategy_consistency_reward,
+            'constraint_reward': constraint_reward,
+            'constraint_penalty_raw': constraint_penalty,
             'learning_progress': learning_progress_reward,
             'base_reward': base_reward,
             'total_cost': total_cost,
@@ -1245,7 +1323,8 @@ class ManagerAgent:
             'net_benefit': net_benefit,
             'user_satisfaction': satisfaction_base,
             'trade_success_rate': trade_success_rate,
-            'episode_count': getattr(self, 'episode_count', 1)
+            'episode_count': getattr(self, 'episode_count', 1),
+            'reward_weights': {'alpha': alpha, 'beta': beta, 'delta': delta, 'lambda': lam}
         }
         
         return total_reward, reward_info
@@ -1358,18 +1437,20 @@ class ManagerAgent:
 class MultiAgentFlexOfferEnv(gym.Env):
     """multi-agent FlexOffer environment"""
     
-    def __init__(self, 
+    def __init__(self,
                  data_dir: str = "data",
                  time_horizon: int = 24,
                  time_step: float = 1.0,
                  start_time: Optional[datetime] = None,
                  dec_pomdp_config: Optional[DecPOMDPConfig] = None,
                  aggregation_method: str = "LP",
-                 trading_method: str = "bidding", 
-                 disaggregation_method: str = "proportional"):
+                 trading_method: str = "bidding",
+                 disaggregation_method: str = "proportional",
+                 reward_weights: Optional[Dict[str, float]] = None,
+                 data_config: str = "36users"):
         """
         initialize multi-agent FlexOffer environment
-        
+
         Args:
             data_dir: data directory
             time_horizon: time horizon
@@ -1379,17 +1460,27 @@ class MultiAgentFlexOfferEnv(gym.Env):
             aggregation_method: aggregation algorithm ("LP", "DP")
             trading_method: trading algorithm ("bidding", "market_clearing")
             disaggregation_method: disaggregation algorithm ("average", "proportional")
+            reward_weights: reward weight dict with keys 'alpha', 'beta', 'delta', 'lambda'
+            data_config: data configuration ("36users", "4manager", "10manager")
         """
         
         self.data_dir = data_dir
         self.time_horizon = time_horizon
         self.time_step = time_step
         self.start_time = start_time or datetime.now().replace(minute=0, second=0, microsecond=0)
-        
+
         # algorithm configuration
         self.aggregation_method = aggregation_method
         self.trading_method = trading_method
         self.disaggregation_method = disaggregation_method
+
+        # reward weights (Eq.10: r_m = α·r_e + β·r_u + δ·r_c + λ·r_o)
+        self.reward_weights = reward_weights or {
+            'alpha': 0.4, 'beta': 0.3, 'delta': 0.1, 'lambda': 0.2
+        }
+
+        # data configuration
+        self.data_config = data_config
         
         # validate algorithm choices
         self._validate_algorithm_choices()
@@ -1507,86 +1598,96 @@ class MultiAgentFlexOfferEnv(gym.Env):
             start_time=self.start_time, hours=self.time_horizon * 2
         )
         self.calendar_data = self.data_loader.load_calendar_data()
-        
-        # load Manager and user configuration - use actual file names
-        self.manager_config_df = self.data_loader.load_manager_config("manager_config_36users.csv")
-        self.user_config_df = self.data_loader.load_user_config("user_config_36users.csv")
-        self.device_config_df = self.data_loader.load_device_config("device_config_36users.csv")
-        
-        logger.info("configuration data loaded")
+
+        # load Manager and user configuration based on data_config
+        data_config = getattr(self, 'data_config', '36users')
+        if data_config == '4manager':
+            self.manager_config_df = self.data_loader.load_manager_config("4manager_managers.csv")
+            self.user_config_df = self.data_loader.load_user_config("4manager_users.csv")
+            self.device_config_df = self.data_loader.load_device_config("4manager_devices.csv")
+            logger.info(f"Loaded 4manager data config")
+        elif data_config == '10manager':
+            self.manager_config_df = self.data_loader.load_manager_config("10manager_managers.csv")
+            self.user_config_df = self.data_loader.load_user_config("10manager_users.csv")
+            self.device_config_df = self.data_loader.load_device_config("10manager_devices.csv")
+            logger.info(f"Loaded 10manager data config")
+        else:
+            # Default: 36users legacy format
+            self.manager_config_df = self.data_loader.load_manager_config("manager_config_36users.csv")
+            self.user_config_df = self.data_loader.load_user_config("user_config_36users.csv")
+            self.device_config_df = self.data_loader.load_device_config("device_config_36users.csv")
+            logger.info(f"Loaded 36users (legacy) data config")
+
+        logger.info(f"Configuration data loaded: {len(self.manager_config_df)} managers, "
+                     f"{len(self.user_config_df)} users, {len(self.device_config_df)} devices")
     
     def _create_manager_agents(self):
         """create Manager agents"""
         self.manager_agents: Dict[str, ManagerAgent] = {}
-        
+        data_config = getattr(self, 'data_config', '36users')
+
         for _, manager_row in self.manager_config_df.iterrows():
             manager_id = manager_row['manager_id']
-            
+
             # get users of this Manager
             manager_users = self.user_config_df[
                 self.user_config_df['manager_id'] == manager_id
             ].to_dict('records')  # type: ignore
-            
-            # get devices of this Manager's users - handle user ID format mismatch
+
+            # get devices of this Manager's users
             user_ids = [user['user_id'] for user in manager_users]
-            
-            # generate possible user ID formats for matching
-            # format 1: user_01, user_02, ... (user configuration file format)
-            # format 2: user_manager_1_1, user_manager_1_2, ... (device configuration file format)
-            extended_user_ids = set(user_ids)  # original user IDs
-            
-            # generate possible device configuration formats for each user ID
-            for user_id in user_ids:
-                # extract manager and user number from user_01
-                if user_id.startswith('user_'):
-                    try:
-                        user_num_str = user_id.split('_')[1]  # get "01", "02" etc.
-                        user_num = int(user_num_str)  # convert to number
-                        
-                        # generate corresponding device configuration user ID format based on manager_id
-                        manager_num = str(manager_id).split('_')[1]  # get "1" from manager_1
-                        
-                        # calculate local user number within Manager
-                        # Manager 1: user_01-06 -> user_manager_1_1-6
-                        # Manager 2: user_07-16 -> user_manager_2_1-10  
-                        # Manager 3: user_17-24 -> user_manager_3_1-8
-                        # Manager 4: user_25-36 -> user_manager_4_1-12
-                        
-                        if manager_id == "manager_1" and 1 <= user_num <= 6:
-                            local_user_num = user_num
-                        elif manager_id == "manager_2" and 7 <= user_num <= 16:
-                            local_user_num = user_num - 6
-                        elif manager_id == "manager_3" and 17 <= user_num <= 24:
-                            local_user_num = user_num - 16
-                        elif manager_id == "manager_4" and 25 <= user_num <= 36:
-                            local_user_num = user_num - 24
-                        else:
-                            continue  # user does not belong to current Manager
-                        
-                        # generate user ID in device configuration format
-                        device_user_id = f"user_manager_{manager_num}_{local_user_num}"
-                        extended_user_ids.add(device_user_id)
-                        
-                    except (ValueError, IndexError):
-                        continue  # cannot parse user ID format, skip
-            
-            # use extended user ID list to match devices
-            manager_devices = self.device_config_df[
-                self.device_config_df['user_id'].isin(list(extended_user_ids))
-            ].to_dict('records')  # type: ignore
-            
-            logger.debug(f"{manager_id}: original user IDs {user_ids}, extended user IDs {list(extended_user_ids)}, matched devices {len(manager_devices)}")
-            
+
+            if data_config in ('4manager', '10manager'):
+                # New format: user_id is consistent between user and device CSVs (user_X_Y)
+                # Direct join, no mapping needed
+                manager_devices = self.device_config_df[
+                    self.device_config_df['user_id'].isin(user_ids)
+                ].to_dict('records')  # type: ignore
+            else:
+                # Legacy 36users format: user CSV uses user_01, device CSV uses user_manager_X_Y
+                # Need the hardcoded mapping
+                extended_user_ids = set(user_ids)
+
+                for user_id in user_ids:
+                    if user_id.startswith('user_'):
+                        try:
+                            user_num_str = user_id.split('_')[1]
+                            user_num = int(user_num_str)
+                            manager_num = str(manager_id).split('_')[1]
+
+                            if manager_id == "manager_1" and 1 <= user_num <= 6:
+                                local_user_num = user_num
+                            elif manager_id == "manager_2" and 7 <= user_num <= 16:
+                                local_user_num = user_num - 6
+                            elif manager_id == "manager_3" and 17 <= user_num <= 24:
+                                local_user_num = user_num - 16
+                            elif manager_id == "manager_4" and 25 <= user_num <= 36:
+                                local_user_num = user_num - 24
+                            else:
+                                continue
+
+                            device_user_id = f"user_manager_{manager_num}_{local_user_num}"
+                            extended_user_ids.add(device_user_id)
+                        except (ValueError, IndexError):
+                            continue
+
+                manager_devices = self.device_config_df[
+                    self.device_config_df['user_id'].isin(list(extended_user_ids))
+                ].to_dict('records')  # type: ignore
+
+            logger.debug(f"{manager_id}: {len(manager_users)} users, {len(manager_devices)} devices")
+
             # create Manager agent
             manager_agent = ManagerAgent(
                 manager_id=str(manager_id),
                 manager_config=manager_row.to_dict(),
                 users=manager_users,
-                devices=manager_devices
+                devices=manager_devices,
+                reward_weights=self.reward_weights
             )
-            
+
             self.manager_agents[str(manager_id)] = manager_agent
-        
+
         self.manager_ids = list(self.manager_agents.keys())
         logger.info(f"created {len(self.manager_agents)} Manager agents")
     
@@ -1813,15 +1914,14 @@ class MultiAgentFlexOfferEnv(gym.Env):
                 
                 dec_pomdp_observation = np.concatenate(arrays_to_concat) if arrays_to_concat else np.array([])
             
-            # ensure observation dimension is 73
+            # ensure observation dimension matches the expected space dimension (dynamic, not hardcoded)
+            target_dim = self.observation_spaces[manager_id].shape[0]
             current_dim = len(dec_pomdp_observation)
-            if current_dim < 73:
-                # if dimension is less than 73, pad to 73
-                padding = np.zeros(73 - current_dim)
+            if current_dim < target_dim:
+                padding = np.zeros(target_dim - current_dim)
                 dec_pomdp_observation = np.concatenate([dec_pomdp_observation, padding])
-            elif current_dim > 73:
-                # if dimension is greater than 73, truncate to 73
-                dec_pomdp_observation = dec_pomdp_observation[:73]
+            elif current_dim > target_dim:
+                dec_pomdp_observation = dec_pomdp_observation[:target_dim]
             
             # update observation history
             if manager_id not in self.observation_history:
