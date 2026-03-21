@@ -1,0 +1,5 @@
+manager_id,location_x,location_y,coverage_area,district_type,user_count
+manager_1,2.5,3.2,1.5,residential,6
+manager_2,5.8,7.1,2.3,mixed,10
+manager_3,8.2,4.6,1.8,residential,8
+manager_4,11.5,9.3,3.1,commercial,12

@@ -1,0 +1,11 @@
+manager_id,location_x,location_y,coverage_area,district_type,user_count
+manager_1,3.5,2.8,1.5,residential,6
+manager_2,7.0,5.6,1.8,mixed,10
+manager_3,10.5,7.8,2.1,commercial,8
+manager_4,12.5,10.6,2.4,residential,12
+manager_5,16.0,12.8,1.5,mixed,8
+manager_6,19.5,15.6,1.8,commercial,8
+manager_7,21.5,17.8,2.1,residential,10
+manager_8,25.0,20.6,2.4,mixed,6
+manager_9,28.5,22.8,1.5,commercial,10
+manager_10,30.5,25.6,1.8,residential,12
