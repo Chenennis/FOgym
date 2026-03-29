@@ -1,19 +1,19 @@
-# FlexOffer System Developer Guide
+# FOgym Developer Guide
 
-This document is the developer guide for the FlexOffer multi-agent reinforcement learning trading system, including the logging system usage, trading module implementation details, and configuration file descriptions.
+This document is the developer guide for the FOgym multi-agent reinforcement learning trading platform, including the logging system, observation configuration, module extension guide, and algorithm integration details.
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [📊 Log Verbosity Control](#-log-verbosity-control)
-- [📄 JSON Configuration Files](#-json-configuration-files)
-- [🧩 Module Extension Guide](#-module-extension-guide)
-- [🤖 FOMATD3 Algorithm Integration](#-fomatd3-algorithm-integration)
-- [🤖 FOMAPPO Algorithm Integration](#-fomappo-algorithm-integration)
-- [🤖 FOMAIPPO Algorithm Integration](#-fomaippo-algorithm-integration)
-- [🤖 FOMADDPG Algorithm Integration](#-fomaddpg-algorithm-integration)
-- [🤖 FOSQDDPG Algorithm Integration](#-fosqddpg-algorithm-integration)
+- [Log Verbosity Control](#log-verbosity-control)
+- [JSON Configuration Files](#json-configuration-files)
+- [Module Extension Guide](#module-extension-guide)
+- [FOMATD3 Algorithm Integration](#fomatd3-algorithm-integration)
+- [FOMAPPO Algorithm Integration](#fomappo-algorithm-integration)
+- [FOMAIPPO Algorithm Integration](#fomaippo-algorithm-integration)
+- [FOMADDPG Algorithm Integration](#fomaddpg-algorithm-integration)
+- [FOSQDDPG Algorithm Integration](#fosqddpg-algorithm-integration)
 
-## 📊 Log Verbosity Control
+## Log Verbosity Control
 
 ### Overview
 
@@ -103,7 +103,7 @@ obs_manager = GlobalObservationManager(config=obs_config)
 ```
 
 
-## 🧩 Module Extension Guide
+## Module Extension Guide
 
 ### Adding a New Algorithm
 
@@ -195,7 +195,7 @@ def _create_new_device_model(config):
 ```
 
 
-## 🔍 Common Troubleshooting
+## Common Troubleshooting
 
 ### 1. Training Instability Issues
 - Check if learning rate is appropriate
@@ -217,7 +217,7 @@ def _create_new_device_model(config):
 - Check custom logging function calls
 - Use log filtering tools to filter output
 
-## 🤖 FOMATD3 Algorithm Integration
+## FOMATD3 Algorithm Integration
 
 ### Overview
 

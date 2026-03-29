@@ -113,14 +113,17 @@ class FlexOffer:
         return self.time_flexibility
     
     def is_compatible_with(self, other: 'FlexOffer', tf_threshold: float = 1.0) -> bool:
-        """check compatibility with another FO"""
+        """check compatibility with another FO (relaxed for multi-slice)"""
         if not isinstance(other, FlexOffer):
             return False
-        
-        # check time range consistency
-        if len(self.slices) != len(other.slices):
+
+        # allow different slice counts - binary_aggregation handles padding
+        # reject only extreme size mismatch (>6x difference)
+        min_len = max(min(len(self.slices), len(other.slices)), 1)
+        max_len = max(len(self.slices), len(other.slices))
+        if max_len / min_len > 6.0:
             return False
-        
+
         # check time flexibility within threshold
         tf_diff = abs(self.time_flexibility - other.time_flexibility)
         return tf_diff <= tf_threshold

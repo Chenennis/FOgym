@@ -1,52 +1,57 @@
-# FlexOffer Multi-Agent Reinforcement Learning System Architecture Design
+# FOgym System Architecture Design
 
-## 📋 System Overview
+## System Overview
 
-The FlexOffer Multi-Agent Reinforcement Learning System (RLTRADE) is a complete energy trading platform that integrates five advanced multi-agent RL algorithms (FOMAPPO, FOMAIPPO, FOMADDPG, FOMATD3, FOSQDDPG) and one traditional optimization benchmark algorithm (FOModelBased), adopting a Manager-level collaborative learning architecture to implement an end-to-end solution from device control to market trading.
+FOgym is a complete energy trading platform that integrates five advanced multi-agent RL algorithms (FOMAPPO, FOMAIPPO, FOMADDPG, FOMATD3, FOSQDDPG), adopting a Manager-level collaborative learning architecture to implement an end-to-end solution from device control to market trading.
 
-## 🏗️ Four-Layer Modular Architecture
+## Four-Layer Modular Architecture
 
 ```
-FlexOffer System Four-Layer Architecture
-┌─────────────────────────────────────────────────────────────────────────┐
-│                      🤖 RL Algorithm Layer                              │
-├─────────────────────────────────────────────────────────────────────────┤
-│  MAPPO   │  MAIPPO   │  MADDPG   │  MATD3   │  SQDDPG                  │
-│  Shared policy+ │  Independent policy+  │  Actor-     │  Dual Q-network+  │  Shapley value+  │
-│  Trust region    │  Conflict avoidance   │  Critic     │  Delayed updates  │  Fair allocation  │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-┌─────────────────────────────────────────────────────────────────────────┐
-│               📊 FlexOffer Process Layer                                │
-├─────────────────────────────────────────────────────────────────────────┤
-│  Generation Layer  │  Aggregation Layer  │  Trading Layer  │  Scheduling Layer  │
-│  fo_generate/      │  fo_aggregate/      │  fo_trading/    │  fo_schedule/      │
-│  Device MDP modeling │  LP/DP aggregation  │  Market matching  │  Decomposition scheduling  │
-│  Multi-agent environment  │  Manager aggregation  │  Bilateral auction  │  Satisfaction assessment  │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-┌─────────────────────────────────────────────────────────────────────────┐
-│                🔧 Infrastructure Layer                                   │
-├─────────────────────────────────────────────────────────────────────────┤
-│  Dec-POMDP architecture │  Data management  │  Configuration system  │  Monitoring logs  │
-│  Observation space design  │  CSV loader     │  Parameter validation  │  Performance monitoring  │
-│  Dynamic quality adjustment  │  Model saving  │  Algorithm registration  │  Error handling  │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        Device Ecosystem                                 │
-├─────────────────────────────────────────────────────────────────────────┤
-│ Dishwashers(36)  │ Heat pumps(36)  │ Batteries(24)  │ EVs(14) │ PV(8)  │
-│ 100% deployment  │ 100% deployment │ 67% deployment │ 39% deployment  │ 22% deployment  │
-│ User behavior modeling  │ Temperature control  │ SOC management  │ Charging strategy │ Generation forecast  │
-└─────────────────────────────────────────────────────────────────────────┘
+FOgym Four-Layer Architecture
++------------------------------------------------------------------------+
+|                          RL Algorithm Layer                              |
++------------------------------------------------------------------------+
+| MAPPO      | MAIPPO      | MADDPG      | MATD3      | SQDDPG          |
+| Shared     | Independent | Actor-      | Dual Q-    | Shapley value+  |
+| policy+    | policy+     | Critic      | network+   | Fair allocation |
+| Trust      | Conflict    |             | Delayed    |                 |
+| region     | avoidance   |             | updates    |                 |
++------------------------------------------------------------------------+
+                                    |
++------------------------------------------------------------------------+
+|                      FlexOffer Process Layer                            |
++------------------------------------------------------------------------+
+| Generation     | Aggregation    | Trading        | Scheduling         |
+| fo_generate/   | fo_aggregate/  | fo_trading/    | fo_schedule/       |
+| Device MDP     | LP/DP          | Market match   | Decomposition      |
+| Multi-agent    | Manager aggr   | Bilateral      | Satisfaction       |
+| environment    |                | auction        | assessment         |
++------------------------------------------------------------------------+
+                                    |
++------------------------------------------------------------------------+
+|                      Infrastructure Layer                               |
++------------------------------------------------------------------------+
+| Dec-POMDP      | Data           | Configuration  | Monitoring         |
+| architecture   | management     | system         | logs               |
+| Observation    | CSV loader     | Parameter      | Performance        |
+| space design   | Model saving   | validation     | monitoring         |
++------------------------------------------------------------------------+
+                                    |
++------------------------------------------------------------------------+
+|                        Device Ecosystem                                 |
++------------------------------------------------------------------------+
+| Dishwashers(36) | Heat pumps(36) | Batteries(24) | EVs(14) | PV(8)   |
+| 100% deployment | 100% deployment| 67% deployment| 39%     | 22%     |
+| User behavior   | Temperature    | SOC management| Charging| Forecast|
+| modeling        | control        |               | strategy|         |
++------------------------------------------------------------------------+
 ```
 
-## 🤖 Algorithm Layer Detailed Design
+## Algorithm Layer Detailed Design
 
-### Six Integrated Algorithms
+### Five Integrated MARL Algorithms
 
-The system implements five multi-agent algorithms specifically designed for the FlexOffer system, as well as one traditional optimization benchmark algorithm:
+The system implements five multi-agent algorithms specifically designed for the FlexOffer system:
 
 #### Algorithm Comparison Table
 | Algorithm | Type | Core Features | Advantages | Applicable Scenarios |
@@ -56,7 +61,6 @@ The system implements five multi-agent algorithms specifically designed for the 
 | **FOMADDPG** | Actor-Critic | Deterministic policy gradient | Very high sample efficiency | Continuous control optimization |
 | **FOMATD3** | Actor-Critic | Dual Q-network + delayed updates | Highest training stability | High-noise environments |
 | **FOSQDDPG** | Actor-Critic | Shapley value fair allocation | Fairness guarantee | Multi-party collaboration scenarios |
-| **FOModelBased** | Model-based | Traditional optimization + physical model | No training required, immediately usable | Benchmark comparison |
 
 ### Algorithm Implementation Architecture
 
@@ -113,18 +117,9 @@ class FOMAIPPOAdapter:
 - Adaptive reward allocation
 ```
 
-**FOModelBased (Traditional Optimization)**:
-```python
-# File location: algorithms/Model_based/fomodelbased/
-- Physical model optimization
-- No training required, immediately usable
-- Traditional optimization techniques
-- Used as a benchmark for comparing other algorithms
-```
+## Multi-level Reward Design System
 
-## 🎯 Multi-level Reward Design System
-
-### 🔋 Device-Level Reward Mechanism
+### Device-Level Reward Mechanism
 
 **Battery Energy Storage System (BatteryMDPDevice)**
 ```python
@@ -175,7 +170,7 @@ Total reward = power_generated × price    # Generation revenue
 sunny: 1.0,  cloudy: 0.6,  rainy: 0.2,  snowy: 0.1
 ```
 
-### 🏢 Manager-Level Reward Aggregation
+### Manager-Level Reward Aggregation
 
 ```python
 # Manager total reward = weighted aggregation of device rewards + user preference adjustment
@@ -198,7 +193,7 @@ markov_history = {
 }
 ```
 
-### 🌐 System-Level Multi-agent Reward Coordination
+### System-Level Multi-agent Reward Coordination
 
 ```python
 # Dec-POMDP observation enhanced reward
@@ -216,7 +211,7 @@ collaboration_score = calculate_collaboration_effectiveness(manager_actions)
 system_bonus = collaboration_coefficient × collaboration_score
 ```
 
-## 🔧 Modular Algorithm Integration Architecture
+## Modular Algorithm Integration Architecture
 
 ### fo_generate/ - Generation Layer Algorithm Integration
 ```python
@@ -293,7 +288,7 @@ system_bonus = collaboration_coefficient × collaboration_score
 └── FlexOfferDisaggregator: FlexOffer disaggregator
 ```
 
-## 🧠 Dec-POMDP Observation Space Architecture
+## Dec-POMDP Observation Space Architecture
 
 ### Observation Space Design
 ```
@@ -333,7 +328,7 @@ The system supports 5 levels of network quality dynamic adjustment, affecting ob
 | **Low** | 15% | High | 5% |
 | **Very Low** | 20% | Severe | 10% |
 
-## 📱 Device Types and FlexOffer Pipeline
+## Device Types and FlexOffer Pipeline
 
 ### Device Types and Parameter Settings
 
@@ -597,7 +592,7 @@ disaggregation_method = getattr(self, 'disaggregation_method', 'proportional')
 - **Energy Optimization**: Average 15% energy savings
 - **Economic Benefits**: Average 12% electricity savings
 
-## 🔄 Data Flow and Interaction
+## Data Flow and Interaction
 
 ### FlexOffer Generation Flow
 1. **Device State Initialization**: Device parameter and initial state configuration
@@ -629,7 +624,7 @@ disaggregation_method = getattr(self, 'disaggregation_method', 'proportional')
 4. **Device Scheduling Generation**: Creates device-level execution plans
 5. **Satisfaction Assessment**: Calculates user satisfaction metrics
 
-## 🛠️ Performance Optimization
+## Performance Optimization
 
 ### Computational Optimization
 1. **Parallel Training**: Manager strategies trained in parallel
@@ -645,7 +640,7 @@ disaggregation_method = getattr(self, 'disaggregation_method', 'proportional')
 
 
 
-## 🔄 System Integration Interface
+## System Integration Interface
 
 ### Python API
 ```python
@@ -690,13 +685,12 @@ python run_fo_pipeline.py \
   --use_gpu
 ```
 
-## 📋 Summary
+## Summary
 
-The FlexOffer Multi-Agent Reinforcement Learning System adopts a four-layer modular architecture to implement a complete energy management process from device control to market trading. Six algorithms are integrated, providing flexible solutions for different scenarios, where:
+The FOgym system adopts a four-layer modular architecture to implement a complete energy management process from device control to market trading. Five MARL algorithms are integrated, providing flexible solutions for different scenarios:
 
 1. **FOMAPPO/FOMAIPPO** provides shared policy/independent policy options
 2. **FOMADDPG/FOMATD3** provide high-efficiency algorithms for continuous control scenarios
 3. **FOSQDDPG** ensures fairness in multi-party collaboration through Shapley values
-4. **FOModelBased** provides a traditional optimization benchmark without training
 
 Dec-POMDP observation space design and multi-level reward mechanism jointly construct a real multi-agent distributed decision-making environment, enabling the system to cope with the complexity and uncertainty of the real world. 

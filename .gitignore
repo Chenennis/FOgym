@@ -39,10 +39,16 @@ htmlcov/
 .pytest_cache/
 
 # Results and saved models (not needed for running)
+results/
 **/SavedResult/
 **/figures/
 algorithms/Model_based/documents/
 
+# Working / design markdown files (not documentation)
+Experiment_design.md
+FOgymadjust.md
+coding_design.md
+
 # Paper writing docs (do not upload)
 EVALUATION_METRICS_GUIDE.md
-PAPER_WRITING_PROMPTS.md 
+PAPER_WRITING_PROMPTS.md

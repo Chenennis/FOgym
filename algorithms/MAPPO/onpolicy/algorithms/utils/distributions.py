@@ -88,6 +88,8 @@ class DiagGaussian(nn.Module):
             zeros = zeros.cuda()
 
         action_logstd = self.logstd(zeros)
+        # Clamp logstd to prevent policy collapse: std >= exp(-2.0) ≈ 0.135
+        action_logstd = torch.clamp(action_logstd, min=-2.0)
         return FixedNormal(action_mean, action_logstd.exp())
 
 

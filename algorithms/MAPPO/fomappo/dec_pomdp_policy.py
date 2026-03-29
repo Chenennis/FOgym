@@ -207,7 +207,8 @@ class DecPOMDPActor(nn.Module):
         )
         
         # action distribution parameters
-        self.action_std = nn.Parameter(torch.ones(self.action_dim) * 0.1)
+        self.action_std = nn.Parameter(torch.ones(self.action_dim) * 0.3)
+        self.action_std_min = 0.1  # prevent policy collapse
         
         self.to(device)
     
@@ -232,9 +233,9 @@ class DecPOMDPActor(nn.Module):
         fused_features = torch.cat([private_features, public_features, others_features], dim=-1)
         fused_output = self.fusion_network(fused_features)
         
-        # generate action distribution
+        # generate action distribution with std floor to prevent collapse
         action_mean = self.action_head(fused_output)
-        action_std = self.action_std.expand_as(action_mean)
+        action_std = torch.clamp(self.action_std.expand_as(action_mean), min=self.action_std_min)
         
         # create action distribution
         action_dist = torch.distributions.Normal(action_mean, action_std)
@@ -267,7 +268,7 @@ class DecPOMDPActor(nn.Module):
         fused_output = self.fusion_network(fused_features)
         
         action_mean = self.action_head(fused_output)
-        action_std = self.action_std.expand_as(action_mean)
+        action_std = torch.clamp(self.action_std.expand_as(action_mean), min=self.action_std_min)
         
         action_dist = torch.distributions.Normal(action_mean, action_std)
         

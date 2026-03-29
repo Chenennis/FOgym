@@ -69,9 +69,10 @@ class FOMAPPOArgs:
         self.use_feature_normalization = kwargs.get('use_feature_normalization', True)  
         self.activation_id = kwargs.get('activation_id', 1)  
         
-        # reward normalization
-        self.use_reward_normalization = kwargs.get('use_reward_normalization', True)  
-        self.reward_scale = kwargs.get('reward_scale', 0.01)  
+        # reward normalization - disabled: ValueNorm already handles normalization
+        # Bug fix: reward_scale=0.01 crushed gradient signal to zero (policy_loss=1e-08)
+        self.use_reward_normalization = kwargs.get('use_reward_normalization', False)
+        self.reward_scale = kwargs.get('reward_scale', 1.0)  
         
         # recurrent policy parameters
         self.use_naive_recurrent_policy = kwargs.get('use_naive_recurrent_policy', False)
@@ -182,8 +183,8 @@ class FOMAPPOAdapter:
             'use_clipped_value_loss': kwargs.get('use_clipped_value_loss', True),
             'use_huber_loss': kwargs.get('use_huber_loss', True),
             'huber_delta': kwargs.get('huber_delta', 10.0),  
-            'reward_scale': kwargs.get('reward_scale', 0.01),  
-            'use_reward_normalization': kwargs.get('use_reward_normalization', True),
+            'reward_scale': kwargs.get('reward_scale', 1.0),
+            'use_reward_normalization': kwargs.get('use_reward_normalization', False),
             'use_orthogonal': kwargs.get('use_orthogonal', True),
             'use_ReLU': kwargs.get('use_ReLU', True),
             'use_feature_normalization': kwargs.get('use_feature_normalization', True),
@@ -982,11 +983,15 @@ class FOMAPPOAdapter:
                         f"value_loss={train_info.get('value_loss', 0.0):.6f}, " +
                         f"entropy={train_info.get('entropy', 0.0):.6f}")
             
+            # Map dist_entropy -> entropy for consistency
+            if 'dist_entropy' in train_info and 'entropy' not in train_info:
+                train_info['entropy'] = train_info['dist_entropy']
+
             # ensure all necessary keys are in the result
             required_keys = ['policy_loss', 'value_loss', 'entropy', 'grad_norm', 'ratio']
             for key in required_keys:
                 if key not in train_info:
-                    train_info[key] = 0.0  # use 0 to indicate data missing
+                    train_info[key] = 0.0
             
             # add training iterations
             train_info['num_updates'] = 1

@@ -78,7 +78,9 @@ def train_fomappo_shared_policy(pipeline):
                 time_step=pipeline.time_step,
                 aggregation_method=pipeline.aggregation_method,
                 trading_method=pipeline.trading_strategy,
-                disaggregation_method=pipeline.disaggregation_method
+                disaggregation_method=pipeline.disaggregation_method,
+                reward_weights=getattr(pipeline, 'reward_weights', None),
+                data_config=getattr(pipeline, 'data_config', '36users'),
             )
             logger.info("successfully created multi_agent_env")
         except Exception as e:
@@ -158,14 +160,15 @@ def train_fomappo_shared_policy(pipeline):
         action_dim=action_dim,
         num_agents=num_managers,
         episode_length=pipeline.steps_per_episode,
-        lr_actor=5e-5,  # decrease learning rate
-        lr_critic=2e-4,  # decrease learning rate
-        entropy_coef=0.05,  # increase entropy coefficient, encourage exploration
-        use_linear_lr_decay=True,  # enable learning rate decay
-        lr_decay_rate=0.95,  # learning rate decay rate
-        use_clipped_value_loss=True,  # use clipped value loss
-        use_max_grad_norm=True,  # use gradient clipping
-        max_grad_norm=0.5,  # gradient clipping threshold
+        lr_actor=1e-5,   # lowered from 5e-5 to stabilize PPO training
+        lr_critic=1e-4,  # lowered from 2e-4
+        ppo_epoch=4,     # reduced from 8 to prevent over-updating
+        entropy_coef=0.05,
+        use_linear_lr_decay=True,
+        lr_decay_rate=0.98,  # slower decay (was 0.95)
+        use_clipped_value_loss=True,
+        use_max_grad_norm=True,
+        max_grad_norm=0.5,
         device="cpu"
     )
     
@@ -271,44 +274,21 @@ def train_fomappo_shared_policy(pipeline):
         # execute training update
         train_info = {}
         total_train_info = {'policy_loss': 0.0, 'value_loss': 0.0, 'entropy': 0.0, 'num_updates': 0}
-        
-        # execute multiple PPO updates
-        num_epochs = fomappo_adapter.args.ppo_epoch
-        logger.info(f"execute {num_epochs} PPO updates...")
-        
-        for epoch in range(num_epochs):
-            batch_train_info = fomappo_adapter.train_on_batch()
-            
-            if batch_train_info:
-                # debug: print training information of each batch
-                logger.debug(f"Epoch {epoch}/{num_epochs}, Batch training information: {batch_train_info}")
-                
-                # ensure key name consistency
-                if 'dist_entropy' in batch_train_info and 'entropy' not in batch_train_info:
-                    batch_train_info['entropy'] = batch_train_info['dist_entropy']
-                
-                total_train_info['policy_loss'] += batch_train_info.get('policy_loss', 0.0)
-                total_train_info['value_loss'] += batch_train_info.get('value_loss', 0.0)
-                total_train_info['entropy'] += batch_train_info.get('entropy', 0.0)
-                total_train_info['num_updates'] += 1
-        
-        # calculate average loss
-        if total_train_info['num_updates'] > 0:
-            total_train_info['policy_loss'] /= total_train_info['num_updates']
-            total_train_info['value_loss'] /= total_train_info['num_updates']
-            total_train_info['entropy'] /= total_train_info['num_updates']
-            
-            # debug: print average loss
-            logger.info(f"Episode {episode}, average loss: Policy={total_train_info['policy_loss']:.6f}, Value={total_train_info['value_loss']:.6f}, Entropy={total_train_info['entropy']:.6f}")
+
+        # Single call - train_on_batch() already loops ppo_epoch internally
+        batch_train_info = fomappo_adapter.train_on_batch()
+
+        if batch_train_info:
+            # Map dist_entropy -> entropy for consistency
+            if 'dist_entropy' in batch_train_info and 'entropy' not in batch_train_info:
+                batch_train_info['entropy'] = batch_train_info['dist_entropy']
+            train_info = batch_train_info
+            logger.info(f"Episode {episode}, loss: Policy={train_info.get('policy_loss', 0):.6f}, "
+                       f"Value={train_info.get('value_loss', 0):.6f}, Entropy={train_info.get('entropy', 0):.6f}")
         else:
-            # if no successful update, ensure loss value is not zero
-            logger.warning("no successful training update, use default non-zero loss value")
-            total_train_info['policy_loss'] = 0.001  # use a small non-zero value
-            total_train_info['value_loss'] = 0.001
-            total_train_info['entropy'] = 0.001
-        
-        train_info = total_train_info
-        
+            logger.warning("no successful training update")
+            train_info = {'policy_loss': 0.001, 'value_loss': 0.001, 'entropy': 0.001}
+
         # record training loss
         if isinstance(train_info, dict):
             # ensure loss value is not zero
@@ -542,7 +522,9 @@ def train_fomaippo_independent_policy(pipeline):
                 time_step=pipeline.time_step,
                 aggregation_method=pipeline.aggregation_method,
                 trading_method=pipeline.trading_strategy,
-                disaggregation_method=pipeline.disaggregation_method
+                disaggregation_method=pipeline.disaggregation_method,
+                reward_weights=getattr(pipeline, 'reward_weights', None),
+                data_config=getattr(pipeline, 'data_config', '36users'),
             )
             logger.info("✅ successfully create multi_agent_env")
         except Exception as e:

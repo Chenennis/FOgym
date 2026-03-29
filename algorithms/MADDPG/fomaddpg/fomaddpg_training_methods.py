@@ -57,7 +57,9 @@ def train_fomaddpg_adapter(pipeline):
             time_step=pipeline.time_step,
             aggregation_method=pipeline.aggregation_method if hasattr(pipeline, 'aggregation_method') else "LP",
             trading_method=pipeline.trading_strategy if hasattr(pipeline, 'trading_strategy') else "pool",
-            disaggregation_method=pipeline.disaggregation_method if hasattr(pipeline, 'disaggregation_method') else "proportional"
+            disaggregation_method=pipeline.disaggregation_method if hasattr(pipeline, 'disaggregation_method') else "proportional",
+            reward_weights=getattr(pipeline, 'reward_weights', None),
+            data_config=getattr(pipeline, 'data_config', '36users'),
         )
         logger.info("✅ successfully create multi_agent_env")
     except Exception as e:

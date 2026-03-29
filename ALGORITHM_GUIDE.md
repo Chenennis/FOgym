@@ -1,19 +1,19 @@
-# FlexOffer Multi-Agent Algorithm Usage Guide
+# FOgym Multi-Agent Algorithm Usage Guide
 
-This document provides detailed instructions on how to run different multi-agent algorithm combinations, including **5 MARL algorithms** (FOMAPPO, FOMAIPPO, FOMADDPG, FOMATD3, FOSQDDPG) and **1 Model-based baseline algorithm** (FOModelBased), totaling **6 algorithms** supporting **40 complete combination configurations**.
+This document provides detailed instructions on how to run different multi-agent algorithm combinations, including **5 MARL algorithms** (FOMAPPO, FOMAIPPO, FOMADDPG, FOMATD3, FOSQDDPG) supporting **40 combination configurations**.
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [🚀 Single Algorithm Execution](#-single-algorithm-execution)
-- [🔀 Algorithm Combination Configuration](#-algorithm-combination-configuration)
-- [🏁 Batch Algorithm Comparison](#-batch-algorithm-comparison)
-- [⚙️ Parameter Details](#️-parameter-details)
-- [🔧 Algorithm Architecture and Features](#-algorithm-architecture-and-features)
+- [Single Algorithm Execution](#single-algorithm-execution)
+- [Algorithm Combination Configuration](#algorithm-combination-configuration)
+- [Batch Algorithm Comparison](#batch-algorithm-comparison)
+- [Parameter Details](#parameter-details)
+- [Algorithm Architecture and Features](#algorithm-architecture-and-features)
 
 
-## 🚀 Single Algorithm Execution
+## Single Algorithm Execution
 
-### Five Core Algorithms (5 MARL)
+### Five MARL Algorithms
 
 #### MAPPO (Higher stability, shared policy)
 ```bash
@@ -62,70 +62,62 @@ python run_fo_pipeline.py --rl_algorithm fomaddpg --num_episodes 50 --use_gpu
 
 
 
-## 🔀 Algorithm Combination Configuration
+## Algorithm Combination Configuration
 
-### 🎯 Complete 40 Combination Configurations
+### Complete 40 Combination Configurations
 
-#### **Combination Calculation**: 5 algorithms × 2 aggregation methods × 2 trading strategies × 2 disaggregation methods = **48 theoretical combinations**
-> Note: The FOModelBased algorithm does not require training, but other parameter combinations are still valid, with 40 actually usable combinations
+#### **Combination Calculation**: 5 algorithms x 2 aggregation methods x 2 trading strategies x 2 disaggregation methods = **40 combinations**
 
 #### **Complete Combination Parameter Template**
 ```bash
 python run_fo_pipeline.py \
-  --rl_algorithm [fomappo|fomaippo|fomaddpg|fomatd3|fosqddpg|fomodelbased] \
+  --rl_algorithm [fomappo|fomaippo|fomaddpg|fomatd3|fosqddpg] \
   --aggregation_method [LP|DP] \
   --trading_strategy [market_clearing|bidding] \
   --disaggregation_method [average|proportional] \
   --scheduling_method [priority|fairness|cost] \
-  --num_episodes [training episodes, not needed for FOModelBased] \
+  --data_config [36users|4manager|10manager] \
+  --num_episodes [training episodes] \
   --num_users [number of users, default 36] \
   --num_managers [number of managers, default 4] \
   --time_horizon [time range, default 24 hours] \
   --use_gpu [optional, use GPU acceleration]
 ```
 
-#### **Algorithm Classification**
-| Algorithm Type | Algorithm Name | Features | Training Requirements |
-|----------|----------|------|----------|
-| **MARL Algorithm** | FOMAPPO, FOMAIPPO, FOMADDPG, FOMATD3, FOSQDDPG | Requires training | num_episodes parameter required |
-| **Model-based Baseline** | FOModelBased | Traditional optimization, no training required | Direct evaluation, ignore num_episodes |
-
-## 🏁 Batch Algorithm Comparison
+## Batch Algorithm Comparison
 
 ### PowerShell Batch Processing
 ```powershell
-# Windows PowerShell - Complete comparison of 6 algorithms
-foreach ($algo in @("fomappo", "fomaippo", "fomaddpg", "fomatd3", "fosqddpg", "fomodelbased")) {
-    if ($algo -eq "fomodelbased") {
-        python run_fo_pipeline.py --rl_algorithm $algo  # No training needed
-    } else {
-        python run_fo_pipeline.py --rl_algorithm $algo --num_episodes 100
-    }
+# Windows PowerShell - Compare 5 MARL algorithms
+foreach ($algo in @("fomappo", "fomaippo", "fomaddpg", "fomatd3", "fosqddpg")) {
+    python run_fo_pipeline.py --rl_algorithm $algo --num_episodes 100
 }
 ```
 
 ### Bash Batch Processing
 ```bash
-# Linux/Mac Bash - Complete comparison of 6 algorithms
-for algo in fomappo fomaippo fomaddpg fomatd3 fosqddpg fomodelbased; do
-    if [ "$algo" = "fomodelbased" ]; then
-        python run_fo_pipeline.py --rl_algorithm $algo  # No training needed
-    else {
-        python run_fo_pipeline.py --rl_algorithm $algo --num_episodes 100
-    fi
+# Linux/Mac Bash - Compare 5 MARL algorithms
+for algo in fomappo fomaippo fomaddpg fomatd3 fosqddpg; do
+    python run_fo_pipeline.py --rl_algorithm $algo --num_episodes 100
 done
 ```
 
 ### Results Comparison Script
 ```bash
 # Compare multiple algorithm results
-python analyze_algorithm_performance.py --results_dir ./results --plot
+python run_experiments.py --all
 
-# Plot reward curves
-python analyze_algorithm_performance.py --plot_rewards --algorithms fomappo,fomaddpg,fomatd3
+# Run ablation experiments only (EXP-1)
+python run_experiments.py --exp1
+
+# Run 10-Manager scalability experiments only (EXP-2)
+python run_experiments.py --exp2
+
+# Quick verification mode (5 episodes)
+python run_experiments.py --verify
 ```
 
-## 💡 Recommended Combinations
+## Recommended Combinations
 
 ### Scenario 1: Stability-Focused (Long-term Training)
 ```bash
@@ -175,32 +167,33 @@ python run_fo_pipeline.py \
   --use_gpu
 ```
 
-### Scenario 5: Quick Baseline Comparison (No Training Required)
-```bash
-python run_fo_pipeline.py \
-  --rl_algorithm fomodelbased \
-  --aggregation_method LP \
-  --trading_strategy market_clearing \
-  --disaggregation_method proportional \
-  --scheduling_method priority
-```
-
-## ⚙️ Parameter Details
+## Parameter Details
 
 ### Main Parameters
 
 | Parameter | Description | Options | Default Value |
 |--------|------|--------|--------|
-| `--rl_algorithm` | Reinforcement learning algorithm | fomappo, fomaippo, fomaddpg, fomatd3, fosqddpg, fomodelbased | fomappo |
-| `--aggregation_method` | Aggregation method | LP (Longest Profile), DP (Dynamic Profile) | LP |
+| `--rl_algorithm` | Reinforcement learning algorithm | fomappo, fomaippo, fomaddpg, fomatd3, fosqddpg | fomappo |
+| `--aggregation_method` | Aggregation method | LP (Longest Profile), DP (Dynamic Profile) | DP |
 | `--trading_strategy` | Trading strategy | market_clearing, bidding | market_clearing |
 | `--clearing_method` | Market clearing method | uniform_price, pay_as_bid, lmp | uniform_price |
 | `--disaggregation_method` | Disaggregation method | average, proportional | proportional |
 | `--scheduling_method` | Scheduling method | priority, fairness, cost | priority |
 | `--num_episodes` | Training episodes | 10-1000 | 100 |
 | `--time_horizon` | Time range (hours) | 1-48 | 24 |
+| `--time_step` | Time step length (hours) | 0.5-2.0 | 1.0 |
 | `--num_users` | Number of users | 1-100 | 36 |
 | `--num_managers` | Number of managers | 1-10 | 4 |
+| `--data_config` | Data configuration preset | 36users, 4manager, 10manager | 36users |
+
+### Reward Weight Parameters
+
+| Parameter | Description | Default Value |
+|--------|------|--------|
+| `--reward_alpha` | Economic efficiency reward weight (alpha) | 0.4 |
+| `--reward_beta` | User satisfaction reward weight (beta) | 0.3 |
+| `--reward_delta` | Constraint penalty reward weight (delta) | 0.1 |
+| `--reward_lambda` | Coordination/trading reward weight (lambda) | 0.2 |
 
 ### Advanced Parameters
 
@@ -216,7 +209,7 @@ python run_fo_pipeline.py \
 | `--batch_size` | Batch size | 32-1024 | 256 |
 | `--gamma` | Discount factor | 0.9-0.999 | 0.99 |
 
-## 🔧 Algorithm Architecture and Features
+## Algorithm Architecture and Features
 
 ### FOMAPPO vs FOMAIPPO Comparison
 
@@ -273,7 +266,7 @@ class FOMAIPPOAdapter:
 - **Disadvantages**: High computational load, relatively slower convergence speed
 - **Applicable Scenarios**: Multi-party collaboration requiring fairness guarantees
 
-## 📊 Performance Comparison
+## Performance Comparison
 
 ### Learning Curves
 
@@ -284,7 +277,6 @@ class FOMAIPPOAdapter:
 | **FOMADDPG** | Fastest (20-30 episodes) | Moderate | Highest |
 | **FOMATD3** | Fast (30-40 episodes) | Very High | High |
 | **FOSQDDPG** | Slower (60-80 episodes) | High | Moderate but Fair |
-| **FOModelBased** | No training required | N/A | Moderate |
 
 ### Resource Usage
 
@@ -295,9 +287,8 @@ class FOMAIPPOAdapter:
 | **FOMADDPG** | Low (1-2GB) | 50% | ~30 minutes |
 | **FOMATD3** | Moderate (2-3GB) | 55% | ~35 minutes |
 | **FOSQDDPG** | High (3-4GB) | 70% | ~40 minutes |
-| **FOModelBased** | Very Low (<1GB) | 40% | Immediate |
 
-## 🚀 Experimental Suggestions
+## Experimental Suggestions
 
 ### Scenario Testing Methods
 1. **Similar Task Scenario**: All Managers managing similar user groups
@@ -320,7 +311,7 @@ class FOMAIPPOAdapter:
    python run_fo_pipeline.py --rl_algorithm fomappo --num_managers 8 --num_episodes 100
    ```
 
-## 📋 Common Issues and Solutions
+## Common Issues and Solutions
 
 ### Training Issues
 1. **Issue**: Unstable training, large reward fluctuations
@@ -342,14 +333,13 @@ class FOMAIPPOAdapter:
 3. **Issue**: System error "float() argument must be a string or a number"
    **Solution**: Check data format, possible input configuration file format error
 
-## 📈 Summary
+## Summary
 
-FlexOffer multi-agent algorithms provide a rich selection to choose from based on different scenarios:
+FOgym multi-agent algorithms provide a rich selection to choose from based on different scenarios:
 
 - **Stability Priority**: FOMAPPO or FOMATD3
 - **Fairness Priority**: FOSQDDPG
 - **Efficiency Priority**: FOMADDPG
 - **Avoiding Policy Conflicts**: FOMAIPPO
-- **Baseline Comparison**: FOModelBased
 
-The 40 different combination configurations offer flexible options to customize based on specific needs and scenarios, achieving optimal performance. 
+The 40 different combination configurations (5 algorithms x 2 aggregation x 2 trading x 2 disaggregation) offer flexible options to customize based on specific needs and scenarios.

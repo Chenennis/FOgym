@@ -374,15 +374,19 @@ class FOMAPPO():
         train_info['dist_entropy'] = 0.0
         train_info['ratio'] = 0.0
         
-        # prepare data
+        # prepare data - compute advantages correctly (buffer.advantages is never populated)
         try:
-            advantages = buffer.advantages
+            if self._use_popart or self._use_valuenorm:
+                advantages = buffer.returns[:-1] - self.value_normalizer.denormalize(buffer.value_preds[:-1])
+            else:
+                advantages = buffer.returns[:-1] - buffer.value_preds[:-1]
+
             if self.args.use_advantage_normalization:
                 advantages_copy = advantages.copy()
                 advantages_copy[advantages_copy > 1e10] = 1e10
                 advantages_copy[advantages_copy < -1e10] = -1e10
                 advantages = (advantages_copy - advantages_copy.mean()) / (advantages_copy.std() + 1e-5)
-                
+
             # record advantage information
             logger.info(f"advantage statistics: mean={np.mean(advantages):.6f}, std={np.std(advantages):.6f}, min={np.min(advantages):.6f}, max={np.max(advantages):.6f}")
         except Exception as e:

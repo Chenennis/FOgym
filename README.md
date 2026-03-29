@@ -1,77 +1,73 @@
-# FlexOffer Multi-Agent Reinforcement Learning Trading System
+# FOgym: FlexOffer Multi-Agent Reinforcement Learning Trading Platform
 
 ## System Overview
 
-This system (FOgym) is a complete platform for FlexOffer (flexibility offer) generation, aggregation, trading, and scheduling based on multi-agent deep reinforcement learning. The system integrates **five advanced multi-agent RL algorithms** and adopts a Manager-level collaborative architecture to implement an end-to-end energy management solution from device control to market trading.
+FOgym is a complete platform for FlexOffer (flexibility offer) generation, aggregation, trading, and scheduling based on multi-agent deep reinforcement learning. The system integrates **five MARL algorithms** and **one model-based baseline**, adopting a Manager-level collaborative architecture to implement an end-to-end energy management solution from device control to market trading.
 
-## ✨ Core Features
+## Core Features
 
-### 🤖 Five Fully Integrated Algorithms
-- **MAPPO**: FlexOffer-specialized multi-agent proximal policy optimization (shared policy)
-- **MAIPPO**: FlexOffer multi-agent independent PPO (separate policy)
-- **MADDPG**: FlexOffer multi-agent deep deterministic policy gradient  
-- **MATD3**: FlexOffer multi-agent twin delayed DDPG
-- **SQDDPG**: SQDDPG based on Shapley value fair credit assignment
+### Five MARL Algorithms
+- **FOMAPPO**: Multi-agent proximal policy optimization (shared policy)
+- **FOMAIPPO**: Multi-agent independent PPO (separate policy)
+- **FOMADDPG**: Multi-agent deep deterministic policy gradient
+- **FOMATD3**: Multi-agent twin delayed DDPG
+- **FOSQDDPG**: Shapley value-based fair credit assignment
 
-
-### 🧠 Dec-POMDP Architecture
+### Dec-POMDP Architecture
 - **Decentralized Partially Observable Markov Decision Process**: Real multi-agent environment modeling
 - **3-Layer Observation Architecture**: Private information (40-dim) + Public information (18-dim) + Others' information (15-dim)
-- **Dynamic Observation Quality**: 5-level network quality dynamic adjustment, noise level 5-10%
+- **Dynamic Observation Quality**: 5-level network quality dynamic adjustment, noise level 5-20%
 - **Information Asymmetry Handling**: Information sharing restrictions between agents, simulating real distributed systems
-- **Observation Function Z Design**: Probabilistic observation model, supporting uncertainty and communication delay
 
-
-### 🔧 Device Ecosystem
+### Device Ecosystem
 - **5 Device Types**: Battery storage, heat pumps, electric vehicles, photovoltaics, dishwashers
-- **118 Devices**: Distributed across 36 users, managed by 4 Managers
+- **Scalable Deployment**: Default 4-Manager (36 users, 118 devices) or 10-Manager configuration
 - **Device Deployment Rate**: Dishwashers (100%), Heat pumps (100%), Batteries (67%), EVs (39%), PV (22%)
-- **Intelligent Control**: Each device type has specialized implementation and reward design
+- **Intelligent Control**: Each device type has specialized MDP implementation and reward design
 
-## 📊 System Architecture
+## System Architecture
 
 ```
-FlexOffer System Four-Layer Architecture
-┌──────────────────────────────────────────────────────────────────────────────────────────── ┐
-│                        Multi-Algorithm Support Layer (6 algorithms)                         │
-├─────────────────────────────────────────────────────────────────────────────────────────────┤
-│ FOMAPPO          │ FOMAIPPO               │ FOMADDPG   │ FOMATD3          │ FOSQDDPG        │            
-│ Shared policy+   │ Independent policy+    │ Actor-     │ Dual Q-network+  │ Shapley value+  │                
-│ Trust region     │ Conflict avoidance     │ Critic     │ Delayed updates  │ Fair allocation │                
-└─────────────────────────────────────────────────────────────────────────────────────────────┘
-                                    │
-┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                         Complete FlexOffer Process                                                         │
-├────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│  Generation Layer        │  Aggregation Layer       │  Trading Layer        │  Scheduling Layer            │
-│  fo_generate/            │  fo_aggregate/           │  fo_trading/          │  fo_schedule/                │
-│  Device MDP modeling     │  LP/DP aggregation       │  Market matching      │  Decomposition scheduling    │
-│  Unified environment     │  Manager aggregation     │  Bilateral auction      │  Satisfaction assessment   │
-└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-                                    │
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                        Device Ecosystem                                                                          │
-├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Dishwashers(36)         │ Heat pumps(36)         │ Batteries(24)      │ EVs(14)            │ PV(8)               │
-│ 100% deployment         │ 100% deployment        │ 67% deployment     │ 39% deployment     │ 22% deployment      │
-│ User behavior modeling  │ Temperature control    │ SOC management     │ Charging strategy  │ Generation forecast │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+FOgym Four-Layer Architecture
++------------------------------------------------------------------------------------+
+|                    Multi-Algorithm Support Layer (5 MARL algorithms)                 |
++------------------------------------------------------------------------------------+
+| FOMAPPO        | FOMAIPPO             | FOMADDPG   | FOMATD3        | FOSQDDPG    |
+| Shared policy+ | Independent policy+  | Actor-     | Dual Q-network+| Shapley     |
+| Trust region   | Conflict avoidance   | Critic     | Delayed updates| value+Fair  |
++------------------------------------------------------------------------------------+
+                                    |
++------------------------------------------------------------------------------------+
+|                        Complete FlexOffer Process                                   |
++------------------------------------------------------------------------------------+
+| Generation Layer    | Aggregation Layer    | Trading Layer    | Scheduling Layer    |
+| fo_generate/        | fo_aggregate/        | fo_trading/      | fo_schedule/        |
+| Device MDP modeling | LP/DP aggregation    | Market matching  | Decomposition       |
+| Unified environment | Manager aggregation  | Bilateral auction| Satisfaction assess |
++------------------------------------------------------------------------------------+
+                                    |
++------------------------------------------------------------------------------------+
+|                           Device Ecosystem                                          |
++------------------------------------------------------------------------------------+
+| Dishwashers(36)     | Heat pumps(36)      | Batteries(24) | EVs(14)  | PV(8)      |
+| 100% deployment     | 100% deployment     | 67% deployment| 39%      | 22%        |
+| User behavior model | Temperature control | SOC management| Charging | Generation |
++------------------------------------------------------------------------------------+
 ```
 
-## 🧠 Algorithm Feature Comparison
+## Algorithm Feature Comparison
 
-| Feature | MAPPO | MAIPPO | MADDPG | MATD3 | SQDDPG | 
-|------|---------|----------|----------|---------|----------|--------------|
+| Feature | MAPPO | MAIPPO | MADDPG | MATD3 | SQDDPG |
+|------|---------|----------|----------|---------|----------|
 | **Algorithm Type** | Policy Gradient | Policy Gradient | Actor-Critic | Actor-Critic | Actor-Critic |
-| **Policy Architecture** | Shared Policy | Independent Policy | Shared Policy | Shared Policy | Shared Policy 
-| **Policy Update** | Batch+Trust Region | Batch+Trust Region | Continuous Policy Gradient | Delayed Policy Update | Continuous+Credit Assignment 
-| **Value Estimation** | Advantage Function | Advantage Function | Single Q-Network | Dual Q-Network | Q-Network+Shapley 
-| **Multi-Agent Collaboration** | Natural Coordination | Mechanism Required | Basic Collaboration | Basic Collaboration | **Fairness Guarantee** 
-| **Policy Conflict Handling** | Weak | Strong | Weak | Weak | Moderate 
-| **Credit Assignment** | Standard Method | Standard Method | Standard Method | Standard Method | **Shapley Value** 
-| **Applicable Scenarios** | Similar Tasks | Diverse Tasks | Continuous Control | High-Noise Environment | Fair Collaboration 
+| **Policy Architecture** | Shared Policy | Independent Policy | Shared Policy | Shared Policy | Shared Policy |
+| **Policy Update** | Batch+Trust Region | Batch+Trust Region | Continuous Policy Gradient | Delayed Policy Update | Continuous+Credit Assignment |
+| **Value Estimation** | Advantage Function | Advantage Function | Single Q-Network | Dual Q-Network | Q-Network+Shapley |
+| **Multi-Agent Collaboration** | Natural Coordination | Mechanism Required | Basic Collaboration | Basic Collaboration | **Fairness Guarantee** |
+| **Credit Assignment** | Standard | Standard | Standard | Standard | **Shapley Value** |
+| **Applicable Scenarios** | Similar Tasks | Diverse Tasks | Continuous Control | High-Noise Environment | Fair Collaboration |
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation Requirements
 ```bash
@@ -96,16 +92,17 @@ python run_fo_pipeline.py --rl_algorithm fomappo --num_episodes 100
 python run_fo_pipeline.py --rl_algorithm fomaippo --num_episodes 100
 ```
 
-#### 2. Custom Algorithm Combinations (40 Configuration Combinations)
+#### 2. Custom Algorithm Combinations
 ```bash
-# Complete Parameter Template: 6 algorithms × 2 aggregation × 2 trading × 2 decomposition = 48 theoretical combinations (40 actually available)
+# Complete Parameter Template: 5 algorithms x 2 aggregation x 2 trading x 2 decomposition = 40 combinations
 python run_fo_pipeline.py \
-  --rl_algorithm [fomappo|fomaippo|fomaddpg|fomatd3|fosqddpg|fomodelbased] \
+  --rl_algorithm [fomappo|fomaippo|fomaddpg|fomatd3|fosqddpg] \
   --aggregation_method [LP|DP] \
   --trading_strategy [market_clearing|bidding] \
   --disaggregation_method [average|proportional] \
   --scheduling_method [priority|fairness|cost] \
-  --num_episodes 100 \  # Not needed for FOModelBased
+  --data_config [36users|4manager|10manager] \
+  --num_episodes 100 \
   --use_gpu
 ```
 
@@ -133,52 +130,47 @@ python run_fo_pipeline.py --rl_algorithm fomappo --trading_strategy market_clear
 python run_fo_pipeline.py --rl_algorithm fomappo --trading_strategy bidding
 ```
 
-### Batch Comparison Testing (Including Traditional Optimization Benchmark)
+### Batch Comparison Testing
 ```bash
-# Windows PowerShell - Complete Comparison of 6 Algorithms
-foreach ($algo in @("fomappo", "fomaippo", "fomaddpg", "fomatd3", "fosqddpg", "fomodelbased")) {
-    if ($algo -eq "fomodelbased") {
-        python run_fo_pipeline.py --rl_algorithm $algo  # No training needed
-    } else {
-        python run_fo_pipeline.py --rl_algorithm $algo --num_episodes 100
-    }
+# Windows PowerShell - Compare all 5 MARL algorithms
+foreach ($algo in @("fomappo", "fomaippo", "fomaddpg", "fomatd3", "fosqddpg")) {
+    python run_fo_pipeline.py --rl_algorithm $algo --num_episodes 100
 }
 
-# Linux/Mac Bash - Complete Comparison of 6 Algorithms
-for algo in fomappo fomaippo fomaddpg fomatd3 fosqddpg fomodelbased; do
-    if [ "$algo" = "fomodelbased" ]; then
-        python run_fo_pipeline.py --rl_algorithm $algo  # No training needed
-    else
-        python run_fo_pipeline.py --rl_algorithm $algo --num_episodes 100
-    fi
+# Linux/Mac Bash - Compare all 5 MARL algorithms
+for algo in fomappo fomaippo fomaddpg fomatd3 fosqddpg; do
+    python run_fo_pipeline.py --rl_algorithm $algo --num_episodes 100
 done
 ```
 
 
-## 📁 Project Structure
+## Project Structure
 
 ```
-RLtrade/
+FOgym/
 ├── README.md                   # This document (system overview and basic usage)
 ├── SYSTEM_ARCHITECTURE.md      # Detailed system architecture documentation
 ├── ALGORITHM_GUIDE.md          # Algorithm usage and configuration guide
-├── DEVELOPER_GUIDE.md          # Developer guide (logs, trading module, etc.)
-├── run_fo_pipeline.py          # Main running script
+├── DEVELOPER_GUIDE.md          # Developer guide (logs, module extension, etc.)
+├── run_fo_pipeline.py          # Main pipeline script
+├── run_experiments.py          # Experiment runner (ablation, scalability)
+├── global_observation_config.json  # Observation space configuration
 ├── algorithms/                 # Multi-agent algorithm implementations
 │   ├── MAPPO/fomappo/         # FOMAPPO + FOMAIPPO algorithms
 │   ├── MADDPG/fomaddpg/       # FOMADDPG algorithm
 │   ├── MATD3/fomatd3/         # FOMATD3 algorithm
-│   └── SQDDPG/fosqddpg/       # FOSQDDPG algorithm
-├── fo_generate/               # FlexOffer generation module
-├── fo_aggregate/              # FlexOffer aggregation module
-├── fo_trading/                # FlexOffer trading module
-├── fo_schedule/               # FlexOffer scheduling module
-├── fo_common/                 # Common components
-├── data/                      # Data files
-└── results/                   # Training results
+│   └── SQDDPG/fosqddpg/      # FOSQDDPG algorithm
+├── fo_generate/               # FlexOffer generation module (device MDP)
+├── fo_aggregate/              # FlexOffer aggregation module (LP/DP)
+├── fo_trading/                # FlexOffer trading module (market clearing/bidding)
+├── fo_schedule/               # FlexOffer scheduling module (disaggregation)
+├── fo_common/                 # Common components (config, observation, metrics)
+├── data/                      # Data files (device configs, prices, weather)
+├── tests/                     # Test files
+└── results/                   # Training results (gitignored)
 ```
 
-## 🛠️ Development and Debugging
+## Development and Debugging
 
 ### Debugging Tools
 ```bash
@@ -208,14 +200,15 @@ python run_fo_pipeline.py --rl_algorithm fomappo \
     --num_episodes 100
 ```
 
-## 🎯 Summary
+## Summary
 
-The RLTRADE system implements a complete FlexOffer multi-agent reinforcement learning solution with the following outstanding features:
+FOgym implements a complete FlexOffer multi-agent reinforcement learning solution:
 
-- ✅ **Six Complete Algorithms**: 5 MARL algorithms (FOMAPPO, FOMAIPPO, FOMADDPG, FOMATD3, FOSQDDPG)
-- ✅ **40 Combination Configurations**: 5 algorithms × 2 aggregation methods × 2 trading strategies × 2 decomposition methods = 40 fully usable combinations
-- ✅ **Policy Conflict Resolution**: MAIPPO independent policy architecture, avoiding policy conflicts between Managers
-- ✅ **Traditional Optimization Benchmark**: ModelBased provides traditional optimization benchmark comparison without training
-- ✅ **Complete FlexOffer Process**: End-to-end process of generation → aggregation → trading → scheduling
-- ✅ **Experimental Validation**: Actual system validation with 4 Managers + 36 users + 118 devices
+- **Five MARL Algorithms**: FOMAPPO, FOMAIPPO, FOMADDPG, FOMATD3, FOSQDDPG
+- **40 Combination Configurations**: 5 algorithms x 2 aggregation methods x 2 trading strategies x 2 decomposition methods
+- **Policy Conflict Resolution**: FOMAIPPO independent policy architecture avoids policy conflicts between Managers
+- **Configurable Reward Weights**: Ablation-ready reward function with tunable alpha/beta/delta/lambda weights
+- **Scalable Deployment**: Supports 4-Manager (36 users) and 10-Manager configurations
+- **Complete FlexOffer Process**: End-to-end pipeline of generation -> aggregation -> trading -> scheduling
+- **Experiment Runner**: Automated batch experiments with `run_experiments.py` for ablation and scalability studies
 

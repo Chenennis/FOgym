@@ -56,6 +56,10 @@ EXP1_CONFIGS = {
         "reward_alpha": 0.4, "reward_beta": 0.0,
         "reward_delta": 0.1, "reward_lambda": 0.2,
     },
+    "exp1_ablation_A4_no_eco": {
+        "reward_alpha": 0.0, "reward_beta": 0.3,
+        "reward_delta": 0.1, "reward_lambda": 0.2,
+    },
 }
 EXP1_BASE = {
     "rl_algorithm": "fosqddpg",
@@ -105,10 +109,14 @@ def run_single_experiment(name: str, config: dict, num_episodes: int,
         "--results_dir", results_dir,
         "--log_verbosity", "brief",
         "--time_step", "1.0",
+        "--use_gpu",
     ]
 
     for key, val in config.items():
         cmd.extend([f"--{key}", str(val)])
+
+    # Pass experiment name for proper CSV naming
+    cmd.extend(["--experiment_name", name])
 
     print(f"[START] {name} ({num_episodes} episodes)")
     start_time = time.time()

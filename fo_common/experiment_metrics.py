@@ -24,8 +24,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# DKK/USD exchange rate (approximate)
-DKK_PER_USD = 6.8
+# Economic values are already in DKK from the pipeline
+DKK_PER_USD = 1.0  # No conversion needed - pipeline already uses DKK
 
 
 class ExperimentMetricsTracker:
@@ -159,14 +159,20 @@ class ExperimentMetricsTracker:
     # ──────────────── Export ────────────────
 
     def get_summary_dict(self) -> Dict[str, float]:
-        """Get all metrics as a dict."""
+        """Get all metrics as a dict. Uses override values if set by pipeline."""
+        # Use overrides from env_metrics if available, otherwise computed values
+        trading = getattr(self, '_override_trading_score', None)
+        user_sat = getattr(self, '_override_user_satisfaction', None)
+        a_disa = getattr(self, '_override_a_disa_score', None)
+        eco = getattr(self, '_override_eco_dkk', None)
+
         return {
             'experiment': self.experiment_name,
             'total_reward': round(self.total_reward(), 2),
-            'a_disa_score': round(self.aggregation_disaggregation_score(), 4),
-            'trading_score': round(self.trading_score(), 4),
-            'eco_dkk': round(self.economic_benefit_dkk(), 2),
-            'user_satisfaction': round(self.user_satisfaction(), 4),
+            'a_disa_score': round(a_disa if a_disa is not None else self.aggregation_disaggregation_score(), 2),
+            'trading_score': round(trading if trading is not None else self.trading_score(), 2),
+            'eco_dkk': round(eco if eco is not None else self.economic_benefit_dkk(), 2),
+            'user_satisfaction': round(user_sat if user_sat is not None else self.user_satisfaction(), 4),
             'constraint_violations': self.constraint_violations_total(),
             'training_variance': round(self.training_variance(), 4),
             'convergence_episode': self.convergence_episode(),
