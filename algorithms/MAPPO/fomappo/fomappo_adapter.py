@@ -346,6 +346,7 @@ class FOMAPPOAdapter:
         actions = {}
         action_log_probs = {}
         values = {}
+        self._last_raw_actions = {}
         
         manager_ids = sorted(list(obs.keys()))  # ensure consistent order
         batch_size = len(manager_ids)
@@ -420,6 +421,7 @@ class FOMAPPOAdapter:
                 fo_action = self._map_action_to_fo_params(raw_action)
                 
                 actions[manager_id] = fo_action
+                self._last_raw_actions[manager_id] = raw_action.copy()
                 action_log_probs[manager_id] = action_log_prob_np[i]
                 values[manager_id] = value_np[i]
                 
@@ -503,7 +505,9 @@ class FOMAPPOAdapter:
                      dones: Dict[str, bool],
                      infos: Dict[str, Any],
                      action_log_probs: Optional[Dict[str, np.ndarray]] = None,
-                     values: Optional[Dict[str, np.ndarray]] = None):
+                     values: Optional[Dict[str, np.ndarray]] = None,
+                     next_obs: Optional[Dict[str, np.ndarray]] = None,
+                     raw_actions: Optional[Dict[str, np.ndarray]] = None):
         """
         collect one step of experience data to shared buffer
         
@@ -516,6 +520,12 @@ class FOMAPPOAdapter:
             action_log_probs: action log probabilities (optional)
             values: value function predictions (optional)
         """
+        # MAPPO's SharedReplayBuffer.insert places obs at index step+1.
+        # Its actions/log-probs remain at index step.
+        if next_obs is None:
+            raise ValueError("MAPPO collect_step requires next_obs for temporal alignment")
+        if raw_actions is None:
+            raw_actions = getattr(self, "_last_raw_actions", None) or actions
         # detailed record rewards information
         reward_values = list(rewards.values())
         reward_mean = np.mean(reward_values) if reward_values else 0.0
@@ -589,17 +599,27 @@ class FOMAPPOAdapter:
         bad_masks = np.ones((1, self.num_agents, 1), dtype=np.float32)
         active_masks = np.ones((1, self.num_agents, 1), dtype=np.float32)
         
+        # Initialize the first observation for a new rollout. Subsequent
+        # observations are written by SharedReplayBuffer.insert at step+1.
+        initial_observations = np.zeros_like(obs_batch)
+        for i, manager_id in enumerate(manager_ids[:self.num_agents]):
+            initial_observations[0, i] = obs[manager_id]
+        if (getattr(self.buffer, "collected_steps", 0) == 0
+                and hasattr(self.buffer, "obs") and hasattr(self.buffer, "share_obs")):
+            self.buffer.obs[0] = initial_observations
+            self.buffer.share_obs[0] = initial_observations
+
         # fill data
         for i, manager_id in enumerate(manager_ids):
             if i >= self.num_agents:
                 break
                 
             # observation
-            obs_batch[0, i] = obs[manager_id]
-            share_obs_batch[0, i] = obs[manager_id]  
+            obs_batch[0, i] = next_obs[manager_id]
+            share_obs_batch[0, i] = next_obs[manager_id]  
             
             # action
-            action_batch[0, i] = actions[manager_id]
+            action_batch[0, i] = raw_actions[manager_id]
             
             # reward
             reward_batch[0, i, 0] = normalized_rewards[manager_id]
