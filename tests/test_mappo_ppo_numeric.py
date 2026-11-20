@@ -116,3 +116,52 @@ def test_multidimensional_action_collection_preserves_joint_log_probs():
     assert buffer.action_log_probs.shape == (2, 1, 1, 1)
     np.testing.assert_allclose(buffer.action_log_probs[:, 0, 0, 0], [-1.5, -2.5])
     np.testing.assert_allclose(buffer.actions[0, 0, 0], [0.1, 0.2, 0.3])
+
+
+def test_real_multidimensional_rollout_can_run_gae_and_ppo_update():
+    """Real buffer + real collector + real GAE + real PPO trainer, mock tiny policy."""
+    args = SimpleNamespace(
+        episode_length=2, n_rollout_threads=1, hidden_size=2, recurrent_N=1,
+        gamma=0.9, gae_lambda=0.95, use_gae=True,
+        use_popart=False, use_valuenorm=False, use_proper_time_limits=False,
+        algorithm_name="rmappo", use_reward_normalization=False,
+        use_advantage_normalization=False,
+        ppo_epoch=1, num_mini_batch=1, clip_param=0.2,
+        use_clipped_value_loss=False, value_loss_coef=0.5,
+        entropy_coef=0.0, use_max_grad_norm=True, max_grad_norm=10.0,
+    )
+    obs_space = spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32)
+    act_space = spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32)
+    buffer = _load_shared_buffer_class()(args, 1, obs_space, obs_space, act_space)
+    adapter = SimpleNamespace(
+        num_agents=1, action_dim=3, actual_obs_dim=1,
+        args=args, buffer=buffer, trainer=None,
+    )
+    collect = _collect_step_method()
+    for t in range(2):
+        collect(
+            adapter,
+            obs={"manager_1": np.array([float(t + 1)], dtype=np.float32)},
+            next_obs={"manager_1": np.array([float(t + 2)], dtype=np.float32)},
+            actions={"manager_1": np.full(3, 0.6, dtype=np.float32)},
+            raw_actions={"manager_1": np.array([0.1, 0.2, 0.3], dtype=np.float32)},
+            action_log_probs={"manager_1": np.array([-0.5 - t], dtype=np.float32)},
+            values={"manager_1": np.array([0.1], dtype=np.float32)},
+            rewards={"manager_1": float(t + 1)},
+            dones={"manager_1": t == 1},
+            infos={"manager_1": {}},
+        )
+
+    buffer.compute_returns(np.array([[[0.0]]], dtype=np.float32))
+    policy = _Policy()
+    trainer = SimpleNamespace(
+        buffer=buffer, policy=policy, args=args, device=torch.device("cpu"),
+        _use_popart=False, _use_valuenorm=False, value_normalizer=None,
+    )
+    original_actor = policy.actor.weight.detach().clone()
+    info = _load_train_method()(trainer)
+    assert info["num_updates"] == 1
+    assert info["ratio"] > 0
+    assert not torch.equal(policy.actor.weight.detach(), original_actor)
+    assert buffer.collected_steps == 0
+    assert buffer.step == 0
