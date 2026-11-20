@@ -712,36 +712,22 @@ class FOMAPPOAdapter:
                     reward_max = np.max(self.buffer.rewards)
                     logger.info(f"rewards statistics: mean={reward_mean:.6f}, std={reward_std:.6f}, min={reward_min:.6f}, max={reward_max:.6f}")
             
-            # check if buffer has enough data
-            buffer_empty = self.buffer.step == 0 or (hasattr(self.buffer, 'rewards') and np.count_nonzero(self.buffer.rewards) == 0)
-            if buffer_empty:
-                # check if it is training initial phase
-                is_initial_phase = not hasattr(self, '_training_started') or not self._training_started
-                if is_initial_phase:
-                    logger.info("training initial phase, buffer is empty is normal, add initialization data")
-                    # mark training started
-                    self._training_started = True
-                else:
-                    logger.warning("training has been performed but buffer has no data or all data are zero, try to add real data")
-                
-                # add dummy data to avoid empty buffer error
-                self._add_dummy_data_to_buffer()
-                logger.info(f"after adding dummy data: step={self.buffer.step}, rewards shape={self.buffer.rewards.shape}")
-                
-                # check if adding dummy data is successful
-                if self.buffer.step == 0 or not np.any(self.buffer.rewards):
-                    logger.error("even after adding dummy data, buffer is still empty, cannot compute returns")
-                    return False
-                else:
-                    logger.info("dummy data added successfully, continue to compute returns")
-            
+            # The circular write index is zero after a complete rollout.
+            # Only the number of successfully inserted transitions indicates
+            # whether the return calculation has a full trajectory.
+            collected_steps = getattr(self.buffer, "collected_steps", 0)
+            if collected_steps != self.args.episode_length:
+                logger.error(
+                    "cannot compute returns: incomplete rollout (%s/%s transitions)",
+                    collected_steps, self.args.episode_length,
+                )
+                return False
+
             # get value estimation of last step
             try:
                 # check if there are valid rewards data
                 if hasattr(self.buffer, 'rewards') and np.sum(np.abs(self.buffer.rewards)) < 1e-6:
-                    logger.warning("all rewards in buffer are zero or near zero, add small random noise to avoid all zero returns")
-                    self.buffer.rewards = self.buffer.rewards + np.random.normal(0, 0.01, self.buffer.rewards.shape)
-                    logger.info(f"number of non-zero rewards after adding noise: {np.count_nonzero(self.buffer.rewards)}")
+                    logger.info("rollout rewards are near zero; preserve the environment rewards unchanged")
                 
                 # get shared observation and state
                 share_obs = np.concatenate(self.buffer.share_obs[-1])
