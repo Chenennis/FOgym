@@ -66,3 +66,35 @@ def test_full_wrapped_rollout_computes_returns_without_dummy_transitions():
     assert success is True
     assert buffer.calls == 1
     assert dummy_calls == [], "A full rollout must never be padded with dummy data"
+
+
+def test_incomplete_rollout_does_not_compute_returns_or_add_dummy_data():
+    buffer = _ReturnBuffer()
+    buffer.step = 1
+    buffer.collected_steps = 1
+    dummy_calls = []
+    adapter = SimpleNamespace(
+        buffer=buffer, policy=_Policy(), device=torch.device("cpu"),
+        trainer=SimpleNamespace(value_normalizer=None),
+        args=SimpleNamespace(episode_length=2),
+        _add_dummy_data_to_buffer=lambda: dummy_calls.append(True),
+    )
+    assert _load_compute_returns()(adapter) is False
+    assert buffer.calls == 0
+    assert dummy_calls == []
+
+
+def test_zero_environment_rewards_are_not_replaced_with_random_noise():
+    buffer = _ReturnBuffer()
+    buffer.rewards.fill(0.0)
+    adapter = SimpleNamespace(
+        buffer=buffer, policy=_Policy(), device=torch.device("cpu"),
+        trainer=SimpleNamespace(value_normalizer=None),
+        args=SimpleNamespace(episode_length=2),
+        _add_dummy_data_to_buffer=lambda: (_ for _ in ()).throw(
+            AssertionError("dummy insertion must not occur")
+        ),
+    )
+    before = buffer.rewards.copy()
+    _load_compute_returns()(adapter)
+    np.testing.assert_array_equal(buffer.rewards, before)
