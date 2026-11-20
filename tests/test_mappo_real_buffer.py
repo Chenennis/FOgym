@@ -3,20 +3,39 @@
 Verifies observation indexing, PPO action/log-prob pairing, rewards,
 terminal masks, and the circular write-index behavior over a complete rollout.
 """
-import sys
+import ast
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import torch
 from gymnasium import spaces
 
-# Make the bundled MAPPO implementation importable, without installing it.
-MAPPO_ROOT = Path(__file__).resolve().parents[1] / "algorithms" / "MAPPO"
-if str(MAPPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(MAPPO_ROOT))
-
-from onpolicy.utils.shared_buffer import SharedReplayBuffer
 from test_mappo_buffer_correctness import _collect_step_method
+
+
+def _load_shared_buffer_class():
+    """Load the real buffer class without importing onpolicy's eager package init."""
+    source = (Path(__file__).resolve().parents[1] / "algorithms" / "MAPPO"
+              / "onpolicy" / "utils" / "shared_buffer.py")
+    parsed = ast.parse(source.read_text(encoding="utf-8"))
+    cls = next(node for node in parsed.body
+               if isinstance(node, ast.ClassDef) and node.name == "SharedReplayBuffer")
+
+    def get_shape_from_obs_space(space):
+        return space.shape
+
+    def get_shape_from_act_space(space):
+        return space.shape[0]
+
+    namespace = {
+        "np": np, "torch": torch,
+        "get_shape_from_obs_space": get_shape_from_obs_space,
+        "get_shape_from_act_space": get_shape_from_act_space,
+    }
+    exec(compile(ast.Module(body=[cls], type_ignores=[]), str(source), "exec"),
+         namespace)
+    return namespace["SharedReplayBuffer"]
 
 
 def test_real_buffer_retains_aligned_two_step_rollout():
@@ -28,7 +47,7 @@ def test_real_buffer_retains_aligned_two_step_rollout():
         use_reward_normalization=False,
     )
     space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
-    buffer = SharedReplayBuffer(args, num_agents=1, obs_space=space,
+    buffer = _load_shared_buffer_class()(args, num_agents=1, obs_space=space,
                                 cent_obs_space=space, act_space=space)
     adapter = SimpleNamespace(
         num_agents=1, action_dim=1, actual_obs_dim=1,
