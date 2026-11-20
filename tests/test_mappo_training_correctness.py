@@ -46,7 +46,7 @@ class _Policy:
         self.critic_optimizer = torch.optim.SGD(self.critic.parameters(), lr=0.1)
 
     def evaluate_actions(self, share_obs, obs, rnn_actor, rnn_critic,
-                         actions, masks, active_masks):
+                         actions, masks, available_actions=None, active_masks=None):
         values = self.critic(share_obs)
         log_probs = self.actor(obs)
         entropy = log_probs.mean() * 0 + torch.tensor(0.1)
