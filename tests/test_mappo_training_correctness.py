@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 from torch import nn
 
@@ -120,3 +121,26 @@ def test_empty_rollout_is_not_trainable_even_when_ring_index_is_zero():
     _load_train_method()(trainer)
     assert not buffer.updated
     assert torch.equal(original, policy.actor.weight.detach())
+
+
+def test_failed_ppo_update_does_not_report_success_or_consume_rollout():
+    """A failed optimizer pass must not mark the entire rollout as trained."""
+    policy = _Policy()
+    buffer = _FullCircularBuffer()
+    def fail_evaluation(*args, **kwargs):
+        raise RuntimeError("synthetic forward failure")
+    policy.evaluate_actions = fail_evaluation
+    args = SimpleNamespace(
+        episode_length=2, ppo_epoch=1, num_mini_batch=1,
+        use_advantage_normalization=False, clip_param=0.2,
+        use_clipped_value_loss=False, value_loss_coef=0.5,
+        entropy_coef=0.0, use_max_grad_norm=True, max_grad_norm=10.0,
+    )
+    trainer = SimpleNamespace(
+        buffer=buffer, policy=policy, args=args, device=torch.device("cpu"),
+        _use_popart=False, _use_valuenorm=False, value_normalizer=None,
+    )
+    with pytest.raises(RuntimeError, match="PPO update failed"):
+        _load_train_method()(trainer)
+    assert not buffer.updated
+    assert buffer.collected_steps == 2
