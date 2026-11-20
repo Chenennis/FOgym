@@ -598,6 +598,13 @@ class FOMAPPOAdapter:
         masks = np.ones((1, self.num_agents, 1), dtype=np.float32)
         bad_masks = np.ones((1, self.num_agents, 1), dtype=np.float32)
         active_masks = np.ones((1, self.num_agents, 1), dtype=np.float32)
+        for i, manager_id in enumerate(manager_ids[:self.num_agents]):
+            if dones.get(manager_id, False):
+                masks[0, i, 0] = 0.0
+                active_masks[0, i, 0] = 0.0
+            info = infos.get(manager_id, {}) or {}
+            if isinstance(info, dict) and info.get("TimeLimit.truncated", False):
+                bad_masks[0, i, 0] = 0.0
         
         # Initialize the first observation for a new rollout. Subsequent
         # observations are written by SharedReplayBuffer.insert at step+1.
