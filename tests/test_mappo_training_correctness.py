@@ -145,3 +145,32 @@ def test_failed_ppo_update_does_not_report_success_or_consume_rollout():
         _load_train_method()(trainer)
     assert not buffer.updated
     assert buffer.collected_steps == 2
+
+
+def test_ppo_passes_available_actions_and_active_masks_in_correct_slots():
+    """The real FOMAPPOPolicy expects available_actions before active_masks."""
+    policy = _Policy()
+    seen = {}
+    def check_evaluation(share_obs, obs, rnn_actor, rnn_critic,
+                         actions, masks, available_actions=None, active_masks=None):
+        seen["available_actions"] = available_actions
+        seen["active_masks"] = active_masks
+        assert available_actions is None, "continuous Box actions have no availability mask"
+        assert active_masks is not None, "active_masks must be the eighth argument"
+        return policy.critic(share_obs), policy.actor(obs), torch.tensor(0.1)
+    policy.evaluate_actions = check_evaluation
+    buffer = _FullCircularBuffer()
+    args = SimpleNamespace(
+        use_advantage_normalization=False, episode_length=2,
+        ppo_epoch=1, num_mini_batch=1, clip_param=0.2,
+        use_clipped_value_loss=False, value_loss_coef=0.5,
+        entropy_coef=0.0, use_max_grad_norm=True, max_grad_norm=10.0,
+    )
+    trainer = SimpleNamespace(
+        buffer=buffer, policy=policy, args=args, device=torch.device("cpu"),
+        _use_popart=False, _use_valuenorm=False, value_normalizer=None,
+    )
+    result = _load_train_method()(trainer)
+    assert result["num_updates"] == 1
+    assert seen["available_actions"] is None
+    torch.testing.assert_close(seen["active_masks"], torch.ones((2, 1)))
