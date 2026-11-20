@@ -76,8 +76,12 @@ class SharedReplayBuffer(object):
 
         self.actions = np.zeros(
             (self.episode_length, self.n_rollout_threads, num_agents, act_shape), dtype=np.float32)
+        # For continuous Box actions, the diagonal Gaussian distribution
+        # returns a single joint log probability per sampled action vector.
+        # Keep action vectors and action log probabilities in distinct shapes.
+        log_prob_shape = 1 if act_space.__class__.__name__ == "Box" else act_shape
         self.action_log_probs = np.zeros(
-            (self.episode_length, self.n_rollout_threads, num_agents, act_shape), dtype=np.float32)
+            (self.episode_length, self.n_rollout_threads, num_agents, log_prob_shape), dtype=np.float32)
         self.rewards = np.zeros(
             (self.episode_length, self.n_rollout_threads, num_agents, 1), dtype=np.float32)
 
