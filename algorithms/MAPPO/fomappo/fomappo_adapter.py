@@ -632,7 +632,13 @@ class FOMAPPOAdapter:
                 
             # value prediction
             if values is not None and manager_id in values:
-                value_pred_batch[0, i, 0] = values[manager_id]
+                value_array = np.asarray(values[manager_id], dtype=np.float32).reshape(-1)
+                if value_array.size != 1:
+                    raise ValueError(
+                        f"expected one critic value for {manager_id}, got shape "
+                        f"{np.shape(values[manager_id])}"
+                    )
+                value_pred_batch[0, i, 0] = value_array.item()
             else:
                 value_pred_batch[0, i, 0] = 0.0
         
