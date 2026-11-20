@@ -58,6 +58,7 @@ class _FullCircularBuffer:
     def __init__(self):
         self.step = 0
         self.episode_length = 2
+        self.collected_steps = 2
         self.rewards = np.array([[[1.0]], [[2.0]]], dtype=np.float32)
         self.advantages = np.ones((2, 1, 1), dtype=np.float32)
         self.returns = np.array([[[1.0]], [[2.0]], [[0.0]]], dtype=np.float32)
@@ -84,6 +85,7 @@ def test_full_rollout_trains_after_buffer_step_wraps_to_zero():
     buffer = _FullCircularBuffer()
     args = SimpleNamespace(
         use_advantage_normalization=False,
+        episode_length=2,
         ppo_epoch=1,
         num_mini_batch=1,
         clip_param=0.2,
@@ -103,3 +105,18 @@ def test_full_rollout_trains_after_buffer_step_wraps_to_zero():
     assert not torch.equal(original_weight, policy.actor.weight.detach()), (
         "PPO failed to update the actor after a complete rollout"
     )
+
+
+def test_empty_rollout_is_not_trainable_even_when_ring_index_is_zero():
+    policy = _Policy()
+    buffer = _FullCircularBuffer()
+    buffer.collected_steps = 0
+    trainer = SimpleNamespace(
+        buffer=buffer, policy=policy,
+        args=SimpleNamespace(episode_length=2),
+        device=torch.device("cpu"),
+    )
+    original = policy.actor.weight.detach().clone()
+    _load_train_method()(trainer)
+    assert not buffer.updated
+    assert torch.equal(original, policy.actor.weight.detach())
