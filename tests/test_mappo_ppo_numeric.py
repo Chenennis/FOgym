@@ -7,6 +7,7 @@ import torch
 from gymnasium import spaces
 
 from test_mappo_real_buffer import _load_shared_buffer_class
+from test_mappo_buffer_correctness import _collect_step_method
 from test_mappo_training_correctness import (
     _FullCircularBuffer, _Policy, _load_train_method,
 )
@@ -77,3 +78,41 @@ def test_ppo_clipping_with_positive_and_negative_advantages(ratios, expected_pol
     info = _load_train_method()(trainer)
     assert info["num_updates"] == 1
     assert info["policy_loss"] == pytest.approx(expected_policy_loss, abs=1e-6)
+
+
+def test_multidimensional_action_collection_preserves_joint_log_probs():
+    """Exercise adapter collection with a real 3-D-action SharedReplayBuffer."""
+    args = SimpleNamespace(
+        episode_length=2, n_rollout_threads=1, hidden_size=2, recurrent_N=1,
+        gamma=0.99, gae_lambda=0.95, use_gae=True, use_popart=False,
+        use_valuenorm=False, use_proper_time_limits=False,
+        algorithm_name="rmappo", use_reward_normalization=False,
+    )
+    observation_space = spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32)
+    action_space = spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32)
+    buffer = _load_shared_buffer_class()(
+        args, 1, observation_space, observation_space, action_space
+    )
+    adapter = SimpleNamespace(
+        num_agents=1, action_dim=3, actual_obs_dim=1,
+        args=args, buffer=buffer, trainer=None,
+    )
+    for t in range(2):
+        _collect_step_method()(
+            adapter,
+            obs={"manager_1": np.array([t], dtype=np.float32)},
+            next_obs={"manager_1": np.array([t + 1], dtype=np.float32)},
+            actions={"manager_1": np.array([0.5, 0.5, 0.5], dtype=np.float32)},
+            raw_actions={"manager_1": np.array([0.1, 0.2, 0.3], dtype=np.float32)},
+            action_log_probs={"manager_1": np.array([-1.5 - t], dtype=np.float32)},
+            values={"manager_1": np.array([0.1], dtype=np.float32)},
+            rewards={"manager_1": 1.0},
+            dones={"manager_1": t == 1},
+            infos={"manager_1": {}},
+        )
+    assert buffer.step == 0
+    assert buffer.collected_steps == 2
+    assert buffer.actions.shape == (2, 1, 1, 3)
+    assert buffer.action_log_probs.shape == (2, 1, 1, 1)
+    np.testing.assert_allclose(buffer.action_log_probs[:, 0, 0, 0], [-1.5, -2.5])
+    np.testing.assert_allclose(buffer.actions[0, 0, 0], [0.1, 0.2, 0.3])
