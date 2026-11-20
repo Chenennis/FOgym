@@ -313,15 +313,11 @@ class FOMAPPO():
             logger.info(f"before training, buffer check: rewards non-zero ratio={non_zero_rewards/total_rewards:.2%}, number={non_zero_rewards}/{total_rewards}")
             
             if non_zero_rewards == 0:
-                logger.error("training failed: all rewards in buffer are zero, cannot perform effective training")
-                return {
-                    'policy_loss': 0.0,
-                    'value_loss': 0.0,
-                    'dist_entropy': 0.0,
-                    'grad_norm': 0.0,
-                    'ratio': 1.0
-                }
-        
+                logger.info(
+                    "rollout rewards are all zero; continue PPO training because "
+                    "value estimates and advantages may still provide a learning signal"
+                )
+
         # calculate advantage (if not calculated)
         if not hasattr(buffer, 'advantages') or buffer.advantages is None:
             logger.warning("advantage not calculated, try to calculate")
