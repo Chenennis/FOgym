@@ -1016,8 +1016,9 @@ class FOMAPPOAdapter:
                 if key not in train_info:
                     train_info[key] = 0.0
             
-            # add training iterations
-            train_info['num_updates'] = 1
+            # Preserve the trainer's actual optimizer-step count.
+            # A training call is not necessarily a single PPO update.
+            train_info['num_updates'] = train_info.get('num_updates', 0)
             
             return train_info
             
