@@ -55,3 +55,24 @@ def test_generate_dfo_does_not_mutate_real_battery_soc(battery):
     dfo = battery.generate_dfo(time_horizon=3)
     assert len(dfo.slices) == 3
     assert battery.current_soc == pytest.approx(starting_soc)
+
+
+def test_available_power_respects_time_step(battery):
+    """Half-hour interval permits twice the energy-limited discharge power."""
+    p_min, p_max = battery.get_available_power(time_step=0.5)
+    assert p_min == pytest.approx(-100.0)  # 114 kW energy bound, 100 kW rating
+    assert p_max == pytest.approx(100.0)   # 168.4 kW energy bound, 100 kW rating
+
+
+def test_soc_stays_within_configured_limits(battery):
+    """Excessive requested power cannot push fractional SoC outside its bounds."""
+    assert battery.update_soc(1000.0) == pytest.approx(0.90)
+    assert battery.update_soc(-1000.0) == pytest.approx(0.20)
+
+
+def test_invalid_time_step_is_rejected(battery):
+    """Nonpositive time intervals must not silently produce invalid limits."""
+    with pytest.raises(ValueError, match="time_step"):
+        battery.get_available_power(time_step=0)
+    with pytest.raises(ValueError, match="time_step"):
+        battery.update_soc(1.0, time_step=-1)
