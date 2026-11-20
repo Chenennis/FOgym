@@ -292,8 +292,12 @@ class FOMAPPO():
         # use buffer passed from adapter
         buffer = self.buffer
             
-        if buffer.step == 0:
-            logger.error("training failed: buffer is empty, step=0, no experience data collected")
+        # SharedReplayBuffer.step wraps to zero after a full rollout.
+        # Prefer the explicit insert count; the ring index is not an emptiness flag.
+        collected_steps = getattr(buffer, "collected_steps", buffer.step)
+        if collected_steps < self.args.episode_length:
+            logger.error("training failed: incomplete rollout (%s/%s steps)",
+                         collected_steps, self.args.episode_length)
             return {
                 'policy_loss': 0.0,
                 'value_loss': 0.0,
@@ -503,6 +507,7 @@ class FOMAPPO():
         # after training, process buffer
         try:
             buffer.after_update()
+            buffer.collected_steps = 0
         except Exception as e:
             logger.error(f"after training, process buffer failed: {e}")
      
