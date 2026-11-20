@@ -101,7 +101,8 @@ def test_full_rollout_trains_after_buffer_step_wraps_to_zero():
         _use_popart=False, _use_valuenorm=False, value_normalizer=None,
     )
     original_weight = policy.actor.weight.detach().clone()
-    _load_train_method()(trainer)
+    result = _load_train_method()(trainer)
+    assert result["num_updates"] == 1, "Report completed optimizer steps, not planned minibatches"
     assert buffer.updated, "PPO skipped the full rollout after the ring index wrapped"
     assert not torch.equal(original_weight, policy.actor.weight.detach()), (
         "PPO failed to update the actor after a complete rollout"
