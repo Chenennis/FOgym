@@ -174,3 +174,25 @@ def test_ppo_passes_available_actions_and_active_masks_in_correct_slots():
     assert result["num_updates"] == 1
     assert seen["available_actions"] is None
     torch.testing.assert_close(seen["active_masks"], torch.ones((2, 1)))
+
+
+def test_zero_reward_rollout_with_nonzero_advantages_is_trainable():
+    """Zero rewards do not imply zero policy gradient or invalid trajectories."""
+    policy = _Policy()
+    buffer = _FullCircularBuffer()
+    buffer.rewards.fill(0.0)
+    args = SimpleNamespace(
+        use_advantage_normalization=False, episode_length=2,
+        ppo_epoch=1, num_mini_batch=1, clip_param=0.2,
+        use_clipped_value_loss=False, value_loss_coef=0.5,
+        entropy_coef=0.0, use_max_grad_norm=True, max_grad_norm=10.0,
+    )
+    trainer = SimpleNamespace(
+        buffer=buffer, policy=policy, args=args, device=torch.device("cpu"),
+        _use_popart=False, _use_valuenorm=False, value_normalizer=None,
+    )
+    before = policy.actor.weight.detach().clone()
+    info = _load_train_method()(trainer)
+    assert info["num_updates"] == 1
+    assert buffer.updated
+    assert not torch.equal(before, policy.actor.weight.detach())
