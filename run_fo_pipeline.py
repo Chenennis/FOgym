@@ -5392,7 +5392,9 @@ class FOPipeline:
                         dones=dones,
                         infos=infos,
                         action_log_probs=action_log_probs,
-                        values=values
+                        values=values,
+                        next_obs=next_obs,
+                        raw_actions=self.fomappo_adapter._last_raw_actions
                     )
                     
                     # Accumulate episode rewards
@@ -5805,8 +5807,10 @@ class FOPipeline:
                         rewards=rewards,
                         dones=dones,
                         infos=infos,
-                        action_log_probs=action_log_probs,  # pass action log probabilities
-                        values=values  # pass value estimates
+                        action_log_probs=action_log_probs,
+                        values=values,
+                        next_obs=next_obs,
+                        raw_actions=adapter._last_raw_actions
                     )
                     
                     # Accumulate rewards
