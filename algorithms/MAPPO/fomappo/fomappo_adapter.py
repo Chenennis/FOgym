@@ -587,7 +587,7 @@ class FOMAPPOAdapter:
         reward_batch = np.zeros((1, self.num_agents, 1), dtype=np.float32)
         
         # action log probabilities and value predictions
-        action_log_prob_batch = np.zeros((1, self.num_agents, self.action_dim), dtype=np.float32)
+        action_log_prob_batch = np.zeros((1, self.num_agents, 1), dtype=np.float32)
         value_pred_batch = np.zeros((1, self.num_agents, 1), dtype=np.float32)
         
         # RNN states
@@ -632,10 +632,19 @@ class FOMAPPOAdapter:
             reward_batch[0, i, 0] = normalized_rewards[manager_id]
             
             # action log probabilities
-            if action_log_probs is not None and manager_id in action_log_probs:
-                action_log_prob_batch[0, i] = action_log_probs[manager_id]
-            else:
-                action_log_prob_batch[0, i] = np.zeros(self.action_dim)  # use zero instead of log(0.5)
+            if action_log_probs is None or manager_id not in action_log_probs:
+                raise ValueError(
+                    f"missing sampled action log probability for {manager_id}"
+                )
+            log_prob_array = np.asarray(
+                action_log_probs[manager_id], dtype=np.float32
+            ).reshape(-1)
+            if log_prob_array.size != 1:
+                raise ValueError(
+                    f"expected one joint action log probability for {manager_id}, "
+                    f"got shape {np.shape(action_log_probs[manager_id])}"
+                )
+            action_log_prob_batch[0, i, 0] = log_prob_array.item()
                 
             # value prediction
             if values is not None and manager_id in values:
