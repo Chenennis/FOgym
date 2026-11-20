@@ -217,6 +217,7 @@ class FOMAPPOAdapter:
             cent_obs_space=share_obs_space,
             act_space=act_space
             )
+            self.buffer.collected_steps = 0
             logger.info("✅ shared buffer created successfully")
             
             # create FOMAPPO trainer
@@ -306,9 +307,9 @@ class FOMAPPOAdapter:
                     act_space=act_space
                 )
                 
-                if old_step > 0:
-                    logger.info(f"restore buffer step value: {old_step}")
-                    self.buffer.step = old_step
+                # A newly recreated buffer contains no transitions, regardless
+                # of the old ring index.
+                self.buffer.collected_steps = 0
                 
                 logger.info(f"✅ successfully recreated buffer, observation dimension: {self.actual_obs_dim}")
             else:
@@ -328,6 +329,7 @@ class FOMAPPOAdapter:
                     cent_obs_space=share_obs_space,
                     act_space=act_space
                 )
+                self.buffer.collected_steps = 0
                 logger.info(f"created new buffer, observation dimension: {self.actual_obs_dim}")
             
             # update trainer's buffer reference
@@ -618,8 +620,8 @@ class FOMAPPOAdapter:
         try:
             # if dimension changed, reset buffer to ensure consistency
             if dimension_changed:
-                logger.info("reset buffer due to dimension change")
-                self.buffer.reset()
+                logger.info("buffer recreated due to observation dimension change")
+                self.buffer.collected_steps = 0
             
             self.buffer.insert(
                 share_obs=share_obs_batch,
@@ -633,6 +635,10 @@ class FOMAPPOAdapter:
                 masks=masks,
                 bad_masks=bad_masks,
                 active_masks=active_masks
+            )
+            self.buffer.collected_steps = min(
+                getattr(self.buffer, "collected_steps", 0) + 1,
+                self.args.episode_length,
             )
             logger.debug(f"successfully collected data to buffer: step={self.buffer.step}, rewards={np.mean(reward_batch):.4f}")
             
@@ -917,22 +923,20 @@ class FOMAPPOAdapter:
                     'num_updates': 0
                 }
         
-        # check if buffer has enough data
-        if self.buffer.step == 0:
-            logger.warning("buffer is empty or has no enough data, add data to train")
-            # try to add data
-            self._add_dummy_data_to_buffer()
-            if self.buffer.step == 0:
-                logger.error("even after adding data, buffer is still empty")
-                return {
-                    'policy_loss': 0.0,
-                    'value_loss': 0.0,
-                    'entropy': 0.0,
-                    'grad_norm': 0.0,
-                    'ratio': 1.0,
-                    'num_updates': 0
-                }
-        
+        # A circular index of zero can mean either empty or exactly full.
+        if getattr(self.buffer, "collected_steps", 0) < self.args.episode_length:
+            logger.error("rollout incomplete: %s/%s steps collected",
+                         getattr(self.buffer, "collected_steps", 0),
+                         self.args.episode_length)
+            return {
+                'policy_loss': 0.0,
+                'value_loss': 0.0,
+                'entropy': 0.0,
+                'grad_norm': 0.0,
+                'ratio': 1.0,
+                'num_updates': 0
+            }
+
         # check if rewards are meaningful
         if hasattr(self.buffer, 'rewards'):
             non_zero_rewards = np.count_nonzero(self.buffer.rewards)
@@ -1243,6 +1247,7 @@ class FOMAPPOAdapter:
                 cent_obs_space=share_obs_space,
                 act_space=act_space
             )
+            self.buffer.collected_steps = 0
             logger.info("shared buffer reconstruction successful")
         except Exception as e:
             logger.error(f"shared buffer reconstruction failed: {e}")
