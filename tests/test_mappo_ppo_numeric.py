@@ -145,7 +145,9 @@ def test_real_multidimensional_rollout_can_run_gae_and_ppo_update():
             next_obs={"manager_1": np.array([float(t + 2)], dtype=np.float32)},
             actions={"manager_1": np.full(3, 0.6, dtype=np.float32)},
             raw_actions={"manager_1": np.array([0.1, 0.2, 0.3], dtype=np.float32)},
-            action_log_probs={"manager_1": np.array([-0.5 - t], dtype=np.float32)},
+            # Match the initial mock actor's log-prob (weight=0.1, obs=t+1),
+            # so PPO starts at ratio=1 rather than at a clipped plateau.
+            action_log_probs={"manager_1": np.array([0.1 * (t + 1)], dtype=np.float32)},
             values={"manager_1": np.array([0.1], dtype=np.float32)},
             rewards={"manager_1": float(t + 1)},
             dones={"manager_1": t == 1},
@@ -161,7 +163,7 @@ def test_real_multidimensional_rollout_can_run_gae_and_ppo_update():
     original_actor = policy.actor.weight.detach().clone()
     info = _load_train_method()(trainer)
     assert info["num_updates"] == 1
-    assert info["ratio"] > 0
+    assert info["ratio"] == pytest.approx(1.0, abs=1e-6)
     assert not torch.equal(policy.actor.weight.detach(), original_actor)
     assert buffer.collected_steps == 0
     assert buffer.step == 0
