@@ -655,143 +655,46 @@ class MarketClearingAlgorithm(TradingAlgorithm):
         return clearing_result
     
     def _find_clearing_point(self, buy_bids: List[Bid], sell_bids: List[Bid]) -> Tuple[float, float, List[Tuple[str, float]]]:
+        """Greedy price-compatible matching with exact per-bid energy budgets.
 
-        self.logger.info(f"start finding clearing point: {len(buy_bids)} buy bids, {len(sell_bids)} sell bids")
-        
-        # output bid details
-        for i, bid in enumerate(buy_bids):
-            self.logger.info(f"buy bid {i}: {bid.participant_id}, price {bid.price:.4f}, quantity {bid.quantity:.2f}")
-        for i, bid in enumerate(sell_bids):
-            self.logger.info(f"sell bid {i}: {bid.participant_id}, price {bid.price:.4f}, quantity {bid.quantity:.2f}")
-        
-        # check if there are any bids
-        if not buy_bids or not sell_bids:
-            self.logger.warning("no buy or sell bids, cannot find clearing point")
-            # create a default match, ensure there is a transaction
-            if buy_bids:
-                clearing_price = buy_bids[0].price * 0.9
-                clearing_quantity = max(5.0, buy_bids[0].quantity * 0.5)  
-                matched_bids = [(buy_bids[0].bid_id, clearing_quantity)]
-                self.logger.info(f"create default buy match: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
-                return clearing_price, clearing_quantity, matched_bids
-            elif sell_bids:
-                clearing_price = sell_bids[0].price * 1.1
-                clearing_quantity = max(5.0, sell_bids[0].quantity * 0.5)  
-                matched_bids = [(sell_bids[0].bid_id, clearing_quantity)]
-                self.logger.info(f"create default sell match: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
-                return clearing_price, clearing_quantity, matched_bids
-            else:
-                return 0.15, 1.0, []  # default price 0.15/kWh, quantity 1.0 kWh
-        
-        # build demand and supply curves
-        buy_curve = []
-        sell_curve = []
-        
-        # buy demand curve (cumulative)
-        cumulative_buy_quantity = 0
-        for bid in buy_bids:
-            cumulative_buy_quantity += bid.quantity
-            buy_curve.append((bid.price, cumulative_buy_quantity))
-        
-        # sell supply curve (cumulative)
-        cumulative_sell_quantity = 0
-        for bid in sell_bids:
-            cumulative_sell_quantity += bid.quantity
-            sell_curve.append((bid.price, cumulative_sell_quantity))
-        
-        self.logger.info(f"buy demand curve: {buy_curve}")
-        self.logger.info(f"sell supply curve: {sell_curve}")
-        
-        # find clearing point
-        clearing_price = 0.0
-        clearing_quantity = 0.0
-        
-        # 1. first try standard matching (buy price >= sell price)
-        for i, (buy_price, buy_qty) in enumerate(buy_curve):
-            for j, (sell_price, sell_qty) in enumerate(sell_curve):
-                # if buy price >= sell price, and quantity matches
-                if buy_price >= sell_price:
-                    potential_quantity = min(buy_qty, sell_qty)
-                    self.logger.info(f"standard matching: buy price {buy_price:.4f}>=sell price {sell_price:.4f}, potential quantity {potential_quantity:.2f}")
-                    if potential_quantity > clearing_quantity:
-                        clearing_quantity = potential_quantity
-                        if self.clearing_method == "uniform_price":
-                            # uniform marginal price
-                            clearing_price = (buy_price + sell_price) / 2
-                        elif self.clearing_method == "pay_as_bid":
-                            # pay as bid 
-                            clearing_price = sell_price
-                        else:
-                            clearing_price = (buy_price + sell_price) / 2
-                        self.logger.info(f"update clearing point: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
-        
-        # 2. if standard matching fails
-        if clearing_quantity == 0:
-            self.logger.warning("standard matching failed, try loose matching")
-            
-            # find highest buy price and lowest sell price
-            if buy_bids and sell_bids:
-                highest_buy = buy_bids[0].price
-                lowest_sell = sell_bids[0].price
-                
-                # calculate price gap
-                price_gap = lowest_sell - highest_buy
-                self.logger.info(f"price gap: highest buy price {highest_buy:.4f} vs lowest sell price {lowest_sell:.4f}, gap {price_gap:.4f}")
-                
-                clearing_price = (highest_buy + lowest_sell) / 2
-                
-                # use 90% of the minimum quantity of buy and sell bids as clearing quantity
-                min_buy_qty = min(bid.quantity for bid in buy_bids) if buy_bids else 0
-                min_sell_qty = min(bid.quantity for bid in sell_bids) if sell_bids else 0
-                clearing_quantity = min(min_buy_qty, min_sell_qty) * 0.9
-                
-                self.logger.info(f"loose matching success: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
-        
-        # 3. if loose matching still fails, force create match
-        if clearing_quantity < 1.0:  # set a minimum threshold, ensure enough transaction volume
-            self.logger.warning("loose matching failed or quantity too small, force create match")
-            
-            if buy_bids and sell_bids:
-                # use average price of buy and sell bids
-                avg_buy_price = sum(bid.price for bid in buy_bids) / len(buy_bids)
-                avg_sell_price = sum(bid.price for bid in sell_bids) / len(sell_bids)
-                clearing_price = (avg_buy_price + avg_sell_price) / 2
-                
-                # set a larger clearing quantity
-                # use 70% of the average quantity of buy and sell bids
-                avg_buy_qty = sum(bid.quantity for bid in buy_bids) / len(buy_bids)
-                avg_sell_qty = sum(bid.quantity for bid in sell_bids) / len(sell_bids)
-                clearing_quantity = min(avg_buy_qty, avg_sell_qty) * 0.7
-                
-                # ensure quantity is at least 5.0
-                clearing_quantity = max(5.0, clearing_quantity)
-                
-                self.logger.info(f"force match: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
-        
-        self.logger.info(f"final clearing result: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
-        
-        # find matched bids
-        matched_bids = []
-        if clearing_quantity > 0:
-            matched_bids = self._match_bids(buy_bids, sell_bids, clearing_quantity)
-            self.logger.info(f"matched bids: {len(matched_bids)}")
-        else:
-            self.logger.warning("clearing quantity is 0, create minimum match")
-            # even if clearing quantity is 0, create a minimum match
-            if buy_bids and sell_bids:
-                # set a minimum non-zero transaction volume
-                clearing_quantity = 1.0
-                clearing_price = 0.15 if clearing_price == 0.0 else clearing_price
-                matched_bids = [(buy_bids[0].bid_id, clearing_quantity), (sell_bids[0].bid_id, clearing_quantity)]
-                self.logger.info(f"create minimum match: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
-            else:
-                # even if there are no bids, return a minimum non-zero transaction volume
-                clearing_quantity = 1.0
-                clearing_price = 0.15
-                self.logger.info(f"create default minimum match: price {clearing_price:.4f}, quantity {clearing_quantity:.2f}")
-        
-        return clearing_price, clearing_quantity, matched_bids
-    
+        The returned quantities record one allocation per bid. No transaction is
+        created when prices do not cross or only self-matching is possible.
+        """
+        remaining_buy = {bid.bid_id: float(bid.quantity) for bid in buy_bids}
+        remaining_sell = {bid.bid_id: float(bid.quantity) for bid in sell_bids}
+        allocated = {}
+        matched_pairs = []
+        for buyer in sorted(buy_bids, key=lambda b: b.price, reverse=True):
+            for seller in sorted(sell_bids, key=lambda b: b.price):
+                if buyer.price < seller.price:
+                    break
+                if buyer.participant_id == seller.participant_id:
+                    continue
+                quantity = min(remaining_buy[buyer.bid_id],
+                               remaining_sell[seller.bid_id])
+                if quantity <= 1e-12:
+                    continue
+                remaining_buy[buyer.bid_id] -= quantity
+                remaining_sell[seller.bid_id] -= quantity
+                allocated[buyer.bid_id] = allocated.get(buyer.bid_id, 0.0) + quantity
+                allocated[seller.bid_id] = allocated.get(seller.bid_id, 0.0) + quantity
+                matched_pairs.append((buyer, seller, quantity))
+                if remaining_buy[buyer.bid_id] <= 1e-12:
+                    break
+
+        if not matched_pairs:
+            return 0.0, 0.0, []
+
+        quantity = sum(q for _, _, q in matched_pairs)
+        # Price is between the marginal bid and ask of the executed pairs.
+        lower_price = max(seller.price for _, seller, _ in matched_pairs)
+        upper_price = min(buyer.price for buyer, _, _ in matched_pairs)
+        clearing_price = (lower_price + upper_price) / 2.0
+        matches = [(bid.bid_id, allocated[bid.bid_id])
+                   for bid in buy_bids + sell_bids
+                   if allocated.get(bid.bid_id, 0.0) > 1e-12]
+        return clearing_price, quantity, matches
+
     def _match_bids(self, buy_bids: List[Bid], sell_bids: List[Bid], clearing_quantity: float) -> List[Tuple[str, float]]:
         """
         match bids
@@ -903,29 +806,41 @@ class MarketClearingAlgorithm(TradingAlgorithm):
             
             self.logger.info(f"buy matches: {len(buy_matches)}, sell matches: {len(sell_matches)}")
             
-            # create trade records
+            # Match residual buyer/seller allocations exactly once per unit.
+            # Do not create a Cartesian product of all matched bids.
+            buy_remaining = [[bid, float(q)] for bid, q in buy_matches]
+            sell_remaining = [[bid, float(q)] for bid, q in sell_matches]
             trade_id_counter = 0
-            for buy_bid, buy_quantity in buy_matches:
-                for sell_bid, sell_quantity in sell_matches:
-                    trade_quantity = min(buy_quantity, sell_quantity)
-                    self.logger.info(f"try to create trade: buy {buy_bid.participant_id}({buy_quantity:.2f}) vs sell {sell_bid.participant_id}({sell_quantity:.2f}), trade quantity {trade_quantity:.2f}")
-                    if trade_quantity > 0:
-                        trade = Trade(
-                            trade_id=f"{clearing_result.clearing_id}_trade_{trade_id_counter}",
-                            buyer_id=buy_bid.participant_id,
-                            seller_id=sell_bid.participant_id,
-                            energy_type="electricity",
-                            quantity=trade_quantity,
-                            price=clearing_result.clearing_price,
-                            time_step=buy_bid.time_step,
-                            status="completed",
-                            clearing_result_id=clearing_result.clearing_id,
-                            bid_id=f"{buy_bid.bid_id}_{sell_bid.bid_id}"
-                        )
-                        trades.append(trade)
-                        trade_id_counter += 1
-                        self.logger.info(f"success create trade: {trade.trade_id}, buy {trade.buyer_id}, sell {trade.seller_id}, quantity {trade.quantity:.2f}, price {trade.price:.4f}")
-        
+            for buyer_item in buy_remaining:
+                for seller_item in sell_remaining:
+                    buyer, buy_quantity = buyer_item
+                    seller, sell_quantity = seller_item
+                    if buyer.participant_id == seller.participant_id:
+                        continue
+                    if buyer.price < seller.price:
+                        continue
+                    trade_quantity = min(buyer_item[1], seller_item[1])
+                    if trade_quantity <= 1e-12:
+                        continue
+                    trade = Trade(
+                        trade_id=f"{clearing_result.clearing_id}_trade_{trade_id_counter}",
+                        buyer_id=buyer.participant_id,
+                        seller_id=seller.participant_id,
+                        energy_type="electricity",
+                        quantity=trade_quantity,
+                        price=clearing_result.clearing_price,
+                        time_step=buyer.time_step,
+                        status="completed",
+                        clearing_result_id=clearing_result.clearing_id,
+                        bid_id=f"{buyer.bid_id}_{seller.bid_id}"
+                    )
+                    trades.append(trade)
+                    trade_id_counter += 1
+                    buyer_item[1] -= trade_quantity
+                    seller_item[1] -= trade_quantity
+                    if buyer_item[1] <= 1e-12:
+                        break
+
         self.logger.info(f"trade generation completed: {len(trades)} trades")
         return trades
 
