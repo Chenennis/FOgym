@@ -10,8 +10,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 from gymnasium import spaces
+
+from test_mappo_buffer_correctness import _collect_step_method
+from test_mappo_real_buffer import _load_shared_buffer_class
+from test_mappo_training_correctness import _load_train_method
 
 
 def _load_real_policy(monkeypatch):
@@ -80,3 +85,75 @@ def test_real_fo_policy_samples_and_re_evaluates_joint_gaussian_actions(monkeypa
                zip(actor_before, policy.actor.parameters()))
     assert any(not torch.equal(before, after) for before, after in
                zip(critic_before, policy.critic.parameters()))
+
+
+def test_real_policy_and_real_buffer_complete_ppo_training_update(monkeypatch):
+    """One full PPO update using real sampled actions, Gaussian log-probs and GAE."""
+    torch.manual_seed(11)
+    policy_type = _load_real_policy(monkeypatch)
+    args = SimpleNamespace(
+        lr=1e-3, critic_lr=1e-3, opti_eps=1e-5, weight_decay=0.0,
+        hidden_size=16, gain=0.01, use_orthogonal=True,
+        use_policy_active_masks=False, use_naive_recurrent_policy=False,
+        use_recurrent_policy=False, recurrent_N=1, algorithm_name="rmappo",
+        use_popart=False, use_feature_normalization=False, stacked_frames=1,
+        layer_N=1, use_ReLU=True, use_device_attention=False,
+        use_manager_coordination=False, episode_length=2, n_rollout_threads=1,
+        gamma=0.9, gae_lambda=0.95, use_gae=True, use_valuenorm=False,
+        use_proper_time_limits=False, use_reward_normalization=False,
+        use_advantage_normalization=False, ppo_epoch=1, num_mini_batch=1,
+        clip_param=0.2, use_clipped_value_loss=False,
+        value_loss_coef=0.5, entropy_coef=0.0, use_max_grad_norm=True,
+        max_grad_norm=1.0,
+    )
+    obs_space = spaces.Box(-1.0, 1.0, shape=(4,), dtype=np.float32)
+    action_space = spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32)
+    policy = policy_type(args, obs_space, obs_space, action_space, torch.device("cpu"))
+    buffer = _load_shared_buffer_class()(args, 1, obs_space, obs_space, action_space)
+    adapter = SimpleNamespace(
+        num_agents=1, action_dim=3, actual_obs_dim=4,
+        args=args, buffer=buffer, trainer=None,
+    )
+    observations = [
+        np.array([0.2, -0.1, 0.3, 0.4], dtype=np.float32),
+        np.array([0.1, 0.2, -0.1, 0.2], dtype=np.float32),
+        np.array([-0.2, 0.1, 0.2, 0.3], dtype=np.float32),
+    ]
+    for t in range(2):
+        state = torch.as_tensor(observations[t]).unsqueeze(0)
+        rnn = torch.zeros((1, 1, 16))
+        masks = torch.ones((1, 1))
+        with torch.no_grad():
+            values, actions, old_log_probs, _, _ = policy.get_actions(
+                state, state, rnn, rnn, masks
+            )
+        _collect_step_method()(
+            adapter,
+            obs={"manager_1": observations[t]},
+            next_obs={"manager_1": observations[t + 1]},
+            actions={"manager_1": actions[0].numpy()},
+            raw_actions={"manager_1": actions[0].numpy()},
+            action_log_probs={"manager_1": old_log_probs[0].numpy()},
+            values={"manager_1": values[0].numpy()},
+            rewards={"manager_1": float(t + 1)},
+            dones={"manager_1": t == 1},
+            infos={"manager_1": {}},
+        )
+    assert buffer.collected_steps == 2
+    buffer.compute_returns(np.zeros((1, 1, 1), dtype=np.float32))
+    trainer = SimpleNamespace(
+        buffer=buffer, policy=policy, args=args, device=torch.device("cpu"),
+        _use_popart=False, _use_valuenorm=False, value_normalizer=None,
+    )
+    actor_before = [p.detach().clone() for p in policy.actor.parameters()]
+    critic_before = [p.detach().clone() for p in policy.critic.parameters()]
+    result = _load_train_method()(trainer)
+    assert result["num_updates"] == 1
+    assert np.isfinite(result["policy_loss"])
+    assert np.isfinite(result["value_loss"])
+    assert result["ratio"] == pytest.approx(1.0, abs=1e-4)
+    assert any(not torch.equal(old, new) for old, new in
+               zip(actor_before, policy.actor.parameters()))
+    assert any(not torch.equal(old, new) for old, new in
+               zip(critic_before, policy.critic.parameters()))
+    assert buffer.collected_steps == 0
