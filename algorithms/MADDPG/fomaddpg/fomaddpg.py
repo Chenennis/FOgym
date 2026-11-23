@@ -11,6 +11,25 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from .fomaddpg_policy import FOMaddpgPolicy
 
+def map_normalized_fo_actions(raw_actions: torch.Tensor) -> torch.Tensor:
+    """Differentiable mapping from actor outputs to environmental FO action units."""
+    width = raw_actions.shape[-1]
+    count = width // 5
+    if not count:
+        return torch.zeros_like(raw_actions)
+    blocks = raw_actions[..., :count * 5].reshape(*raw_actions.shape[:-1], count, 5)
+    mapped = torch.stack((
+        blocks[..., 0].clamp(-1.0, 1.0),
+        blocks[..., 1].clamp(-1.0, 1.0),
+        0.1 + 0.45 * (blocks[..., 2].clamp(-1.0, 1.0) + 1.0),
+        1.0 + 0.5 * (blocks[..., 3].clamp(-1.0, 1.0) + 1.0),
+        0.1 + 0.95 * (blocks[..., 4].clamp(-1.0, 1.0) + 1.0),
+    ), dim=-1).reshape(*raw_actions.shape[:-1], count * 5)
+    if count * 5 < width:
+        return torch.cat((mapped, torch.zeros_like(raw_actions[..., count * 5:])), dim=-1)
+    return mapped
+
+
 class ReplayBuffer:
     """experience replay buffer - support multi-agent experience storage"""
     
@@ -59,7 +78,8 @@ class FOMADDPG:
                  noise_scale: float = 0.1,
                  buffer_capacity: int = 1000000,
                  batch_size: int = 256,
-                 device: str = "cpu"):
+                 device: str = "cpu",
+                 action_dims: Optional[List[int]] = None):
         """
         初始化FOMADDPG算法
         
@@ -86,7 +106,12 @@ class FOMADDPG:
         self.noise_scale = noise_scale
         self.batch_size = batch_size
         self.device = torch.device(device)
-        
+        self.action_dims = list(action_dims) if action_dims is not None else [action_dim] * n_agents
+        if len(self.action_dims) != n_agents or any(
+            dim <= 0 or dim > action_dim for dim in self.action_dims
+        ):
+            raise ValueError("Invalid manager action dimensions")
+
         # create multiple agent policies
         self.agents = []
         for i in range(n_agents):
@@ -194,7 +219,15 @@ class FOMADDPG:
             # extract next state of each agent
             agent_next_state = next_states[:, i*self.state_dim:(i+1)*self.state_dim]
             with torch.no_grad():
-                next_action = agent.actor_target(agent_next_state)
+                next_action = map_normalized_fo_actions(
+                    agent.actor_target(agent_next_state)[:, :self.action_dims[i]]
+                )
+                if self.action_dims[i] < self.action_dim:
+                    next_action = torch.cat((
+                        next_action,
+                        torch.zeros(next_action.size(0), self.action_dim - self.action_dims[i],
+                                    device=next_action.device, dtype=next_action.dtype),
+                    ), dim=1)
             next_actions.append(next_action)
         
         next_actions = torch.cat(next_actions, dim=1)
@@ -221,13 +254,22 @@ class FOMADDPG:
             
             # update Actor
             # create current agent's action, other agents use current policy
-            current_actions = actions.clone()
-            current_actions[:, i*self.action_dim:(i+1)*self.action_dim] = agent.actor(agent_states)
-            
+            predicted_actions = map_normalized_fo_actions(
+                agent.actor(agent_states)[:, :self.action_dims[i]]
+            )
+            if self.action_dims[i] < self.action_dim:
+                predicted_actions = torch.cat((
+                    predicted_actions,
+                    torch.zeros(predicted_actions.size(0), self.action_dim - self.action_dims[i],
+                                device=predicted_actions.device, dtype=predicted_actions.dtype),
+                ), dim=1)
+            current_actions = actions.detach().clone()
+            current_actions[:, i*self.action_dim:(i+1)*self.action_dim] = predicted_actions
+
             actor_loss = agent.update_actor(
                 states=states,
                 all_actions=current_actions,
-                agent_actions=agent_actions
+                agent_actions=predicted_actions
             )
             
             # soft update target network
