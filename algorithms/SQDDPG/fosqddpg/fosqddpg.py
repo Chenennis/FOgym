@@ -302,25 +302,35 @@ class FOSQDDPG:
             torch.nn.utils.clip_grad_norm_(policy.critic.parameters(), 1.0)
             policy.critic_optimizer.step()
             
-            # Compute Shapley values for actor loss
-            shapley_values = self.compute_shapley_values(states, actions, agent_idx)
-            shapley_mean = shapley_values.mean(dim=1)  # [batch_size, 1]
-            
-            # Actor loss (negative Shapley values for gradient ascent)
-            actor_loss = -shapley_mean.mean()
-            
-            # Add FlexOffer constraint loss if available
+            # The replayed actions are constants: they cannot provide a
+            # policy gradient. Replace this agent's action with its current
+            # actor output while holding the other agents' actions fixed.
+            agent_constraints = (
+                fo_constraints[:, agent_idx, :] if fo_constraints is not None else None
+            )
+            predicted_actions = policy.actor(
+                states[:, agent_idx, :], agent_constraints
+            )
+            joint_actions = actions.detach().clone()
+            joint_actions[:, agent_idx, :] = predicted_actions
+            actor_q = policy.critic(
+                states_flat, joint_actions.reshape(self.batch_size, -1),
+                fo_satisfaction
+            )
+            actor_loss = -actor_q.mean()
+
             if fo_constraints is not None:
-                predicted_actions = policy.actor(states[:, agent_idx, :], fo_constraints[:, agent_idx, :])
-                constraint_loss = F.mse_loss(predicted_actions, actions[:, agent_idx, :])
+                constraint_loss = F.mse_loss(
+                    predicted_actions, actions[:, agent_idx, :]
+                )
                 actor_loss = actor_loss + 0.1 * constraint_loss
-            
-            # Update actor
+
             policy.actor_optimizer.zero_grad()
             actor_loss.backward()
             torch.nn.utils.clip_grad_norm_(policy.actor.parameters(), 1.0)
             policy.actor_optimizer.step()
-            
+
+
             # Update target networks
             policy.update_target_networks()
             
