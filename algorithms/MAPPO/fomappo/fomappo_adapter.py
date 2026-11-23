@@ -144,6 +144,12 @@ class FOMAPPOAdapter:
         self.device = torch.device(device)
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.manager_action_dims = dict(kwargs.get("manager_action_dims") or {})
+        if any(
+            not isinstance(dim, (int, np.integer)) or dim <= 0 or dim > action_dim
+            for dim in self.manager_action_dims.values()
+        ):
+            raise ValueError("manager action dimensions must be positive and <= shared action_dim")
         self.num_agents = num_agents
         self.episode_length = episode_length
         self.actual_obs_dim = state_dim
@@ -367,10 +373,10 @@ class FOMAPPOAdapter:
                 obs_batch.append(np.array(current_obs))
             obs_lengths.append(len(obs_batch[-1]))
         
-        max_obs_length = max(obs_lengths)
-        
-        # update actual observation dimension record
-        if max_obs_length != self.actual_obs_dim:
+        max_obs_length = max(self.actual_obs_dim, *obs_lengths)
+
+        # Only grow the shared input width when new features appear.
+        if max_obs_length > self.actual_obs_dim:
             logger.warning(f"observation dimension changed: from {self.actual_obs_dim} to {max_obs_length}. update record and use new dimension.")
             self.actual_obs_dim = max_obs_length
             
@@ -418,8 +424,19 @@ class FOMAPPOAdapter:
             
             for i, manager_id in enumerate(manager_ids):
                 raw_action = action_np[i]
-                fo_action = self._map_action_to_fo_params(raw_action)
-                
+                target_dim = getattr(self, "manager_action_dims", {}).get(
+                    manager_id, self.action_dim
+                )
+                if not 0 < target_dim <= len(raw_action):
+                    raise ValueError(
+                        f"invalid action dimension {target_dim} for {manager_id}; "
+                        f"shared policy emitted {len(raw_action)} dimensions"
+                    )
+                # The environment receives only its own action coordinates.
+                # PPO retains the complete policy-sampled vector and its joint
+                # Gaussian log-probability for a consistent likelihood ratio.
+                fo_action = self._map_action_to_fo_params(raw_action[:target_dim])
+
                 actions[manager_id] = fo_action
                 self._last_raw_actions[manager_id] = raw_action.copy()
                 action_log_probs[manager_id] = action_log_prob_np[i]
