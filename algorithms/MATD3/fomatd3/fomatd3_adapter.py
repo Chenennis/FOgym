@@ -485,7 +485,8 @@ class FOMATD3Adapter:
             return {'status': 'warming_up', 'buffer_size': self.replay_buffer['size']}
             
         self.total_iterations += 1
-        
+        self.training_iterations = self.total_iterations
+
         # sample batch
         batch_indices = np.random.choice(self.replay_buffer['size'], self.batch_size, replace=False)
         
@@ -549,8 +550,16 @@ class FOMATD3Adapter:
         if self.total_iterations % 100 == 0:  # adjust every 100 steps
             self._update_exploration_noise()
             
-        # add training statistics
+        # Aggregate the actual per-agent losses for the pipeline's metrics.
+        critic_losses = [training_stats[f'{mid}_critic_loss'] for mid in manager_ids]
+        actor_losses = [
+            training_stats[f'{mid}_actor_loss'] for mid in manager_ids
+            if f'{mid}_actor_loss' in training_stats
+        ]
         training_stats.update({
+            'status': 'updated',
+            'policy_loss': float(np.mean(actor_losses)) if actor_losses else 0.0,
+            'value_loss': float(np.mean(critic_losses)),
             'total_iterations': self.total_iterations,
             'buffer_size': self.replay_buffer['size'],
             'current_noise_scale': self.noise_scale,
