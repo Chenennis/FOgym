@@ -294,58 +294,29 @@ class FOMAddpgAdapter:
         # maintain interface compatibility
         pass
     
-    def train_on_batch(self) -> Dict[str, Any]:
-        """
-        perform one MADDPG training update
-        
-        Returns:
-            training information dictionary
-        """
+    def train_on_batch(self) -> Optional[Dict[str, Any]]:
+        """Report only successful optimizer updates; propagate training errors."""
+        if len(self.fomaddpg.replay_buffer) < self.fomaddpg.batch_size:
+            return None
+
         try:
-            # check if there is enough experience for training
-            if len(self.fomaddpg.replay_buffer) < self.fomaddpg.batch_size:
-                logger.debug(f"experience buffer insufficient ({len(self.fomaddpg.replay_buffer)}/{self.fomaddpg.batch_size}), skip training")
-                return {
-                    'actor_loss': 0.0,
-                    'critic_loss': 0.0,
-                    'training_iterations': self.training_iterations,
-                    'buffer_size': len(self.fomaddpg.replay_buffer)
-                }
-            
-            # perform MADDPG update
             update_info = self.fomaddpg.update()
-            
-            if update_info:
-                self.training_iterations += 1
-                
-                # update Manager statistics
-                for manager_id in self.manager_stats:
-                    self.manager_stats[manager_id]['training_updates'] += 1
-                
-                return {
-                    'actor_loss': update_info.get('actor_loss', 0.0),
-                    'critic_loss': update_info.get('critic_loss', 0.0),
-                    'training_iterations': self.training_iterations,
-                    'buffer_size': len(self.fomaddpg.replay_buffer)
-                }
-            else:
-                return {
-                    'actor_loss': 0.0,
-                    'critic_loss': 0.0,
-                    'training_iterations': self.training_iterations,
-                    'buffer_size': len(self.fomaddpg.replay_buffer)
-                }
-                
-        except Exception as e:
-            logger.error(f"FOMADDPG training update failed: {e}")
-            return {
-                'actor_loss': 0.0,
-                'critic_loss': 0.0,
-                'training_iterations': self.training_iterations,
-                'buffer_size': len(self.fomaddpg.replay_buffer) if hasattr(self.fomaddpg, 'replay_buffer') else 0,
-                'error': str(e)
-            }
-    
+        except Exception:
+            logger.exception("FOMADDPG optimizer update failed")
+            raise
+        if not update_info:
+            return None
+
+        self.training_iterations += 1
+        for manager_id in self.manager_stats:
+            self.manager_stats[manager_id]['training_updates'] += 1
+        return {
+            'actor_loss': update_info['actor_loss'],
+            'critic_loss': update_info['critic_loss'],
+            'training_iterations': self.training_iterations,
+            'buffer_size': len(self.fomaddpg.replay_buffer),
+        }
+
     def get_training_stats(self) -> Dict[str, Any]:
         """get training statistics"""
         return {
