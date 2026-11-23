@@ -62,7 +62,13 @@ py -3.11 -m venv .venv
 python -m pip install --upgrade pip
 ```
 
-The code uses PyTorch, NumPy, pandas, Gymnasium and other Python packages. A number of features also use plotting, progress reporting, and experiment-related dependencies. **This branch does not yet contain a complete, verified dependency-lock or requirements file.** Install the dependencies appropriate to the environment and training path you intend to use; Python 3.11 is the version used in recent development tests. GPU use is optional.
+Install the Python dependencies listed in [requirements.txt](requirements.txt):
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+The requirements list is based on imports in the main pipeline and built-in methods and targets Python 3.11. It uses version ranges rather than pinned builds, so it is **not a fully reproducible dependency lockfile**. GPU use is optional: for NVIDIA CUDA acceleration, select a compatible PyTorch installation from the [official PyTorch instructions](https://pytorch.org/get-started/locally/) that matches your operating system, drivers, and CUDA setup.
 
 Before running an experiment, check available arguments:
 
@@ -131,6 +137,7 @@ The general process is to **implement a method, register or select it, connect i
 ```text
 FOgym/
 ├── README.md                  # Project overview and first steps
+├── requirements.txt           # Python dependencies
 ├── EXTENSION_GUIDE.md         # How to integrate new methods
 ├── SYSTEM_ARCHITECTURE.md     # Architecture and internal data flow
 ├── run_fo_pipeline.py         # Main pipeline entry point
