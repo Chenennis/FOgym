@@ -193,64 +193,53 @@ class FOSQDDPG:
     
     def compute_shapley_values(self, states: torch.Tensor, actions: torch.Tensor,
                              agent_idx: int) -> torch.Tensor:
+        """Sample permutation-based marginal contributions for one agent.
+
+        A coalition retains the original joint state and uses zero actions for
+        agents outside the coalition. For each sampled permutation, return
+        Q(S union {agent}) - Q(S), where S precedes the agent in that order.
         """
-        Compute Shapley values for marginal contribution
-        
-        Args:
-            states: Batch of states [batch_size, n_agents, state_dim]
-            actions: Batch of actions [batch_size, n_agents, action_dim]
-            agent_idx: Index of the agent to compute Shapley values for
-            
-        Returns:
-            shapley_values: Shapley values [batch_size, sample_size, 1]
-        """
+        if not 0 <= agent_idx < self.n_agents:
+            raise IndexError("agent_idx out of bounds")
         batch_size = states.size(0)
-        
-        # Sample grand coalitions
-        subcoalition_map, grand_coalitions = self.sample_grand_coalitions(batch_size)
-        
-        # Reshape grand coalitions for action gathering
-        grand_coalitions_expanded = grand_coalitions.unsqueeze(-1).expand(
-            batch_size, self.sample_size, self.n_agents, self.n_agents, self.action_dim
+
+        # Each row is a uniformly sampled permutation of agent IDs.
+        permutations = torch.rand(
+            batch_size, self.sample_size, self.n_agents,
+            device=actions.device
+        ).argsort(dim=-1)
+        positions = (permutations == agent_idx).long().argmax(dim=-1)
+        order = torch.arange(
+            self.n_agents, device=actions.device
+        ).view(1, 1, -1)
+        predecessors = order < positions.unsqueeze(-1)
+        # Convert predecessor positions back into original agent indexing.
+        before_mask = torch.zeros(
+            batch_size, self.sample_size, self.n_agents,
+            dtype=actions.dtype, device=actions.device
         )
-        
-        # Gather actions according to grand coalitions
-        actions_expanded = actions.unsqueeze(1).unsqueeze(2).expand(
-            batch_size, self.sample_size, self.n_agents, self.n_agents, self.action_dim
+        before_mask.scatter_(
+            2, permutations, predecessors.to(actions.dtype)
         )
-        actions_permuted = actions_expanded.gather(3, grand_coalitions_expanded)
-        
-        # Apply subcoalition mask
-        act_map = subcoalition_map.unsqueeze(-1).float()
-        actions_masked = actions_permuted * act_map
-        actions_flattened = actions_masked.contiguous().view(
-            batch_size, self.sample_size, self.n_agents, -1
-        )
-        
-        # Expand states
-        states_expanded = states.unsqueeze(1).unsqueeze(2).expand(
-            batch_size, self.sample_size, self.n_agents, self.n_agents, self.state_dim
-        )
-        states_flattened = states_expanded.contiguous().view(
-            batch_size, self.sample_size, self.n_agents, self.n_agents * self.state_dim
-        )
-        
-        # Concatenate states and actions for critic input
-        critic_input = torch.cat((states_flattened, actions_flattened), dim=-1)
-        
-        # Compute Q-values using the agent's critic
-        agent_critic_input = critic_input[:, :, agent_idx, :]  # [batch_size, sample_size, input_dim]
-        agent_critic_input_reshaped = agent_critic_input.view(-1, agent_critic_input.size(-1))
-        
-        q_values = self.policies[agent_idx].critic(
-            agent_critic_input_reshaped[:, :self.n_agents * self.state_dim],
-            agent_critic_input_reshaped[:, self.n_agents * self.state_dim:]
-        )
-        
-        q_values = q_values.view(batch_size, self.sample_size, 1)
-        
-        return q_values
-    
+        after_mask = before_mask.clone()
+        after_mask[..., agent_idx] = 1.0
+
+        joint_actions = actions.unsqueeze(1)
+        before_actions = (
+            joint_actions * before_mask.unsqueeze(-1)
+        ).reshape(-1, self.n_agents * self.action_dim)
+        after_actions = (
+            joint_actions * after_mask.unsqueeze(-1)
+        ).reshape(-1, self.n_agents * self.action_dim)
+        joint_states = states.reshape(batch_size, -1).unsqueeze(1).expand(
+            -1, self.sample_size, -1
+        ).reshape(-1, self.n_agents * self.state_dim)
+
+        critic = self.policies[agent_idx].critic
+        q_before = critic(joint_states, before_actions)
+        q_after = critic(joint_states, after_actions)
+        return (q_after - q_before).reshape(batch_size, self.sample_size, 1)
+
     def store_experience(self, states: np.ndarray, actions: np.ndarray, rewards: np.ndarray,
                         next_states: np.ndarray, dones: np.ndarray,
                         fo_constraints: Optional[np.ndarray] = None,
