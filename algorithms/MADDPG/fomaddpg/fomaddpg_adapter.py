@@ -210,6 +210,7 @@ class FOMAddpgAdapter:
                      rewards: Dict[str, float],
                      dones: Dict[str, bool],
                      infos: Dict[str, Any],
+                     next_obs: Dict[str, np.ndarray],
                      action_log_probs: Optional[Dict[str, np.ndarray]] = None,
                      values: Optional[Dict[str, np.ndarray]] = None):
         """
@@ -217,6 +218,7 @@ class FOMAddpgAdapter:
         
         Args:
             obs: current observation
+            next_obs: actual next observation returned by the environment
             actions: executed actions
             rewards: received rewards
             dones: whether to end
@@ -272,25 +274,20 @@ class FOMAddpgAdapter:
         agent_rewards = np.array(agent_rewards)
         agent_dones = np.array(agent_dones)
         
-        if hasattr(self, '_prev_states'):
-            # if there are previous states, store them as next_states
-            try:
-                self.fomaddpg.store_experience(
-                    states=self._prev_states,
-                    actions=self._prev_actions,
-                    rewards=self._prev_rewards,
-                    next_states=states,
-                    dones=self._prev_dones
-                )
-            except Exception as e:
-                logger.warning(f"FOMADDPG experience storage failed: {e}")
-        
-        # save current state for next storage
-        self._prev_states = states.copy()
-        self._prev_actions = agent_actions.copy()
-        self._prev_rewards = agent_rewards.copy()
-        self._prev_dones = agent_dones.copy()
-    
+        # Store the current transition immediately, including the terminal
+        # step. Delaying insertion until the next step loses episode endings
+        # and may accidentally connect the final state to a new episode.
+        next_states = np.array([
+            np.asarray(next_obs[mid]) for mid in manager_ids
+        ])
+        self.fomaddpg.store_experience(
+            states=states,
+            actions=agent_actions,
+            rewards=agent_rewards,
+            next_states=next_states,
+            dones=agent_dones,
+        )
+
     def compute_returns(self):
         """compute returns - MADDPG does not need to compute returns like PPO"""
         # MADDPG is off-policy algorithm, does not need to compute episode-level returns
