@@ -187,7 +187,7 @@ def train_fomatd3_adapter(pipeline):
                 obs=obs,
                 actions=actions,
                 rewards=rewards,
-                dones={mid: bool(dones[mid] or truncated[mid]) for mid in manager_ids},
+                dones={mid: bool(dones[mid] or truncated) for mid in manager_ids},
                 infos=infos,
                 next_obs=next_obs,
                 action_log_probs=action_log_probs,
