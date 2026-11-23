@@ -4454,59 +4454,60 @@ class FOPipeline:
                     return self._generate_basic_flexoffers_for_timestep(timestep)
     
     def _aggregate_flexoffers_for_timestep(self, fo_systems, timestep):
-        """Aggregate FlexOffer for specified time step"""
+        """Aggregate each manager's FlexOffers independently, preserving ownership."""
         logger.info(f"Aggregating FlexOffer for timestep {timestep}...")
-        
+
         if not fo_systems:
             logger.warning(f"No FlexOffer to aggregate for timestep {timestep}")
             return []
-        
-        # Collect all FlexOffer systems, convert to FlexOffer list
-        flex_offers = []
+
+        aggregated_results = []
         for manager_id, manager_systems in fo_systems.items():
+            flex_offers = []
             for device_id, fo_system in manager_systems.items():
-                # Check if system has FlexOffer
                 if hasattr(fo_system, 'current_fo') and fo_system.current_fo:
                     flex_offers.append(fo_system.current_fo)
                 elif hasattr(fo_system, 'generate_flexoffer'):
-                    # If no current_fo, try to generate FlexOffer
                     fo = fo_system.generate_flexoffer()
                     if fo:
                         flex_offers.append(fo)
                 else:
-                    # New: handle DFOSystem object, convert to FlexOffer
                     try:
                         fo = self._convert_dfo_to_flexoffer(fo_system, device_id, timestep)
                         if fo:
                             flex_offers.append(fo)
                     except Exception as e:
                         logger.warning(f"Conversion of DFO system {device_id} failed: {e}")
-                        continue
-                        
-        if not flex_offers:
-            logger.warning(f"No valid FlexOffer for timestep {timestep}")
-            return []
-        
-        # Use new aggregator to aggregate
-        try:
-            aggregated_results = self.fo_aggregator.aggregate(flex_offers)
-            logger.info(f"FlexOffer aggregation for timestep {timestep} completed, generated {len(aggregated_results)} aggregated results")
-            return aggregated_results
-        except Exception as e:
-            logger.error(f"FlexOffer aggregation failed: {e}")
-            # Create backup aggregated results
-            backup_results = []
-            for i, fo in enumerate(flex_offers):
-                backup_afo = AggregatedFlexOffer(
-                    afo_id=f"backup_afo_t{timestep}_{i}",
-                    source_fo_ids=[fo.fo_id],
-                    aggregated_fo=fo,
-                    aggregation_method="backup"
-                )
-                backup_results.append(backup_afo)
-            logger.info(f"Using backup aggregation scheme, generated {len(backup_results)} results")
-            return backup_results
-    
+
+            if not flex_offers:
+                continue
+
+            try:
+                manager_results = self.fo_aggregator.aggregate(flex_offers)
+            except Exception as e:
+                logger.error(f"Aggregation failed for {manager_id}: {e}; preserving original offers")
+                manager_results = [
+                    AggregatedFlexOffer(
+                        afo_id=f"backup_afo_{manager_id}_t{timestep}_{i}",
+                        source_fo_ids=[fo.fo_id],
+                        aggregated_fo=fo,
+                        aggregation_method="backup",
+                    )
+                    for i, fo in enumerate(flex_offers)
+                ]
+
+            for i, result in enumerate(manager_results):
+                result.manager_id = manager_id
+                # The aggregator's internal numbering restarts on each call.
+                result.afo_id = f"{manager_id}_t{timestep}_{i}_{result.afo_id}"
+            aggregated_results.extend(manager_results)
+
+        logger.info(
+            f"FlexOffer aggregation for timestep {timestep} completed, "
+            f"generated {len(aggregated_results)} manager-owned results"
+        )
+        return aggregated_results
+
     def _convert_dfo_to_flexoffer(self, dfo_system, device_id, timestep):
         """Convert DFO system to FlexOffer object"""
         try:
