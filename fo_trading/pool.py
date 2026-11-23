@@ -315,6 +315,7 @@ class ClearingResult:
     clearing_method: str = "uniform_price"  # uniform_price, pay_as_bid, lmp
     market_efficiency: float = 0.0
     total_welfare: float = 0.0
+    matched_pairs: List[Tuple[str, str, float]] = field(default_factory=list)
     
     def to_dict(self) -> Dict:
         """convert to dictionary"""
@@ -323,6 +324,7 @@ class ClearingResult:
             'clearing_price': self.clearing_price,
             'clearing_quantity': self.clearing_quantity,
             'matched_bids': self.matched_bids,
+            'matched_pairs': self.matched_pairs,
             'clearing_time': self.clearing_time,
             'clearing_method': self.clearing_method,
             'market_efficiency': self.market_efficiency,
@@ -639,7 +641,8 @@ class MarketClearingAlgorithm(TradingAlgorithm):
             return None
         
         # calculate market welfare
-        total_welfare = self._calculate_welfare(buy_bids, sell_bids, clearing_price, clearing_quantity)
+        total_welfare = sum(q * (buyer.price - seller.price)
+                            for buyer, seller, q in self._last_matched_pairs)
         
         # create clearing result
         clearing_result = ClearingResult(
@@ -647,6 +650,7 @@ class MarketClearingAlgorithm(TradingAlgorithm):
             clearing_price=clearing_price,
             clearing_quantity=clearing_quantity,
             matched_bids=matched_bids,
+            matched_pairs=[(b.bid_id, s.bid_id, q) for b, s, q in self._last_matched_pairs],
             clearing_method=self.clearing_method,
             total_welfare=total_welfare
         )
@@ -660,15 +664,20 @@ class MarketClearingAlgorithm(TradingAlgorithm):
         The returned quantities record one allocation per bid. No transaction is
         created when prices do not cross or only self-matching is possible.
         """
+        self._last_matched_pairs = []
         remaining_buy = {bid.bid_id: float(bid.quantity) for bid in buy_bids}
         remaining_sell = {bid.bid_id: float(bid.quantity) for bid in sell_bids}
         allocated = {}
         matched_pairs = []
+        highest_ask = float("-inf")
+        lowest_bid = float("inf")
         for buyer in sorted(buy_bids, key=lambda b: b.price, reverse=True):
             for seller in sorted(sell_bids, key=lambda b: b.price):
                 if buyer.price < seller.price:
                     break
                 if buyer.participant_id == seller.participant_id:
+                    continue
+                if max(highest_ask, seller.price) > min(lowest_bid, buyer.price):
                     continue
                 quantity = min(remaining_buy[buyer.bid_id],
                                remaining_sell[seller.bid_id])
@@ -679,12 +688,15 @@ class MarketClearingAlgorithm(TradingAlgorithm):
                 allocated[buyer.bid_id] = allocated.get(buyer.bid_id, 0.0) + quantity
                 allocated[seller.bid_id] = allocated.get(seller.bid_id, 0.0) + quantity
                 matched_pairs.append((buyer, seller, quantity))
+                highest_ask = max(highest_ask, seller.price)
+                lowest_bid = min(lowest_bid, buyer.price)
                 if remaining_buy[buyer.bid_id] <= 1e-12:
                     break
 
         if not matched_pairs:
             return 0.0, 0.0, []
 
+        self._last_matched_pairs = matched_pairs
         quantity = sum(q for _, _, q in matched_pairs)
         # Price is between the marginal bid and ask of the executed pairs.
         lower_price = max(seller.price for _, seller, _ in matched_pairs)
@@ -806,23 +818,49 @@ class MarketClearingAlgorithm(TradingAlgorithm):
             
             self.logger.info(f"buy matches: {len(buy_matches)}, sell matches: {len(sell_matches)}")
             
-            # Match residual buyer/seller allocations exactly once per unit.
-            # Do not create a Cartesian product of all matched bids.
+            # Use the exact buyer-seller allocations produced by clearing.
+            exact_pairs = getattr(clearing_result, "matched_pairs", None)
+            if exact_pairs:
+                for trade_id_counter, (buyer_id, seller_id, quantity) in enumerate(exact_pairs):
+                    buyer = bid_dict.get(buyer_id)
+                    seller = bid_dict.get(seller_id)
+                    if buyer is None or seller is None:
+                        raise ValueError("clearing contains unknown bid")
+                    if (buyer.side != "buy" or seller.side != "sell" or
+                            buyer.participant_id == seller.participant_id or
+                            buyer.price < clearing_result.clearing_price - 1e-10 or
+                            seller.price > clearing_result.clearing_price + 1e-10):
+                        raise ValueError("infeasible clearing pair")
+                    trades.append(Trade(
+                        trade_id=f"{clearing_result.clearing_id}_trade_{trade_id_counter}",
+                        buyer_id=buyer.participant_id,
+                        seller_id=seller.participant_id,
+                        energy_type="electricity",
+                        quantity=quantity,
+                        price=clearing_result.clearing_price,
+                        time_step=buyer.time_step,
+                        status="completed",
+                        clearing_result_id=clearing_result.clearing_id,
+                        bid_id=f"{buyer.bid_id}_{seller.bid_id}",
+                    ))
+                continue
+
+            # Legacy ClearingResult without explicit pairs.
             buy_remaining = [[bid, float(q)] for bid, q in buy_matches]
             sell_remaining = [[bid, float(q)] for bid, q in sell_matches]
             trade_id_counter = 0
             for buyer_item in buy_remaining:
                 for seller_item in sell_remaining:
-                    buyer, buy_quantity = buyer_item
-                    seller, sell_quantity = seller_item
-                    if buyer.participant_id == seller.participant_id:
-                        continue
-                    if buyer.price < seller.price:
+                    buyer = buyer_item[0]
+                    seller = seller_item[0]
+                    if (buyer.participant_id == seller.participant_id or
+                            buyer.price < clearing_result.clearing_price - 1e-10 or
+                            seller.price > clearing_result.clearing_price + 1e-10):
                         continue
                     trade_quantity = min(buyer_item[1], seller_item[1])
                     if trade_quantity <= 1e-12:
                         continue
-                    trade = Trade(
+                    trades.append(Trade(
                         trade_id=f"{clearing_result.clearing_id}_trade_{trade_id_counter}",
                         buyer_id=buyer.participant_id,
                         seller_id=seller.participant_id,
@@ -832,9 +870,8 @@ class MarketClearingAlgorithm(TradingAlgorithm):
                         time_step=buyer.time_step,
                         status="completed",
                         clearing_result_id=clearing_result.clearing_id,
-                        bid_id=f"{buyer.bid_id}_{seller.bid_id}"
-                    )
-                    trades.append(trade)
+                        bid_id=f"{buyer.bid_id}_{seller.bid_id}",
+                    ))
                     trade_id_counter += 1
                     buyer_item[1] -= trade_quantity
                     seller_item[1] -= trade_quantity
