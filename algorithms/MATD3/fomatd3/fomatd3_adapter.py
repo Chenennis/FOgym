@@ -362,46 +362,17 @@ class FOMATD3Adapter:
         }
         
     def _normalize_rewards(self, rewards: np.ndarray) -> np.ndarray:
-        """normalize rewards - scaling method, keep relative relationship"""
+        """Use a fixed positive reward scale for consistent Bellman targets.
 
-        fixed_scale_normalized = rewards / 1000.0
-        
-        # dynamic range normalization (keep relative relationship)
-        # update running max and min
-        if self.reward_normalizer['count'] == 0:
-            self.reward_normalizer['running_min'] = np.min(rewards)
-            self.reward_normalizer['running_max'] = np.max(rewards)
-        else:
-            self.reward_normalizer['running_min'] = min(
-                self.reward_normalizer['running_min'], np.min(rewards)
-            )
-            self.reward_normalizer['running_max'] = max(
-                self.reward_normalizer['running_max'], np.max(rewards)
-            )
-        
-        self.reward_normalizer['count'] += len(rewards)
-        
-        # prevent division by zero
-        reward_range = self.reward_normalizer['running_max'] - self.reward_normalizer['running_min']
-        if reward_range > self.reward_normalizer['epsilon']:
-            # normalize to [0,1] range, keep relative relationship
-            range_normalized = (rewards - self.reward_normalizer['running_min']) / reward_range
-            # further scale to appropriate range
-            range_normalized = range_normalized * 0.1  # scale to [0,0.1]
-        else:
-            # if reward change is small, use fixed scaling
-            range_normalized = fixed_scale_normalized
-        
-        # choose normalization method:
-        # if reward change range is large, use dynamic range normalization
-        # if reward change is small, use fixed scaling
-        if reward_range > 10.0:  # if reward change is larger than 10, use dynamic normalization
-            normalized_rewards = range_normalized
-        else:  # if reward change is small, use fixed scaling
-            normalized_rewards = fixed_scale_normalized
-        
-        return normalized_rewards
-    
+        A replayed transition must retain the same scaled reward regardless of
+        which other transitions were previously sampled.
+        """
+        rewards = np.asarray(rewards, dtype=np.float64)
+        if not np.isfinite(rewards).all():
+            raise ValueError("MATD3 received non-finite rewards")
+        self.reward_normalizer['count'] += rewards.size
+        return rewards / 1000.0
+
     def _update_exploration_noise(self):
         """dynamic adjust exploration noise"""
         if self.training_improvement_config['adaptive_noise']:
