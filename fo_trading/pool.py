@@ -1174,6 +1174,11 @@ class TradingPool:
         # generate trades
         trades = self.trading_algorithm.generate_trades(clearing_results, current_bids)
         
+        # Each bid belongs to one settlement round. Retire all submitted bids
+        # for this timestep, including unmatched ones, to prevent double clearing.
+        # Leave bids for other timesteps untouched.
+        self.bids = [bid for bid in self.bids if bid.time_step != time_step]
+
         # record results
         self.clearing_results.extend(clearing_results)
         self.trade_history.extend(trades)
