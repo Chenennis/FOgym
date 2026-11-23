@@ -75,7 +75,8 @@ class FOSQDDPG:
                  buffer_capacity: int = 100000,
                  batch_size: int = 64,
                  sample_size: int = 5,
-                 device: str = "cpu"):
+                 device: str = "cpu",
+                 action_dims: Optional[List[int]] = None):
         
         self.n_agents = n_agents
         self.state_dim = state_dim
@@ -86,6 +87,11 @@ class FOSQDDPG:
         self.batch_size = batch_size
         self.sample_size = sample_size  # Shapley value sampling size
         self.device = device
+        self.action_dims = list(action_dims) if action_dims is not None else [action_dim] * n_agents
+        if len(self.action_dims) != n_agents or any(
+            dim <= 0 or dim > action_dim for dim in self.action_dims
+        ):
+            raise ValueError("Invalid per-agent action dimensions")
         
         # Create policies for each agent
         self.policies = []
@@ -278,7 +284,13 @@ class FOSQDDPG:
                 # Get next actions from target actors
                 next_actions = []
                 for i in range(self.n_agents):
-                    next_action = policy.actor_target(next_states[:, i, :])
+                    next_action = self.policies[i].actor_target(next_states[:, i, :])
+                    if self.action_dims[i] < self.action_dim:
+                        next_action = torch.cat(
+                            [next_action[:, :self.action_dims[i]],
+                             torch.zeros_like(next_action[:, self.action_dims[i]:])],
+                            dim=1
+                        )
                     next_actions.append(next_action)
                 next_actions = torch.stack(next_actions, dim=1)
                 
@@ -312,6 +324,12 @@ class FOSQDDPG:
                 states[:, agent_idx, :], agent_constraints
             )
             joint_actions = actions.detach().clone()
+            if self.action_dims[agent_idx] < self.action_dim:
+                predicted_actions = torch.cat(
+                    [predicted_actions[:, :self.action_dims[agent_idx]],
+                     torch.zeros_like(predicted_actions[:, self.action_dims[agent_idx]:])],
+                    dim=1
+                )
             joint_actions[:, agent_idx, :] = predicted_actions
             actor_q = policy.critic(
                 states_flat, joint_actions.reshape(self.batch_size, -1),
