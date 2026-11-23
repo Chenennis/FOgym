@@ -169,7 +169,10 @@ class FOMaddpgPolicy:
         # initialize target network
         self.hard_update(self.actor_target, self.actor)
         self.hard_update(self.critic_target, self.critic)
-        
+        # Bootstrap targets must not sample Dropout or modify BatchNorm statistics.
+        self.actor_target.eval()
+        self.critic_target.eval()
+
         # FlexOffer specific parameters
         self.fo_constraint_weight = 0.1  # FlexOffer constraint weight
         self.coordination_weight = 0.05   # coordination weight
@@ -187,8 +190,14 @@ class FOMaddpgPolicy:
         """
         state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         
-        with torch.no_grad():
-            action = self.actor(state).cpu().numpy()[0]
+        # Evaluation is deterministic even though the actor contains Dropout.
+        was_training = self.actor.training
+        self.actor.eval()
+        try:
+            with torch.no_grad():
+                action = self.actor(state).cpu().numpy()[0]
+        finally:
+            self.actor.train(was_training)
         
         # add exploration noise
         if noise_scale > 0:
@@ -311,14 +320,20 @@ class FOMaddpgPolicy:
             return torch.tensor(0.0, device=self.device)
     
     def soft_update(self, target: nn.Module, source: nn.Module, tau: float = 0.005):
-        """soft update target network"""
-        for target_param, param in zip(target.parameters(), source.parameters()):
-            target_param.data.copy_(target_param.data * (1.0 - tau) + param.data * tau)
-    
+        """Polyak-average weights and BatchNorm buffers without tracking gradients."""
+        with torch.no_grad():
+            for target_param, param in zip(target.parameters(), source.parameters()):
+                target_param.lerp_(param, tau)
+            for target_buffer, buffer in zip(target.buffers(), source.buffers()):
+                if target_buffer.is_floating_point():
+                    target_buffer.lerp_(buffer, tau)
+                else:
+                    target_buffer.copy_(buffer)
+        target.eval()
+
     def hard_update(self, target: nn.Module, source: nn.Module):
-        """hard update target network"""
-        for target_param, param in zip(target.parameters(), source.parameters()):
-            target_param.data.copy_(param.data)
+        """Synchronize both parameters and BatchNorm buffers."""
+        target.load_state_dict(source.state_dict())
     
     def save(self, filepath: str):
         """save model"""
@@ -340,3 +355,5 @@ class FOMaddpgPolicy:
         # update target network
         self.hard_update(self.actor_target, self.actor)
         self.hard_update(self.critic_target, self.critic) 
+        self.actor_target.eval()
+        self.critic_target.eval()
