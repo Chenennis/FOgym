@@ -168,6 +168,8 @@ def train_fosqddpg_adapter(pipeline):
         fosqddpg_adapter.reset_episode()  # reset episode state
         
         episode_rewards = {manager_id: 0.0 for manager_id in manager_ids}
+        update_info = None
+        episode_update_count = 0
         
         # dynamic adjustment of noise ratio
         if episode > WARMUP_EPISODES:
@@ -209,8 +211,10 @@ def train_fosqddpg_adapter(pipeline):
             if timestep % UPDATE_FREQ == 0 and episode > WARMUP_EPISODES:
                 train_info = fosqddpg_adapter.train_on_batch()
                 if isinstance(train_info, dict):
-                    policy_loss = train_info.get('policy_loss', 0.0)
-                    value_loss = train_info.get('value_loss', 0.0)
+                    update_info = train_info
+                    episode_update_count += 1
+                    policy_loss = train_info['actor_loss']
+                    value_loss = train_info['critic_loss']
                     logger.debug(f"  ⚙️ training update: Actor Loss: {policy_loss:.5f}, Critic Loss: {value_loss:.5f}")
             
             # display time step rewards
@@ -221,19 +225,20 @@ def train_fosqddpg_adapter(pipeline):
         if episode > WARMUP_EPISODES:
             # update several times after episode
             for _ in range(5):
-                update_info = fosqddpg_adapter.train_on_batch()
+                train_info = fosqddpg_adapter.train_on_batch()
+                if isinstance(train_info, dict):
+                    update_info = train_info
+                    episode_update_count += 1
         
         # record episode rewards and statistics
         episode_total_reward = sum(episode_rewards.values())
         logger.info(f"Episode {episode} completed:")
         logger.info(f"  🎯 total reward: {episode_total_reward:.3f}")
         
-        # if there is training information
-        if 'update_info' in locals() and isinstance(update_info, dict):
-            shapley_info = update_info.get('shapley_info', {})
-            logger.info(f"  📈 training loss: Actor {update_info.get('policy_loss', 0):.4f}, "
-                       f"Critic {update_info.get('value_loss', 0):.4f}")
-            logger.info(f"  🔍 Shapley value: {shapley_info}")
+        logger.info(f"  completed optimizer updates this episode: {episode_update_count}")
+        if isinstance(update_info, dict):
+            logger.info(f"  📈 training loss: Actor {update_info['actor_loss']:.4f}, "
+                       f"Critic {update_info['critic_loss']:.4f}")
         
         # display each manager's reward and record to training history
         for manager_id, reward in episode_rewards.items():
@@ -246,14 +251,14 @@ def train_fosqddpg_adapter(pipeline):
                 'manager_id': manager_id,
                 'episode': episode,
                 'episode_reward': reward,
-                'policy_loss': float(update_info.get('policy_loss', 0.001)) if 'update_info' in locals() else 0.001,
-                'value_loss': float(update_info.get('value_loss', 0.001)) if 'update_info' in locals() else 0.001,
+                'policy_loss': float(update_info['actor_loss']) if update_info is not None else float('nan'),
+                'value_loss': float(update_info['critic_loss']) if update_info is not None else float('nan'),
                 'entropy': 0.0  # FOSQDDPG has no entropy concept
             }
             training_history.append(training_data)
             
             # record training loss
-            if hasattr(pipeline, '_record_training_loss') and 'update_info' in locals():
+            if hasattr(pipeline, '_record_training_loss') and update_info is not None:
                 pipeline._record_training_loss(
                     manager_id=manager_id,
                     episode=episode,
@@ -268,8 +273,8 @@ def train_fosqddpg_adapter(pipeline):
             'manager_id': 'total',
             'episode': episode,
             'episode_reward': episode_total_reward,
-            'policy_loss': float(update_info.get('policy_loss', 0.0)) if 'update_info' in locals() else 0.0,
-            'value_loss': float(update_info.get('value_loss', 0.0)) if 'update_info' in locals() else 0.0,
+            'policy_loss': float(update_info['actor_loss']) if update_info is not None else float('nan'),
+            'value_loss': float(update_info['critic_loss']) if update_info is not None else float('nan'),
             'entropy': 0.0
         }
         training_history.append(training_data_total)
