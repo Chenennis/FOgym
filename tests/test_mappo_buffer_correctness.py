@@ -84,3 +84,43 @@ def test_insert_pairs_raw_policy_action_with_its_log_probability():
                                params["raw_actions"]["manager_1"])
     np.testing.assert_allclose(inserted["action_log_probs"][0, 0],
                                params["action_log_probs"]["manager_1"])
+
+
+def test_heterogeneous_manager_observations_are_padded_for_shared_buffer():
+    """Collector must use the same zero-padded dimension as select_actions."""
+    buffer = _RecordingBuffer()
+    adapter = SimpleNamespace(
+        device=None, num_agents=4, action_dim=3,
+        actual_obs_dim=4, buffer=buffer, trainer=None,
+        args=SimpleNamespace(use_reward_normalization=False,
+                             recurrent_N=1, hidden_size=2, episode_length=2),
+    )
+    manager_ids = [f"manager_{i}" for i in range(1, 5)]
+    obs = {
+        mid: np.arange(dim, dtype=np.float32)
+        for mid, dim in zip(manager_ids, [2, 4, 3, 1])
+    }
+    next_obs = {
+        mid: np.arange(dim, dtype=np.float32) + 10
+        for mid, dim in zip(manager_ids, [2, 4, 3, 1])
+    }
+    _collect_step_method()(
+        adapter, obs=obs, next_obs=next_obs,
+        actions={mid: np.full(3, 0.5, dtype=np.float32) for mid in manager_ids},
+        raw_actions={mid: np.full(3, 0.2, dtype=np.float32) for mid in manager_ids},
+        rewards={mid: 1.0 for mid in manager_ids},
+        dones={mid: False for mid in manager_ids},
+        infos={mid: {} for mid in manager_ids},
+        action_log_probs={
+            mid: np.array([-0.5], dtype=np.float32) for mid in manager_ids
+        },
+        values={mid: np.array([0.1], dtype=np.float32) for mid in manager_ids},
+    )
+    assert len(buffer.recorded) == 1
+    recorded = buffer.recorded[0]
+    assert recorded["obs"].shape == (1, 4, 4)
+    assert recorded["share_obs"].shape == (1, 4, 4)
+    np.testing.assert_allclose(recorded["obs"][0, 0], [10, 11, 0, 0])
+    np.testing.assert_allclose(recorded["obs"][0, 1], [10, 11, 12, 13])
+    np.testing.assert_allclose(recorded["obs"][0, 2], [10, 11, 12, 0])
+    np.testing.assert_allclose(recorded["obs"][0, 3], [10, 0, 0, 0])
