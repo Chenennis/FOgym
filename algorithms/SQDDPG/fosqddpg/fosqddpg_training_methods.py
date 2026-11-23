@@ -184,6 +184,7 @@ def train_fosqddpg_adapter(pipeline):
                 obs=obs,
                 actions=actions,
                 rewards=rewards,
+                next_obs=next_obs,
                 dones=dones,
                 infos=infos,
                 timestep=timestep
