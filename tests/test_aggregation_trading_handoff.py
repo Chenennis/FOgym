@@ -70,6 +70,5 @@ def test_trading_handoff_uses_all_manager_owned_offers_without_mock_trades():
     assert {(m, a) for m, a, _ in pipeline.trading_pool.created} == {
         ("manager_1", "afo_a"), ("manager_1", "afo_b"), ("manager_2", "afo_c")
     }
-    assert set(pipeline.trading_pool.offers) == {
-        ("manager_1", "afo_a"), ("manager_1", "afo_b"), ("manager_2", "afo_c")
-    }
+    # Legacy add_offer() must not re-submit bids after market clearing.
+    assert pipeline.trading_pool.offers == []
