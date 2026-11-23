@@ -595,26 +595,55 @@ class FOMATD3Adapter:
         return summary
 
     def save_models(self, save_path: str):
-        """save models"""
+        """Save online and target networks, optimizer states, and TD3 counters."""
         os.makedirs(save_path, exist_ok=True)
-        for manager_id, agent in self.agents.items():
-            torch.save(agent.actor.state_dict(), f"{save_path}/{manager_id}_actor.pt")
-            torch.save(agent.critic.state_dict(), f"{save_path}/{manager_id}_critic.pt")
-            
+        checkpoint = {
+            'version': 2,
+            'manager_ids': list(self.agent_ids),
+            'observation_dims': dict(self.observation_dims),
+            'action_dims': dict(self.action_dims),
+            'total_iterations': self.total_iterations,
+            'training_iterations': self.training_iterations,
+            'noise_scale': self.noise_scale,
+            'reward_normalizer': dict(self.reward_normalizer),
+            'agents': {
+                mid: {
+                    'actor': agent.actor.state_dict(),
+                    'critic': agent.critic.state_dict(),
+                    'actor_target': agent.actor_target.state_dict(),
+                    'critic_target': agent.critic_target.state_dict(),
+                    'actor_optimizer': agent.actor_optimizer.state_dict(),
+                    'critic_optimizer': agent.critic_optimizer.state_dict(),
+                }
+                for mid, agent in self.agents.items()
+            },
+        }
+        torch.save(checkpoint, os.path.join(save_path, 'matd3_checkpoint.pt'))
+
     def load_models(self, load_path: str):
-        """load models"""
-        for manager_id, agent in self.agents.items():
-            actor_path = f"{load_path}/{manager_id}_actor.pt"
-            critic_path = f"{load_path}/{manager_id}_critic.pt"
-            if os.path.exists(actor_path) and os.path.exists(critic_path):
-                agent.actor.load_state_dict(torch.load(actor_path, map_location=self.device))
-                agent.critic.load_state_dict(torch.load(critic_path, map_location=self.device))
-                agent._hard_update(agent.actor_target, agent.actor)
-                agent._hard_update(agent.critic_target, agent.critic)
-                logger.info(f"model of {manager_id} loaded")
-            else:
-                logger.warning(f"model file of {manager_id} not found")
-    
+        """Load a complete MATD3 model checkpoint; fail visibly if incompatible."""
+        path = os.path.join(load_path, 'matd3_checkpoint.pt')
+        checkpoint = torch.load(path, map_location=self.device, weights_only=True)
+        if checkpoint.get('version') != 2:
+            raise ValueError('Unsupported MATD3 checkpoint version')
+        if (checkpoint['manager_ids'] != self.agent_ids
+                or checkpoint['observation_dims'] != self.observation_dims
+                or checkpoint['action_dims'] != self.action_dims):
+            raise ValueError('MATD3 checkpoint manager dimensions do not match')
+        for mid, agent in self.agents.items():
+            saved = checkpoint['agents'][mid]
+            agent.actor.load_state_dict(saved['actor'])
+            agent.critic.load_state_dict(saved['critic'])
+            agent.actor_target.load_state_dict(saved['actor_target'])
+            agent.critic_target.load_state_dict(saved['critic_target'])
+            agent.actor_optimizer.load_state_dict(saved['actor_optimizer'])
+            agent.critic_optimizer.load_state_dict(saved['critic_optimizer'])
+        self.total_iterations = checkpoint['total_iterations']
+        self.training_iterations = checkpoint['training_iterations']
+        self.noise_scale = checkpoint['noise_scale']
+        self.reward_normalizer = checkpoint['reward_normalizer']
+        logger.info('MATD3 model checkpoint loaded from %s', path)
+
     def _map_action_to_fo_params(self, raw_action: np.ndarray) -> np.ndarray:
         raw_tensor = torch.as_tensor(raw_action, dtype=torch.float32)
         return map_normalized_fo_actions(raw_tensor).cpu().numpy()
