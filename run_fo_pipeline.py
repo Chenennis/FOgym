@@ -4650,16 +4650,58 @@ class FOPipeline:
         all_original_data = []
         for manager_id, device_systems in original_fo_systems.items():
             for device_id, dfo_system in device_systems.items():
-                total_energy = getattr(dfo_system, 'total_energy', 50.0)
+                # Device capacity must be traceable to a real FO/DFO bound.
+                # Never substitute an arbitrary 50-kWh default.
+                try:
+                    if isinstance(dfo_system, dict):
+                        capacity = float(dfo_system['energy_max'])
+                    elif hasattr(dfo_system, 'get_total_energy'):
+                        capacity = float(dfo_system.get_total_energy()[1])
+                    elif getattr(dfo_system, 'current_fo', None) is not None:
+                        capacity = float(dfo_system.current_fo.total_energy_max)
+                    elif hasattr(dfo_system, 'total_energy_max'):
+                        capacity = float(dfo_system.total_energy_max)
+                    else:
+                        logger.warning(f"No energy upper bound for device {manager_id}/{device_id}")
+                        continue
+                    if not np.isfinite(capacity) or capacity < 0:
+                        logger.warning(f"Invalid energy upper bound for device {manager_id}/{device_id}")
+                        continue
+                except (TypeError, ValueError, KeyError, IndexError) as exc:
+                    logger.warning(f"Cannot read energy capacity of {manager_id}/{device_id}: {exc}")
+                    continue
                 all_original_data.append({
                     'manager_id': manager_id,
                     'device_id': device_id,
                     'system': dfo_system,
-                    'energy': total_energy,
+                    'energy': capacity,
+                    'capacity': capacity,
                     'priority': 3,
                     'timestep': timestep
                 })
         
+        # Reject infeasible trade portfolios before allocating anything. This
+        # guards the manager-wide budget across multiple trades at one timestep.
+        capacities = {(item['manager_id'], item['device_id']): item['capacity']
+                      for item in all_original_data}
+        demand_by_manager = {}
+        for trade in trade_results:
+            if (not np.isfinite(trade.quantity) or trade.quantity < 0 or
+                    trade.time_step != timestep):
+                logger.error(f"Invalid trade quantity/timestep: {trade.trade_id}")
+                return []
+            demand_by_manager[trade.buyer_id] = (
+                demand_by_manager.get(trade.buyer_id, 0.0) + trade.quantity
+            )
+        for manager_id, demand in demand_by_manager.items():
+            available = sum(v for (owner, _), v in capacities.items() if owner == manager_id)
+            if demand > available + 1e-9:
+                logger.error(
+                    f"Disaggregation infeasible for {manager_id}: "
+                    f"trades {demand:.6f} kWh exceed device capacity {available:.6f} kWh"
+                )
+                return []
+
         for trade in trade_results:
             buyer_id = trade.buyer_id
             seller_id = trade.seller_id
@@ -4732,20 +4774,33 @@ class FOPipeline:
                     
                     logger.info(f"Fallback processing: disaggregated trade {trade.trade_id} for {buyer_id}: {trade_quantity:.2f} kWh average distributed to {len(buyer_data)} devices")
             else:
-                # If no original data found for buyer, create a default disaggregation result
-                default_result = {
-                    'manager_id': buyer_id,
-                    'device_id': f"default_device_{buyer_id}",
-                    'allocated_energy': trade_quantity,
-                    'timestep': timestep,
-                    'trade_id': trade.trade_id,
-                    'buyer_id': buyer_id,
-                    'seller_id': seller_id,
-                    'allocation_method': 'default_allocation'
-                }
-                disaggregated_results.append(default_result)
-                logger.info(f"Created default disaggregation result for {buyer_id}: {trade_quantity:.2f} kWh")
+                logger.error(f"No real device capacity for buyer {buyer_id}; reject disaggregation")
+                return []
         
+        # Verify the actual algorithm output, including its fallback path, at
+        # device granularity and across all trades. Do not return partial or
+        # fabricated allocations on failure.
+        allocated_by_device = {}
+        allocated_by_trade = {}
+        for result in disaggregated_results:
+            key = (result['manager_id'], result['device_id'])
+            amount = float(result['allocated_energy'])
+            if key not in capacities or not np.isfinite(amount) or amount < -1e-9:
+                logger.error(f"Disaggregation produced invalid device allocation: {key}")
+                return []
+            allocated_by_device[key] = allocated_by_device.get(key, 0.0) + amount
+            allocated_by_trade[result['trade_id']] = (
+                allocated_by_trade.get(result['trade_id'], 0.0) + amount
+            )
+        for key, allocated in allocated_by_device.items():
+            if allocated > capacities[key] + 1e-9:
+                logger.error(f"Device {key} over-allocated: {allocated} > {capacities[key]}")
+                return []
+        for trade in trade_results:
+            if abs(allocated_by_trade.get(trade.trade_id, 0.0) - trade.quantity) > 1e-8:
+                logger.error(f"Trade {trade.trade_id} disaggregation does not conserve energy")
+                return []
+
         logger.info(f"Disaggregation for timestep {timestep} completed, generated {len(disaggregated_results)} disaggregation results")
         
         # Group results by Manager
