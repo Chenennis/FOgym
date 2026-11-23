@@ -436,10 +436,7 @@ class FOMADDPG:
         """load all agent models"""
         for i, agent in enumerate(self.agents):
             filepath = f"{filepath_prefix}_agent_{i}.pt"
-            try:
-                agent.load(filepath)
-            except FileNotFoundError:
-                print(f"warning: model file {filepath} not found")
+            agent.load(filepath)
     
     def get_training_stats(self) -> Dict[str, Any]:
         """get training statistics"""
