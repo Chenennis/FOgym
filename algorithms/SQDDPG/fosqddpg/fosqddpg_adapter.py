@@ -259,9 +259,9 @@ class FOSQDDPGAdapter:
                 
                 return training_stats
             
-        except Exception as e:
-            logger.error(f"FOSQDDPG training error: {e}")
-            return None
+        except Exception:
+            logger.exception("FOSQDDPG optimizer update failed")
+            raise
         
         return None
     
