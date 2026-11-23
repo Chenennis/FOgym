@@ -15,7 +15,8 @@ This guide describes the extension points in the current `fix/environment-valida
 5. [FO disaggregation: new allocation methods](#5-fo-disaggregation-new-allocation-methods)
 6. [Running controlled experiments](#6-running-controlled-experiments)
 7. [Testing and validation](#7-testing-and-validation)
-8. [Integration caveats](#8-integration-caveats)
+8. [Adding device models](#8-adding-device-models)
+9. [Integration caveats](#9-integration-caveats)
 
 ## 1. Extension workflow
 
@@ -255,7 +256,19 @@ python -m pytest tests/ -q
 
 For aggregation changes in particular, refer to `tests/test_aggregation_correctness.py` and add analogous tests for your implementation. Passing the repository's existing tests does **not** prove a new method is correct; those tests may not exercise your added code.
 
-## 8. Integration caveats
+## 8. Adding device models
+
+Device models are an additional extension area beyond the four algorithmic pipeline modules. A new device type requires more than implementing a `step()` function: its creation, observations and actions, constraints, FO generation, and downstream compatibility must all be connected.
+
+1. Examine the existing implementations in `fo_generate/` (battery, heat pump, EV, PV and dishwasher) and the device creation/configuration code used in `run_fo_pipeline.py`.
+2. Implement the new device dynamics and its operating limits using the same environment-facing conventions as the relevant existing device types.
+3. Update the device type mapping and creation/configuration paths so that the new type is instantiated with valid parameters and included in the correct user/manager inventory.
+4. Specify how the device's feasible energy and time flexibility are represented as a `FlexOffer` and how actions map to its physical control quantities.
+5. Check observation/action shapes, energy units, scheduling feasibility, and source-device provenance. Add targeted tests and an end-to-end pipeline case.
+
+The legacy developer guide contains schematic examples involving `DeviceMDPInterface`, `DeviceType`, and `device_factory`; those examples are **not** asserted to be drop-in implementations for the current fix branch. Use the actual model constructors and integration code in the branch you develop against.
+
+## 9. Integration caveats
 
 - **RL:** Built-in manager-level MARL and dynamically loaded custom agents have different training interfaces and execution paths.
 - **Aggregation:** The factory and pipeline initialization both need to recognize new method names; otherwise the pipeline may select DP.
