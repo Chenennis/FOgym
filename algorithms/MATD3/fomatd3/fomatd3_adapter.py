@@ -11,12 +11,32 @@ from collections import deque
 logger = logging.getLogger(__name__)
 
 
+def map_normalized_fo_actions(raw_actions: torch.Tensor) -> torch.Tensor:
+    """Map normalized Actor actions into FO environment units, preserving gradients."""
+    width = raw_actions.shape[-1]
+    count = width // 5
+    if count == 0:
+        return torch.zeros_like(raw_actions)
+    blocks = raw_actions[..., :count * 5].reshape(*raw_actions.shape[:-1], count, 5)
+    mapped = torch.stack((
+        blocks[..., 0].clamp(-1., 1.),
+        blocks[..., 1].clamp(-1., 1.),
+        0.1 + 0.45 * (blocks[..., 2].clamp(-1., 1.) + 1.),
+        1.0 + 0.5 * (blocks[..., 3].clamp(-1., 1.) + 1.),
+        0.1 + 0.95 * (blocks[..., 4].clamp(-1., 1.) + 1.),
+    ), dim=-1).reshape(*raw_actions.shape[:-1], count * 5)
+    if count * 5 < width:
+        mapped = torch.cat((mapped, torch.zeros_like(raw_actions[..., count * 5:])), dim=-1)
+    return mapped
+
+
 class FOTd3Agent:
     
     def __init__(self, agent_id: str, obs_dim: int, action_dim: int, global_state_dim: int,
                  lr_actor: float = 1e-4, lr_critic: float = 1e-3, hidden_dim: int = 256,
                  max_action: float = 1.0, gamma: float = 0.99, tau: float = 0.005,
-                 device: str = "cpu"):
+                 device: str = "cpu", valid_action_dim: Optional[int] = None):
+        self.valid_action_dim = action_dim if valid_action_dim is None else valid_action_dim
         self.agent_id = agent_id
         self.obs_dim = obs_dim
         self.action_dim = action_dim
@@ -137,9 +157,13 @@ class FOTd3Agent:
             noise = torch.randn_like(next_own_action) * target_noise
             noise = torch.clamp(noise, -noise_clip, noise_clip)
             next_action_noisy = torch.clamp(next_own_action + noise, -self.max_action, self.max_action)
+            physical_next_action = torch.zeros_like(next_action_noisy)
+            physical_next_action[:, :self.valid_action_dim] = map_normalized_fo_actions(
+                next_action_noisy[:, :self.valid_action_dim]
+            )
             
             # target Q value calculation (global state + own action)
-            next_state_action = torch.cat([next_global_state, next_action_noisy], dim=1)
+            next_state_action = torch.cat([next_global_state, physical_next_action], dim=1)
             target_q1, target_q2 = self.critic_target(next_state_action)
             target_q = torch.min(target_q1, target_q2)
             target_q = reward + (1 - done) * self.gamma * target_q
@@ -164,7 +188,11 @@ class FOTd3Agent:
     def update_actor(self, global_state: torch.Tensor, own_obs: torch.Tensor) -> float:
         """update Actor network"""
         # calculate actor loss
-        action = self.actor(own_obs)
+        raw_action = self.actor(own_obs)
+        action = torch.zeros_like(raw_action)
+        action[:, :self.valid_action_dim] = map_normalized_fo_actions(
+            raw_action[:, :self.valid_action_dim]
+        )
         state_action = torch.cat([global_state, action], dim=1)
         actor_loss = -self.critic.Q1(state_action).mean()
         
@@ -214,11 +242,24 @@ class FOMATD3Adapter:
                  target_noise: float = 0.2,
                  policy_delay: int = 2,
                  device: str = "cpu",
+                 observation_dims: Optional[Dict[str, int]] = None,
+                 action_dims: Optional[Dict[str, int]] = None,
                  **kwargs):
         
         self.state_dim = state_dim  # dimension of single agent's observation
         self.action_dim = action_dim
         self.num_agents = num_agents
+        self.agent_ids = [f"manager_{i+1}" for i in range(num_agents)]
+        self.observation_dims = {
+            mid: (observation_dims or {}).get(mid, state_dim) for mid in self.agent_ids
+        }
+        self.action_dims = {
+            mid: (action_dims or {}).get(mid, action_dim) for mid in self.agent_ids
+        }
+        if any(not (0 < dim <= state_dim) for dim in self.observation_dims.values()) or any(
+            not (0 < dim <= action_dim) for dim in self.action_dims.values()
+        ):
+            raise ValueError("Invalid manager observation/action dimension")
         self.episode_length = episode_length
         self.batch_size = batch_size
         self.policy_delay = policy_delay
@@ -232,7 +273,7 @@ class FOMATD3Adapter:
         
         # create agents
         self.agents = {}
-        manager_ids = [f"manager_{i+1}" for i in range(num_agents)]
+        manager_ids = self.agent_ids
         
         for manager_id in manager_ids:
             self.agents[manager_id] = FOTd3Agent(
@@ -245,7 +286,8 @@ class FOMATD3Adapter:
                 hidden_dim=hidden_dim,
                 gamma=gamma,
                 tau=tau,
-                device=device
+                device=device,
+                valid_action_dim=self.action_dims[manager_id]
             )
         
         # experience replay buffer
@@ -384,13 +426,33 @@ class FOMATD3Adapter:
         self._prev_rewards = None
         self._prev_dones = None
         
+    def _stack_observations(self, obs: Dict[str, np.ndarray]) -> np.ndarray:
+        padded = np.zeros((self.num_agents, self.state_dim), dtype=np.float32)
+        for i, mid in enumerate(self.agent_ids):
+            value = np.asarray(obs[mid], dtype=np.float32).reshape(-1)
+            if value.size != self.observation_dims[mid]:
+                raise ValueError(f"{mid} observation has {value.size} entries; expected {self.observation_dims[mid]}")
+            padded[i, :value.size] = value
+        return padded
+
+    def _stack_actions(self, actions: Dict[str, np.ndarray]) -> np.ndarray:
+        padded = np.zeros((self.num_agents, self.action_dim), dtype=np.float32)
+        for i, mid in enumerate(self.agent_ids):
+            value = np.asarray(actions[mid], dtype=np.float32).reshape(-1)
+            if value.size != self.action_dims[mid]:
+                raise ValueError(f"{mid} action has {value.size} entries; expected {self.action_dims[mid]}")
+            padded[i, :value.size] = value
+        return padded
+
     def select_actions(self, obs: Dict[str, np.ndarray], deterministic: bool = False) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray]]:
 
         actions = {}
         action_log_probs = {}  # TD3 not used, keep compatibility
         values = {}           # TD3 not used, keep compatibility
         
-        for manager_id, observation in obs.items():
+        states = self._stack_observations(obs)
+        for i, manager_id in enumerate(self.agent_ids):
+            observation = states[i]
             if manager_id in self.agents:
                 raw_action = self.agents[manager_id].select_action(
                     observation, 
@@ -398,10 +460,12 @@ class FOMATD3Adapter:
                     noise_scale=self.noise_scale
                 )
                 
-                fo_action = self._map_action_to_fo_params(raw_action)
+                fo_action = self._map_action_to_fo_params(
+                    raw_action[:self.action_dims[manager_id]]
+                )
                 
                 actions[manager_id] = fo_action
-                action_log_probs[manager_id] = np.zeros(self.action_dim) 
+                action_log_probs[manager_id] = np.zeros(self.action_dims[manager_id]) 
                 values[manager_id] = np.zeros(1)  
                 
                 logger.debug(f"Manager {manager_id} TD3 FlexOffer action: {fo_action.shape} dim, "
@@ -425,9 +489,9 @@ class FOMATD3Adapter:
                      values: Optional[Dict[str, np.ndarray]] = None):
         """Store the executed (state, action, reward, next_state, done) transition."""
         manager_ids = list(self.agents.keys())
-        states = np.asarray([obs[mid] for mid in manager_ids], dtype=np.float32)
-        next_states = np.asarray([next_obs[mid] for mid in manager_ids], dtype=np.float32)
-        actions_array = np.asarray([actions[mid] for mid in manager_ids], dtype=np.float32)
+        states = self._stack_observations(obs)
+        next_states = self._stack_observations(next_obs)
+        actions_array = self._stack_actions(actions)
         rewards_array = np.asarray([rewards[mid] for mid in manager_ids], dtype=np.float32)
         dones_array = np.asarray([dones[mid] for mid in manager_ids], dtype=bool)
 
@@ -581,31 +645,9 @@ class FOMATD3Adapter:
                 logger.warning(f"model file of {manager_id} not found")
     
     def _map_action_to_fo_params(self, raw_action: np.ndarray) -> np.ndarray:
+        raw_tensor = torch.as_tensor(raw_action, dtype=torch.float32)
+        return map_normalized_fo_actions(raw_tensor).cpu().numpy()
 
-        fo_action = np.zeros_like(raw_action)
-        
-        num_devices = len(raw_action) // 5 if len(raw_action) >= 5 else 1
-        
-        for i in range(num_devices):
-            base_idx = i * 5
-            if base_idx + 4 < len(raw_action):
-                # start_flex: [-1, 1] → [-1, 1] (keep unchanged)
-                fo_action[base_idx] = np.clip(raw_action[base_idx], -1.0, 1.0)
-                
-                # end_flex: [-1, 1] → [-1, 1] (keep unchanged)
-                fo_action[base_idx + 1] = np.clip(raw_action[base_idx + 1], -1.0, 1.0)
-                
-                # energy_min_factor: [-1, 1] → [0.1, 1.0]
-                fo_action[base_idx + 2] = 0.1 + 0.45 * (raw_action[base_idx + 2] + 1.0)
-                
-                # energy_max_factor: [-1, 1] → [1.0, 2.0]  
-                fo_action[base_idx + 3] = 1.0 + 0.5 * (raw_action[base_idx + 3] + 1.0)
-                
-                # priority_weight: [-1, 1] → [0.1, 2.0]
-                fo_action[base_idx + 4] = 0.1 + 0.95 * (raw_action[base_idx + 4] + 1.0)
-        
-        return fo_action
-    
     def _generate_default_fo_action(self) -> np.ndarray:
         default_action = np.zeros(self.action_dim)
         num_devices = self.action_dim // 5 if self.action_dim >= 5 else 1
