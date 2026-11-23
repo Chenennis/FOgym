@@ -976,6 +976,7 @@ class TradingPool:
         self.bids: List[Bid] = []
         self.clearing_results: List[ClearingResult] = []
         self.trade_history: List[Trade] = []
+        self.closed_timesteps: set = set()
         
         # keep original compatibility
         self.available_offers: Dict[str, Dict] = {}
@@ -1137,6 +1138,10 @@ class TradingPool:
         Returns:
             bool: whether bid is successfully submitted
         """
+        if bid.time_step in getattr(self, "closed_timesteps", set()):
+            logger.warning(f"Rejecting bid {bid.bid_id}: timestep {bid.time_step} is closed")
+            return False
+
         # safe call bidding algorithm method
         bidding_algo = self.algorithms.get("bidding")
         if bidding_algo and hasattr(bidding_algo, 'submit_bid'):
@@ -1161,11 +1166,17 @@ class TradingPool:
         Returns:
             Dict: trading result
         """
+        if time_step in getattr(self, "closed_timesteps", set()):
+            logger.info(f"Timestep {time_step} already settled")
+            return {'trades': [], 'clearing_results': []}
+
         # get current time step bids
         current_bids = [bid for bid in self.bids if bid.time_step == time_step]
         
         if not current_bids:
-            logger.warning(f"time step {time_step}: no bids")
+            self.closed_timesteps = getattr(self, "closed_timesteps", set())
+            self.closed_timesteps.add(time_step)
+            logger.warning(f"time step {time_step}: no bids; round closed")
             return {'trades': [], 'clearing_results': []}
         
         # execute market clearing
@@ -1178,6 +1189,8 @@ class TradingPool:
         # for this timestep, including unmatched ones, to prevent double clearing.
         # Leave bids for other timesteps untouched.
         self.bids = [bid for bid in self.bids if bid.time_step != time_step]
+        self.closed_timesteps = getattr(self, "closed_timesteps", set())
+        self.closed_timesteps.add(time_step)
 
         # record results
         self.clearing_results.extend(clearing_results)
