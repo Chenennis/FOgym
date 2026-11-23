@@ -10,7 +10,7 @@ import os
 from collections import defaultdict
 
 # FO Framework imports
-from .fosqddpg import FOSQDDPG
+from .fosqddpg import FOSQDDPG, map_normalized_fo_actions
 
 logger = logging.getLogger(__name__)
 
@@ -347,31 +347,11 @@ class FOSQDDPGAdapter:
                 logger.warning(f"model file not found for {agent_id}")
     
     def _map_action_to_fo_params(self, raw_action: np.ndarray) -> np.ndarray:
+        """Use the same physical FO action mapping as actor/target training."""
+        with torch.no_grad():
+            raw_tensor = torch.as_tensor(raw_action, dtype=torch.float32)
+            return map_normalized_fo_actions(raw_tensor).cpu().numpy()
 
-        fo_action = np.zeros_like(raw_action)
-
-        num_devices = len(raw_action) // 5 if len(raw_action) >= 5 else 1
-        
-        for i in range(num_devices):
-            base_idx = i * 5
-            if base_idx + 4 < len(raw_action):
-                # start_flex: [-1, 1] → [-1, 1] (keep unchanged)
-                fo_action[base_idx] = np.clip(raw_action[base_idx], -1.0, 1.0)
-                
-                # end_flex: [-1, 1] → [-1, 1] (keep unchanged)
-                fo_action[base_idx + 1] = np.clip(raw_action[base_idx + 1], -1.0, 1.0)
-                
-                # energy_min_factor: [-1, 1] → [0.1, 1.0]
-                fo_action[base_idx + 2] = 0.1 + 0.45 * (raw_action[base_idx + 2] + 1.0)
-                
-                # energy_max_factor: [-1, 1] → [1.0, 2.0]  
-                fo_action[base_idx + 3] = 1.0 + 0.5 * (raw_action[base_idx + 3] + 1.0)
-                
-                # priority_weight: [-1, 1] → [0.1, 2.0]
-                fo_action[base_idx + 4] = 0.1 + 0.95 * (raw_action[base_idx + 4] + 1.0)
-        
-        return fo_action
-    
     def _generate_default_fo_action(self) -> np.ndarray:
         default_action = np.zeros(self.action_dim)
         num_devices = self.action_dim // 5 if self.action_dim >= 5 else 1
