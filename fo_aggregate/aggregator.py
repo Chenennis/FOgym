@@ -27,6 +27,7 @@ class AggregatedFlexOffer:
     power_profile_rmse: float = 0.0       # power profile RMSE
     power_profile_cv: float = 0.0         # power profile coefficient of variation
     slice_count: int = 0                  # slice count
+    manager_id: Optional[str] = None       # owning manager for pipeline provenance
     
     def __post_init__(self):
         """calculate properties after initialization"""
