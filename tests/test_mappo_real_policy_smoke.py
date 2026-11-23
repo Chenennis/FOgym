@@ -87,7 +87,8 @@ def test_real_fo_policy_samples_and_re_evaluates_joint_gaussian_actions(monkeypa
                zip(critic_before, policy.critic.parameters()))
 
 
-def test_real_policy_and_real_buffer_complete_ppo_training_update(monkeypatch):
+@pytest.mark.parametrize("use_valuenorm", [False, True])
+def test_real_policy_and_real_buffer_complete_ppo_training_update(monkeypatch, use_valuenorm):
     """One full PPO update using real sampled actions, Gaussian log-probs and GAE."""
     torch.manual_seed(11)
     policy_type = _load_real_policy(monkeypatch)
@@ -99,7 +100,7 @@ def test_real_policy_and_real_buffer_complete_ppo_training_update(monkeypatch):
         use_popart=False, use_feature_normalization=False, stacked_frames=1,
         layer_N=1, use_ReLU=True, use_device_attention=False,
         use_manager_coordination=False, episode_length=2, n_rollout_threads=1,
-        gamma=0.9, gae_lambda=0.95, use_gae=True, use_valuenorm=False,
+        gamma=0.9, gae_lambda=0.95, use_gae=True, use_valuenorm=use_valuenorm,
         use_proper_time_limits=False, use_reward_normalization=False,
         use_advantage_normalization=False, ppo_epoch=1, num_mini_batch=1,
         clip_param=0.2, use_clipped_value_loss=False,
@@ -140,10 +141,16 @@ def test_real_policy_and_real_buffer_complete_ppo_training_update(monkeypatch):
             infos={"manager_1": {}},
         )
     assert buffer.collected_steps == 2
-    buffer.compute_returns(np.zeros((1, 1, 1), dtype=np.float32))
+    if use_valuenorm:
+        from onpolicy.utils.valuenorm import ValueNorm
+        value_normalizer = ValueNorm(1, device=torch.device("cpu"))
+    else:
+        value_normalizer = None
+    buffer.compute_returns(np.zeros((1, 1, 1), dtype=np.float32), value_normalizer)
     trainer = SimpleNamespace(
         buffer=buffer, policy=policy, args=args, device=torch.device("cpu"),
-        _use_popart=False, _use_valuenorm=False, value_normalizer=None,
+        _use_popart=False, _use_valuenorm=use_valuenorm,
+        value_normalizer=value_normalizer,
     )
     actor_before = [p.detach().clone() for p in policy.actor.parameters()]
     critic_before = [p.detach().clone() for p in policy.critic.parameters()]
