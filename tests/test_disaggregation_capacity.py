@@ -59,3 +59,20 @@ def test_feasible_trade_is_conserved_and_bounded_per_device():
     by_device = {row["device_id"]: row["allocated_energy"] for row in result}
     assert by_device["a"] <= 1.0 + 1e-9
     assert by_device["b"] <= 2.0 + 1e-9
+
+
+def test_average_allocation_cannot_ignore_unequal_device_caps():
+    pipeline = _pipeline()
+    pipeline.disaggregation_method = "average"
+    devices = {
+        "manager_1": {
+            "tiny": {"energy_min": 0.0, "energy_max": 0.1},
+            "large": {"energy_min": 0.0, "energy_max": 2.9},
+        },
+        "manager_2": {},
+    }
+    # Total 2 kWh is feasible in principle, but averaging 1 kWh to
+    # the 0.1-kWh device is not physically feasible.
+    assert pipeline._disaggregate_flexoffers_for_timestep(
+        [_trade(1, 2.0)], devices, 8
+    ) == []
