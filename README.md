@@ -1,214 +1,165 @@
-# FOgym: FlexOffer Multi-Agent Reinforcement Learning Trading Platform
+# FOgym: A FlexOffer-Based Multi-Agent Reinforcement Learning Benchmark
+
+FOgym is an open-source research environment for developing and evaluating multi-agent reinforcement learning (MARL) methods in cyber-physical energy systems. It models a **bottom-up FlexOffer (FO) workflow**, from device flexibility generation through aggregation and trading to device-level scheduling and disaggregation.
+
+FOgym is designed to help researchers **run existing methods, compare alternatives under common configurations, and integrate new methods into individual pipeline components**. Its purpose is to provide a reusable testing environment, rather than a single fixed energy-management algorithm.
+
+## Key Features
+
+- **End-to-end FlexOffer workflow:** Generation, aggregation, trading, and scheduling/disaggregation in one environment.
+- **Multi-agent learning:** Manager-level interaction with decentralized observations and coordinated energy management.
+- **Built-in RL baselines:** FOMAPPO, FOMAIPPO, FOMADDPG, FOMATD3, and FOSQDDPG.
+- **Modular methods:** Select built-in aggregation, trading, and disaggregation strategies or integrate your own implementations.
+- **Benchmark configurations:** A 4-manager / 36-user / 118-device setting and a 10-manager / 90-user / 328-device setting.
+- **Research-oriented evaluation:** Reuse common environment settings and evaluation logic when comparing methods.
 
 ## System Overview
 
-FOgym is a complete platform for FlexOffer (flexibility offer) generation, aggregation, trading, and scheduling based on multi-agent deep reinforcement learning. The system integrates **five MARL algorithms** and **one model-based baseline**, adopting a Manager-level collaborative architecture to implement an end-to-end energy management solution from device control to market trading.
+FOgym represents a bottom-up energy management system with managers, users, and flexible devices. Each stage exchanges structured FlexOffer-related information with the next stage.
 
-## Core Features
-
-### Five MARL Algorithms
-- **FOMAPPO**: Multi-agent proximal policy optimization (shared policy)
-- **FOMAIPPO**: Multi-agent independent PPO (separate policy)
-- **FOMADDPG**: Multi-agent deep deterministic policy gradient
-- **FOMATD3**: Multi-agent twin delayed DDPG
-- **FOSQDDPG**: Shapley value-based fair credit assignment
-
-### Dec-POMDP Architecture
-- **Decentralized Partially Observable Markov Decision Process**: Real multi-agent environment modeling
-- **3-Layer Observation Architecture**: Private information (40-dim) + Public information (18-dim) + Others' information (15-dim)
-- **Dynamic Observation Quality**: 5-level network quality dynamic adjustment, noise level 5-20%
-- **Information Asymmetry Handling**: Information sharing restrictions between agents, simulating real distributed systems
-
-### Device Ecosystem
-- **5 Device Types**: Battery storage, heat pumps, electric vehicles, photovoltaics, dishwashers
-- **Scalable Deployment**: Default 4-Manager (36 users, 118 devices) or 10-Manager configuration
-- **Device Deployment Rate**: Dishwashers (100%), Heat pumps (100%), Batteries (67%), EVs (39%), PV (22%)
-- **Intelligent Control**: Each device type has specialized MDP implementation and reward design
-
-## System Architecture
-
-```
-FOgym Four-Layer Architecture
-+------------------------------------------------------------------------------------+
-|                    Multi-Algorithm Support Layer (5 MARL algorithms)                 |
-+------------------------------------------------------------------------------------+
-| FOMAPPO        | FOMAIPPO             | FOMADDPG   | FOMATD3        | FOSQDDPG    |
-| Shared policy+ | Independent policy+  | Actor-     | Dual Q-network+| Shapley     |
-| Trust region   | Conflict avoidance   | Critic     | Delayed updates| value+Fair  |
-+------------------------------------------------------------------------------------+
-                                    |
-+------------------------------------------------------------------------------------+
-|                        Complete FlexOffer Process                                   |
-+------------------------------------------------------------------------------------+
-| Generation Layer    | Aggregation Layer    | Trading Layer    | Scheduling Layer    |
-| fo_generate/        | fo_aggregate/        | fo_trading/      | fo_schedule/        |
-| Device MDP modeling | LP/DP aggregation    | Market matching  | Decomposition       |
-| Unified environment | Manager aggregation  | Bilateral auction| Satisfaction assess |
-+------------------------------------------------------------------------------------+
-                                    |
-+------------------------------------------------------------------------------------+
-|                           Device Ecosystem                                          |
-+------------------------------------------------------------------------------------+
-| Dishwashers(36)     | Heat pumps(36)      | Batteries(24) | EVs(14)  | PV(8)      |
-| 100% deployment     | 100% deployment     | 67% deployment| 39%      | 22%        |
-| User behavior model | Temperature control | SOC management| Charging | Generation |
-+------------------------------------------------------------------------------------+
+```text
+Devices and users
+       |
+       v
+FO Generation (device-level flexibility and RL decisions)
+       |
+       v
+FO Aggregation (combine and track source FlexOffers)
+       |
+       v
+FO Trading (bids, market clearing and trades)
+       |
+       v
+FO Scheduling / Disaggregation (allocate energy to devices)
+       |
+       v
+Environment updates and evaluation
 ```
 
-## Algorithm Feature Comparison
+| Component | Role | Source directory |
+| --- | --- | --- |
+| FO Generation | Model devices and generate FlexOffers using RL-related decisions | `fo_generate/`, `algorithms/` |
+| FO Aggregation | Combine compatible offers while tracking their sources | `fo_aggregate/` |
+| FO Trading | Process bids and produce trading outcomes | `fo_trading/` |
+| FO Scheduling / Disaggregation | Allocate aggregated or traded energy to individual devices | `fo_schedule/` |
 
-| Feature | MAPPO | MAIPPO | MADDPG | MATD3 | SQDDPG |
-|------|---------|----------|----------|---------|----------|
-| **Algorithm Type** | Policy Gradient | Policy Gradient | Actor-Critic | Actor-Critic | Actor-Critic |
-| **Policy Architecture** | Shared Policy | Independent Policy | Shared Policy | Shared Policy | Shared Policy |
-| **Policy Update** | Batch+Trust Region | Batch+Trust Region | Continuous Policy Gradient | Delayed Policy Update | Continuous+Credit Assignment |
-| **Value Estimation** | Advantage Function | Advantage Function | Single Q-Network | Dual Q-Network | Q-Network+Shapley |
-| **Multi-Agent Collaboration** | Natural Coordination | Mechanism Required | Basic Collaboration | Basic Collaboration | **Fairness Guarantee** |
-| **Credit Assignment** | Standard | Standard | Standard | Standard | **Shapley Value** |
-| **Applicable Scenarios** | Similar Tasks | Diverse Tasks | Continuous Control | High-Noise Environment | Fair Collaboration |
+The device ecosystem includes batteries, heat pumps, electric vehicles, photovoltaic generation, and dishwashers. See [System Architecture](SYSTEM_ARCHITECTURE.md) for the detailed environment design and data flow.
+
+## Installation
+
+Clone the repository and work from its root directory:
+
+```powershell
+git clone https://github.com/Chenennis/FOgym.git
+cd FOgym
+```
+
+Create and activate a virtual environment (Windows PowerShell example):
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+```
+
+The code uses PyTorch, NumPy, pandas, Gymnasium and other Python packages. A number of features also use plotting, progress reporting, and experiment-related dependencies. **This branch does not yet contain a complete, verified dependency-lock or requirements file.** Install the dependencies appropriate to the environment and training path you intend to use; Python 3.11 is the version used in recent development tests. GPU use is optional.
+
+Before running an experiment, check available arguments:
+
+```powershell
+python run_fo_pipeline.py --help
+```
 
 ## Quick Start
 
-### Installation Requirements
-```bash
-# Basic Dependencies
-pip install torch numpy pandas matplotlib gymnasium
+Run a short example using the built-in FOMAPPO algorithm and the 4-manager benchmark configuration:
 
-# Multi-Agent Environment
-pip install pettingzoo supersuit
-
-# Optional: GPU Support
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+```powershell
+python run_fo_pipeline.py --rl_algorithm fomappo --num_episodes 1 --time_horizon 24 --num_managers 4 --num_users 36 --data_config 36users --no_gpu --log_verbosity brief --results_dir results/quick_start --experiment_name quick_start
 ```
 
-### Basic Operation
+This command selects a 24-step episode using CPU execution. Once the environment is configured, increase `--num_episodes` for longer training runs.
 
-#### 1. Using Default Configuration (Recommended for Beginners)
-```bash
-# FOMAPPO (Shared Policy, Most Stable)
-python run_fo_pipeline.py --rl_algorithm fomappo --num_episodes 100
+To select another built-in RL algorithm, change the `--rl_algorithm` argument, for example:
 
-# FOMAIPPO (Independent Policy, Avoids Conflicts)
-python run_fo_pipeline.py --rl_algorithm fomaippo --num_episodes 100
+```powershell
+python run_fo_pipeline.py --rl_algorithm fomatd3 --num_episodes 1 --time_horizon 24 --num_managers 4 --num_users 36 --data_config 36users --no_gpu
 ```
 
-#### 2. Custom Algorithm Combinations
-```bash
-# Complete Parameter Template: 5 algorithms x 2 aggregation x 2 trading x 2 decomposition = 40 combinations
-python run_fo_pipeline.py \
-  --rl_algorithm [fomappo|fomaippo|fomaddpg|fomatd3|fosqddpg] \
-  --aggregation_method [LP|DP] \
-  --trading_strategy [market_clearing|bidding] \
-  --disaggregation_method [average|proportional] \
-  --scheduling_method [priority|fairness|cost] \
-  --data_config [36users|4manager|10manager] \
-  --num_episodes 100 \
-  --use_gpu
-```
+## Supported Methods
 
-#### 3. Log Verbosity Control (New Feature)
-```bash
-# Minimal Mode - Only display key progress information
-python run_fo_pipeline.py --rl_algorithm fomappo --log_verbosity minimal
+| Stage | Built-in options |
+| --- | --- |
+| RL | `fomappo`, `fomaippo`, `fomaddpg`, `fomatd3`, `fosqddpg` |
+| Aggregation | `LP`, `DP` |
+| Trading | `market_clearing`, `bidding` |
+| Disaggregation | `average`, `proportional` |
+| Scheduling policy | `priority`, `fairness`, `cost` |
 
-# Brief Mode - Merge repeated information into one line (Default)
-python run_fo_pipeline.py --rl_algorithm fomappo --log_verbosity brief
+These choices can be combined through the main pipeline's command-line arguments. The scheduling policy is distinct from the disaggregation method.
 
-# Detailed Mode - Display all information
-python run_fo_pipeline.py --rl_algorithm fomappo --log_verbosity detailed
+## Benchmark Configurations
 
-# Debug Mode - Display all debug information
-python run_fo_pipeline.py --rl_algorithm fomappo --log_verbosity debug
-```
+FOgym provides two main experiment scales:
 
-#### 4. Trading Algorithm Selection (New Feature)
-```bash
-# Using Market Clearing Algorithm (Default)
-python run_fo_pipeline.py --rl_algorithm fomappo --trading_strategy market_clearing
+| Setting | Managers | Users | Devices | Data configuration |
+| --- | ---: | ---: | ---: | --- |
+| Standard | 4 | 36 | 118 | `36users` / `4manager` |
+| Larger-scale | 10 | 90 | 328 | `10manager` |
 
-# Using Bidding Algorithm
-python run_fo_pipeline.py --rl_algorithm fomappo --trading_strategy bidding
-```
+The pipeline exposes `--num_managers`, `--num_users`, `--data_config`, `--time_horizon`, and `--seed`. When changing benchmark scale, keep manager/user counts and the selected data configuration consistent.
 
-### Batch Comparison Testing
-```bash
-# Windows PowerShell - Compare all 5 MARL algorithms
-foreach ($algo in @("fomappo", "fomaippo", "fomaddpg", "fomatd3", "fosqddpg")) {
-    python run_fo_pipeline.py --rl_algorithm $algo --num_episodes 100
-}
+FOgym uses FlexOffer and device-related data and configurations located under `data/`. Consult the source and configuration files for the particular dataset selection and any preprocessing assumptions.
 
-# Linux/Mac Bash - Compare all 5 MARL algorithms
-for algo in fomappo fomaippo fomaddpg fomatd3 fosqddpg; do
-    python run_fo_pipeline.py --rl_algorithm $algo --num_episodes 100
-done
-```
+## Extending FOgym
 
+A central feature of FOgym is that researchers can replace or extend one module while reusing the remaining FlexOffer pipeline.
+
+| Extension point | What you can develop |
+| --- | --- |
+| **FO Generation** | New RL methods and their observation/action/training integration |
+| **FO Aggregation** | New FlexOffer combination and compatibility methods |
+| **FO Trading** | New bidding, matching, pricing or clearing strategies |
+| **FO Disaggregation** | New energy-allocation methods for individual devices |
+
+The general process is to **implement a method, register or select it, connect it to the pipeline, and validate its behavior**. New methods may require updates to pipeline initialization or algorithm-selection code; FOgym does not automatically discover all external classes.
+
+**Detailed instructions:** [EXTENSION_GUIDE.md](EXTENSION_GUIDE.md) explains the required interfaces, source files, code templates, integration points, and validation checks.
 
 ## Project Structure
 
-```
+```text
 FOgym/
-├── README.md                   # This document (system overview and basic usage)
-├── SYSTEM_ARCHITECTURE.md      # Detailed system architecture documentation
-├── ALGORITHM_GUIDE.md          # Algorithm usage and configuration guide
-├── DEVELOPER_GUIDE.md          # Developer guide (logs, module extension, etc.)
-├── run_fo_pipeline.py          # Main pipeline script
-├── run_experiments.py          # Experiment runner (ablation, scalability)
-├── global_observation_config.json  # Observation space configuration
-├── algorithms/                 # Multi-agent algorithm implementations
-│   ├── MAPPO/fomappo/         # FOMAPPO + FOMAIPPO algorithms
-│   ├── MADDPG/fomaddpg/       # FOMADDPG algorithm
-│   ├── MATD3/fomatd3/         # FOMATD3 algorithm
-│   └── SQDDPG/fosqddpg/      # FOSQDDPG algorithm
-├── fo_generate/               # FlexOffer generation module (device MDP)
-├── fo_aggregate/              # FlexOffer aggregation module (LP/DP)
-├── fo_trading/                # FlexOffer trading module (market clearing/bidding)
-├── fo_schedule/               # FlexOffer scheduling module (disaggregation)
-├── fo_common/                 # Common components (config, observation, metrics)
-├── data/                      # Data files (device configs, prices, weather)
-├── tests/                     # Test files
-└── results/                   # Training results (gitignored)
+├── README.md                  # Project overview and first steps
+├── EXTENSION_GUIDE.md         # How to integrate new methods
+├── SYSTEM_ARCHITECTURE.md     # Architecture and internal data flow
+├── run_fo_pipeline.py         # Main pipeline entry point
+├── run_experiments.py         # Experiment orchestration
+├── algorithms/                # MARL implementations and adapters
+├── fo_generate/               # Device models and FO generation
+├── fo_aggregate/              # FO aggregation
+├── fo_trading/                # Trading and market mechanisms
+├── fo_schedule/               # Scheduling and disaggregation
+├── fo_common/                 # Shared structures and utilities
+├── data/                      # Experiment inputs and configurations
+└── tests/                     # Correctness and integration tests
 ```
 
-## Development and Debugging
+## Testing
 
-### Debugging Tools
-```bash
-# System Diagnostics
-python tests/test_components.py --verbose
+Run the existing test suite from the repository root after installing test dependencies:
 
-# Performance Benchmarking  
-python tests/benchmark_global_observation.py
-
-# Algorithm Performance Comparison
-python tests/run_tests.py --benchmark --algorithms fomappo,fomaippo,fosqddpg
-
-# Visualization Analysis
-python run_fo_pipeline.py --rl_algorithm fosqddpg --visualize --save_results
+```powershell
+python -m pytest tests/ -q
 ```
 
-### Logging and Monitoring
-```python
-# Enable Detailed Logging
-import logging
-logging.basicConfig(level=logging.DEBUG)
+These tests cover existing implementations; developers integrating their own methods should add component-specific and end-to-end tests as described in the [Extension Guide](EXTENSION_GUIDE.md).
 
-# Performance Monitoring
-python run_fo_pipeline.py --rl_algorithm fomappo \
-    --enable_monitoring \
-    --save_training_stats \
-    --num_episodes 100
-```
+## Documentation
 
-## Summary
+- [Extension Guide](EXTENSION_GUIDE.md): Integrate and validate new RL, aggregation, trading and disaggregation methods.
+- [System Architecture](SYSTEM_ARCHITECTURE.md): Understand the environment, observations, rewards and FO pipeline.
 
-FOgym implements a complete FlexOffer multi-agent reinforcement learning solution:
+## License
 
-- **Five MARL Algorithms**: FOMAPPO, FOMAIPPO, FOMADDPG, FOMATD3, FOSQDDPG
-- **40 Combination Configurations**: 5 algorithms x 2 aggregation methods x 2 trading strategies x 2 decomposition methods
-- **Policy Conflict Resolution**: FOMAIPPO independent policy architecture avoids policy conflicts between Managers
-- **Configurable Reward Weights**: Ablation-ready reward function with tunable alpha/beta/delta/lambda weights
-- **Scalable Deployment**: Supports 4-Manager (36 users) and 10-Manager configurations
-- **Complete FlexOffer Process**: End-to-end pipeline of generation -> aggregation -> trading -> scheduling
-- **Experiment Runner**: Automated batch experiments with `run_experiments.py` for ablation and scalability studies
-
+FOgym is distributed under the [MIT License](LICENSE).
