@@ -129,24 +129,26 @@ class FOSQDDPGAdapter:
         }
     
     def _normalize_rewards(self, rewards: np.ndarray) -> np.ndarray:
-        """normalize reward values - keep relative scaling method"""
-        
-        fixed_scale_normalized = rewards / 1000.0
-        
-        # check variance to decide which method to use
-        reward_variance = np.var(rewards)
-        
-        if reward_variance < 1e-3:  # variance is small, use fixed scaling
-            return fixed_scale_normalized
-        else:
-            # dynamic range normalization (keep relative relationship)
-            reward_min = np.min(rewards)
-            reward_max = np.max(rewards)
-            if reward_max - reward_min > 1e-8:
-                dynamic_normalized = (rewards - reward_min) / (reward_max - reward_min) * 0.1
-                return dynamic_normalized
-            else:
-                return fixed_scale_normalized
+        """Apply a fixed scale so Bellman targets keep consistent reward units."""
+        rewards = np.asarray(rewards, dtype=np.float32)
+        if not np.isfinite(rewards).all():
+            raise ValueError("SQDDPG received non-finite rewards")
+
+        # Track raw reward statistics for diagnostics; do not use them to
+        # alter the reward function as more experience is collected.
+        stats = self.reward_normalizer
+        for reward in rewards.flat:
+            count = stats['count'] + 1
+            delta = float(reward) - stats['running_mean']
+            mean = stats['running_mean'] + delta / count
+            delta2 = float(reward) - mean
+            previous_m2 = stats['running_var'] * (count - 1) if count > 1 else 0.0
+            stats['running_mean'] = mean
+            stats['running_var'] = (previous_m2 + delta * delta2) / count
+            stats['count'] = count
+            stats['running_min'] = min(stats['running_min'], float(reward))
+            stats['running_max'] = max(stats['running_max'], float(reward))
+        return rewards / 1000.0
     
     def _stack_observations(self, observations: Dict[str, np.ndarray]) -> np.ndarray:
         padded = np.zeros((self.num_agents, self.state_dim), dtype=np.float32)
