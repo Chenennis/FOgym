@@ -4595,92 +4595,47 @@ class FOPipeline:
             return None
     
     def _trade_flexoffers_for_timestep(self, aggregated_results, timestep):
-        """Trade FlexOffer for specified time step"""
+        """Submit only physically backed manager-owned offers and real trades."""
         logger.info(f"Trading FlexOffer for timestep {timestep}...")
-        
+
         if not aggregated_results:
-            logger.warning(f"No aggregated results to trade for timestep {timestep}")
             return []
-        
-        # Ensure all Managers participate in trading
+
+        known_manager_ids = {manager.manager_id for manager in self.managers}
         bids = []
-        manager_offer_map = {}  # Map Manager to its aggregated result
-        
-        # Assign aggregated result to each Manager
-        for i, manager in enumerate(self.managers):
-            manager_id = manager.manager_id
-            
-            # Assign an aggregated result to each Manager, if result is insufficient, cycle through
-            result_idx = i % len(aggregated_results)
-            selected_result = aggregated_results[result_idx]
-            manager_offer_map[manager_id] = selected_result
-            
-            # Create sell bid
-            sell_bid = self.trading_pool.create_bid_from_aggregated_fo(
-                manager_id=manager_id,
-                aggregated_fo=selected_result,
-                time_step=timestep,
-                side="sell"
-            )
-            bids.append(sell_bid)
-            
-            # Create buy bid
-            buy_bid = self.trading_pool.create_bid_from_aggregated_fo(
-                manager_id=manager_id,
-                aggregated_fo=selected_result,
-                time_step=timestep,
-                side="buy"
-            )
-            bids.append(buy_bid)
-            
-            logger.info(f"Created buy and sell bids for {manager_id}, using aggregated result {result_idx}")
-        
-        # Submit all bids
+        for result in aggregated_results:
+            manager_id = getattr(result, "manager_id", None)
+            if manager_id not in known_manager_ids:
+                logger.warning(f"Skipping unowned aggregated offer {result.afo_id}: {manager_id}")
+                continue
+
+            for side in ("sell", "buy"):
+                try:
+                    bid = self.trading_pool.create_bid_from_aggregated_fo(
+                        manager_id=manager_id,
+                        aggregated_fo=result,
+                        time_step=timestep,
+                        side=side,
+                    )
+                except ValueError as exc:
+                    logger.debug(f"Skipping infeasible {side} bid for {result.afo_id}: {exc}")
+                    continue
+                bids.append(bid)
+
         for bid in bids:
             self.trading_pool.submit_bid(bid)
-        
-        # Execute trading round
+
+        if not bids:
+            logger.info(f"No feasible energy bids at timestep {timestep}")
+            return []
+
         trading_results = self.trading_pool.execute_trading_round(timestep)
-        trades = trading_results.get('trades', [])
-        
-        # Ensure each Manager has trading opportunity - if auto-matching fails, create mock trade
-        existing_buyers = set(trade.buyer_id for trade in trades)
-        existing_sellers = set(trade.seller_id for trade in trades)
-        
-        # Create mock trade for Managers that didn't participate in trading
-        manager_ids = [m.manager_id for m in self.managers]
-        for manager_id in manager_ids:
-            if manager_id not in existing_buyers:
-                # Create a mock buy trade
-                selected_result = manager_offer_map[manager_id]
-                mock_trade = Trade(
-                    trade_id=f"mock_buy_{manager_id}_{timestep}",
-                    buyer_id=manager_id,
-                    seller_id=manager_ids[(manager_ids.index(manager_id) + 1) % len(manager_ids)],  # Cycle through sellers
-                    energy_type="electricity",
-                    quantity=getattr(selected_result, 'total_energy', 100.0) * 0.5,  # Allocate 50% of energy
-                    price=0.15,  # Base price
-                    time_step=timestep,
-                    status="completed",
-                    trade_time=datetime.now()
-                )
-                trades.append(mock_trade)
-                logger.info(f"Created mock buy trade for {manager_id}: {mock_trade.trade_id}")
-        
-        # For compatibility, keep existing add_offer method
-        for i, result in enumerate(aggregated_results):
-            manager_index = (i % self.num_managers) + 1
-            manager_id = f"manager_{manager_index}"
-            offer_id = f"offer_t{timestep}_{i}"
-            
-            self.trading_pool.add_offer(manager_id, offer_id, "dfo", result)
-        
+        trades = trading_results.get("trades", [])
+
+        # Never manufacture transactions just to populate the output.
         logger.info(f"Trading for timestep {timestep} completed, executed {len(trades)} trades")
-        logger.info(f"Buyers participating in trading: {set(trade.buyer_id for trade in trades)}")
-        logger.info(f"Sellers participating in trading: {set(trade.seller_id for trade in trades)}")
-        
         return trades
-    
+
     def _disaggregate_flexoffers_for_timestep(self, trade_results, original_fo_systems, timestep):
         """Disaggregate FlexOffer for specified time step"""
         logger.info(f"Disaggregating FlexOffer for timestep {timestep}, using algorithm: {self.disaggregation_method}...")
