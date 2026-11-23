@@ -376,9 +376,8 @@ class FOMATD3Adapter:
         
     def reset_buffers(self):
         """reset buffers"""
-        self.replay_buffer['ptr'] = 0
-        self.replay_buffer['size'] = 0
-        
+        # Off-policy replay must persist across episode boundaries.
+        # Only clear any per-episode transition cache.
         # reset experience cache variables
         self._prev_states = None
         self._prev_actions = None
@@ -415,46 +414,34 @@ class FOMATD3Adapter:
         
         return actions, action_log_probs, values
         
-    def collect_step(self, 
+    def collect_step(self,
                      obs: Dict[str, np.ndarray],
                      actions: Dict[str, np.ndarray],
                      rewards: Dict[str, float],
                      dones: Dict[str, bool],
                      infos: Dict[str, Any],
+                     next_obs: Dict[str, np.ndarray],
                      action_log_probs: Optional[Dict[str, np.ndarray]] = None,
                      values: Optional[Dict[str, np.ndarray]] = None):
-        """collect experience step """
-        try:
-            manager_ids = list(obs.keys())
-            
-            # convert to array format
-            states = np.array([obs[mid] for mid in manager_ids])
-            actions_array = np.array([actions[mid] for mid in manager_ids])
-            rewards_array = np.array([rewards[mid] for mid in manager_ids])
-            dones_array = np.array([dones[mid] for mid in manager_ids])
-            
-            # use cache mechanism to handle next_states
-            if hasattr(self, '_prev_states') and self._prev_states is not None:
-                # if there is previous state, store it as experience
-                ptr = self.replay_buffer['ptr']
-                self.replay_buffer['states'][ptr] = self._prev_states
-                self.replay_buffer['actions'][ptr] = self._prev_actions
-                self.replay_buffer['rewards'][ptr] = self._prev_rewards
-                self.replay_buffer['next_states'][ptr] = states  # current state as previous step's next_states
-                self.replay_buffer['dones'][ptr] = self._prev_dones
-                
-                self.replay_buffer['ptr'] = (ptr + 1) % self.replay_buffer['capacity']
-                self.replay_buffer['size'] = min(self.replay_buffer['size'] + 1, self.replay_buffer['capacity'])
-            
-            # save current state for next storage
-            self._prev_states = states.copy()
-            self._prev_actions = actions_array.copy()
-            self._prev_rewards = rewards_array.copy()
-            self._prev_dones = dones_array.copy()
-            
-        except Exception as e:
-            logger.error(f"FOMATD3 experience collection failed: {e}")
-            
+        """Store the executed (state, action, reward, next_state, done) transition."""
+        manager_ids = list(self.agents.keys())
+        states = np.asarray([obs[mid] for mid in manager_ids], dtype=np.float32)
+        next_states = np.asarray([next_obs[mid] for mid in manager_ids], dtype=np.float32)
+        actions_array = np.asarray([actions[mid] for mid in manager_ids], dtype=np.float32)
+        rewards_array = np.asarray([rewards[mid] for mid in manager_ids], dtype=np.float32)
+        dones_array = np.asarray([dones[mid] for mid in manager_ids], dtype=bool)
+
+        ptr = self.replay_buffer['ptr']
+        self.replay_buffer['states'][ptr] = states
+        self.replay_buffer['actions'][ptr] = actions_array
+        self.replay_buffer['rewards'][ptr] = rewards_array
+        self.replay_buffer['next_states'][ptr] = next_states
+        self.replay_buffer['dones'][ptr] = dones_array
+        self.replay_buffer['ptr'] = (ptr + 1) % self.replay_buffer['capacity']
+        self.replay_buffer['size'] = min(
+            self.replay_buffer['size'] + 1, self.replay_buffer['capacity']
+        )
+
     def train_on_batch(self) -> Dict[str, Any]:
         """train a batch - strictly follow original MATD3 architecture (with reward normalization improvement)"""
         # check warm-up period
