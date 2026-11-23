@@ -280,8 +280,8 @@ def train_fosqddpg_adapter(pipeline):
         training_history.append(training_data_total)
         
         # periodically output learning progress
-        if (episode + 1) % 10 == 0:
-            logger.info(f"\n========== FOSQDDPG training progress: {episode+1}/{pipeline.num_episodes} episodes ==========")
+        if episode % 10 == 0:
+            logger.info(f"\n========== FOSQDDPG training progress: {episode}/{pipeline.num_episodes} episodes ==========")
             
             # get training statistics
             try:
@@ -312,9 +312,9 @@ def train_fosqddpg_adapter(pipeline):
             logger.info("=" * 70)
         
         # periodically save model
-        if (episode + 1) % 20 == 0 or episode == pipeline.num_episodes:
+        if episode % 20 == 0 or episode == max_allowed_episodes:
             try:
-                model_path = f"results/fosqddpg_adapter_ep{episode+1}"
+                model_path = f"results/fosqddpg_adapter_ep{episode}"
                 fosqddpg_adapter.save_models(model_path)
                 logger.info(f"📀 model saved to: {model_path}")
                 
