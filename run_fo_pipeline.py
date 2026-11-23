@@ -5308,8 +5308,12 @@ class FOPipeline:
             
             # Get observation and action space dimensions
             sample_obs, _ = multi_env.reset()
-            state_dim = len(sample_obs[manager_ids[0]])
-            action_dim = multi_env.action_spaces[manager_ids[0]].shape[0]
+            state_dim = max(len(sample_obs[mid]) for mid in manager_ids)
+            manager_action_dims = {
+                mid: int(multi_env.action_spaces[mid].shape[0])
+                for mid in manager_ids
+            }
+            action_dim = max(manager_action_dims.values())
             
             logger.info(f"State space dimension: {state_dim}, action space dimension: {action_dim}")
             
@@ -5320,6 +5324,7 @@ class FOPipeline:
                     state_dim=state_dim,
                     action_dim=action_dim,
                     num_agents=num_managers,
+                    manager_action_dims=manager_action_dims,
                     episode_length=self.steps_per_episode,
                     lr_actor=1e-5,    # stabilized from 1e-4
                     lr_critic=1e-4,   # stabilized from 5e-4
@@ -5748,8 +5753,12 @@ class FOPipeline:
             
             # Get observation and action space dimensions
             sample_obs, _ = multi_env.reset()
-            state_dim = len(sample_obs[manager_ids[0]])
-            action_dim = multi_env.action_spaces[manager_ids[0]].shape[0]
+            state_dim = max(len(sample_obs[mid]) for mid in manager_ids)
+            manager_action_dims = {
+                mid: int(multi_env.action_spaces[mid].shape[0])
+                for mid in manager_ids
+            }
+            action_dim = max(manager_action_dims.values())
             
             logger.info(f"State space: {state_dim} dimensions, action space: {action_dim} dimensions")
             
@@ -5758,6 +5767,7 @@ class FOPipeline:
                 state_dim=state_dim,
                 action_dim=action_dim,
                 num_agents=num_managers,
+                manager_action_dims=manager_action_dims,
                 episode_length=self.steps_per_episode,
                 lr_actor=1e-4,
                 lr_critic=5e-4,
