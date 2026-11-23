@@ -262,8 +262,8 @@ def train_fosqddpg_adapter(pipeline):
                 pipeline._record_training_loss(
                     manager_id=manager_id,
                     episode=episode,
-                    policy_loss=float(update_info.get('policy_loss', 0.001)),
-                    value_loss=float(update_info.get('value_loss', 0.001)),
+                    policy_loss=float(update_info['actor_loss']),
+                    value_loss=float(update_info['critic_loss']),
                     entropy=0.0  # FOSQDDPG has no entropy concept
                 )
         
