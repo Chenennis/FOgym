@@ -320,11 +320,14 @@ class FOSQDDPG:
                     dim=1
                 )
             joint_actions[:, agent_idx, :] = predicted_actions
-            actor_q = policy.critic(
-                states_flat, joint_actions.reshape(self.batch_size, -1),
-                fo_satisfaction
+            # Optimize this agent's sampled Shapley marginal contribution,
+            # not the grand coalition Q-value. The current actor's action
+            # remains in the computation graph; other agents' actions are
+            # fixed replayed values.
+            shapley_values = self.compute_shapley_values(
+                states, joint_actions, agent_idx
             )
-            actor_loss = -actor_q.mean()
+            actor_loss = -shapley_values.mean()
 
             if fo_constraints is not None:
                 constraint_loss = F.mse_loss(
