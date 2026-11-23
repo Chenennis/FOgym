@@ -1,0 +1,27 @@
+# FOgym Python dependencies
+# Target environment: Python 3.11 (used in development).
+# Install with: python -m pip install -r requirements.txt
+#
+# This is a practical dependency list derived from imports in the FOgym
+# main pipeline, built-in RL methods, device modules, and test workflow.
+# It is not a fully reproducible, platform-specific lockfile.
+#
+# For CUDA acceleration, install a compatible PyTorch build following
+# https://pytorch.org/get-started/locally/ instead of assuming the default
+# pip distribution matches your GPU/CUDA environment.
+
+# Numerical computing and tabular data
+numpy>=1.24,<3
+pandas>=2.0,<3
+
+# Reinforcement learning and neural networks
+torch>=2.2,<3
+gymnasium>=0.29,<2
+
+# Progress reporting, visualization, and configuration
+tqdm>=4.65,<5
+matplotlib>=3.7,<4
+PyYAML>=6,<7
+
+# Repository test suite
+pytest>=8,<10
