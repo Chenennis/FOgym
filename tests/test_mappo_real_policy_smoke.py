@@ -164,3 +164,96 @@ def test_real_policy_and_real_buffer_complete_ppo_training_update(monkeypatch, u
     assert any(not torch.equal(old, new) for old, new in
                zip(critic_before, policy.critic.parameters()))
     assert buffer.collected_steps == 0
+
+
+def test_four_managers_complete_24_step_real_ppo_rollout(monkeypatch):
+    """Four managers and 24 steps, with the default normalized-value PPO path."""
+    torch.manual_seed(23)
+    policy_type = _load_real_policy(monkeypatch)
+    from onpolicy.utils.valuenorm import ValueNorm
+
+    args = SimpleNamespace(
+        lr=1e-3, critic_lr=1e-3, opti_eps=1e-5, weight_decay=0.0,
+        hidden_size=16, gain=0.01, use_orthogonal=True,
+        use_policy_active_masks=False, use_naive_recurrent_policy=False,
+        use_recurrent_policy=False, recurrent_N=1, algorithm_name="FOMAPPO",
+        use_popart=False, use_feature_normalization=False, stacked_frames=1,
+        layer_N=1, use_ReLU=True, use_device_attention=False,
+        use_manager_coordination=False, episode_length=24, n_rollout_threads=1,
+        gamma=0.99, gae_lambda=0.95, use_gae=True, use_valuenorm=True,
+        use_proper_time_limits=False, use_reward_normalization=False,
+        use_advantage_normalization=True, ppo_epoch=1, num_mini_batch=2,
+        clip_param=0.2, use_clipped_value_loss=True,
+        value_loss_coef=0.5, entropy_coef=0.01,
+        use_max_grad_norm=True, max_grad_norm=1.0,
+    )
+    obs_space = spaces.Box(-np.inf, np.inf, shape=(4,), dtype=np.float32)
+    action_space = spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32)
+    policy = policy_type(args, obs_space, obs_space, action_space, torch.device("cpu"))
+    buffer = _load_shared_buffer_class()(
+        args, 4, obs_space, obs_space, action_space
+    )
+    adapter = SimpleNamespace(
+        num_agents=4, action_dim=3, actual_obs_dim=4,
+        args=args, buffer=buffer, trainer=None,
+    )
+    manager_ids = [f"manager_{i}" for i in range(1, 5)]
+
+    def observation(t, manager):
+        return np.array([
+            0.1 * manager, 0.05 * t, 0.02 * (manager + t), -0.03 * t
+        ], dtype=np.float32)
+
+    collect = _collect_step_method()
+    for t in range(24):
+        obs = {mid: observation(t, i) for i, mid in enumerate(manager_ids, 1)}
+        next_obs = {
+            mid: observation(t + 1, i) for i, mid in enumerate(manager_ids, 1)
+        }
+        batch = torch.as_tensor(np.stack([obs[mid] for mid in manager_ids]))
+        rnn = torch.zeros((4, 1, 16))
+        masks = torch.ones((4, 1))
+        with torch.no_grad():
+            values, actions, log_probs, _, _ = policy.get_actions(
+                batch, batch, rnn, rnn, masks
+            )
+        collect(
+            adapter, obs=obs, next_obs=next_obs,
+            actions={mid: actions[i].numpy() for i, mid in enumerate(manager_ids)},
+            raw_actions={mid: actions[i].numpy() for i, mid in enumerate(manager_ids)},
+            action_log_probs={
+                mid: log_probs[i].numpy() for i, mid in enumerate(manager_ids)
+            },
+            values={mid: values[i].numpy() for i, mid in enumerate(manager_ids)},
+            rewards={
+                mid: 0.1 * (t + 1) + 0.05 * i
+                for i, mid in enumerate(manager_ids, 1)
+            },
+            dones={mid: t == 23 for mid in manager_ids},
+            infos={mid: {} for mid in manager_ids},
+        )
+
+    assert buffer.collected_steps == 24
+    assert buffer.step == 0
+    assert buffer.actions.shape == (24, 1, 4, 3)
+    assert buffer.action_log_probs.shape == (24, 1, 4, 1)
+    value_normalizer = ValueNorm(1, device=torch.device("cpu"))
+    buffer.compute_returns(np.zeros((1, 4, 1), dtype=np.float32), value_normalizer)
+    assert np.isfinite(buffer.returns).all()
+
+    trainer = SimpleNamespace(
+        buffer=buffer, policy=policy, args=args, device=torch.device("cpu"),
+        _use_popart=False, _use_valuenorm=True,
+        value_normalizer=value_normalizer,
+    )
+    old_actor = [p.detach().clone() for p in policy.actor.parameters()]
+    old_critic = [p.detach().clone() for p in policy.critic.parameters()]
+    info = _load_train_method()(trainer)
+    assert info["num_updates"] == 2
+    assert np.isfinite(info["policy_loss"])
+    assert np.isfinite(info["value_loss"])
+    assert any(not torch.equal(before, after) for before, after in
+               zip(old_actor, policy.actor.parameters()))
+    assert any(not torch.equal(before, after) for before, after in
+               zip(old_critic, policy.critic.parameters()))
+    assert buffer.collected_steps == 0
