@@ -86,6 +86,8 @@ class FOMAddpgAdapter:
                  lr_actor: float = 1e-4,
                  lr_critic: float = 1e-3,
                  device: str = "cpu",
+                 observation_dims: Optional[Dict[str, int]] = None,
+                 action_dims: Optional[Dict[str, int]] = None,
                  **kwargs):
         """
         initialize FOMADDPG adapter
@@ -104,6 +106,18 @@ class FOMAddpgAdapter:
         self.action_dim = action_dim
         self.num_agents = num_agents
         self.episode_length = episode_length
+        self.agent_ids = [f"manager_{i + 1}" for i in range(num_agents)]
+        self.observation_dims = {
+            mid: (observation_dims or {}).get(mid, state_dim)
+            for mid in self.agent_ids
+        }
+        self.action_dims = {
+            mid: (action_dims or {}).get(mid, action_dim)
+            for mid in self.agent_ids
+        }
+        if (any(dim <= 0 or dim > state_dim for dim in self.observation_dims.values())
+                or any(dim <= 0 or dim > action_dim for dim in self.action_dims.values())):
+            raise ValueError("Manager dimensions must fit padded state/action widths")
         
         logger.info(f"🔧 initialize FOMADDPG adapter (based on MADDPG architecture)")
         logger.info(f"    parameters: {num_agents} Managers, {state_dim} state dimension, {action_dim} action dimension")
@@ -160,50 +174,43 @@ class FOMAddpgAdapter:
         logger.debug("FOMADDPG uses experience replay buffer, no episode-level reset")
         pass
     
+    def _stack_observations(self, obs: Dict[str, np.ndarray]) -> np.ndarray:
+        padded = np.zeros((self.num_agents, self.state_dim), dtype=np.float32)
+        for i, mid in enumerate(self.agent_ids):
+            value = np.asarray(obs[mid], dtype=np.float32).reshape(-1)
+            if value.size != self.observation_dims[mid]:
+                raise ValueError(
+                    f"{mid} observation has {value.size} entries; "
+                    f"expected {self.observation_dims[mid]}"
+                )
+            padded[i, :value.size] = value
+        return padded
+
+    def _stack_actions(self, actions: Dict[str, np.ndarray]) -> np.ndarray:
+        padded = np.zeros((self.num_agents, self.action_dim), dtype=np.float32)
+        for i, mid in enumerate(self.agent_ids):
+            value = np.asarray(actions[mid], dtype=np.float32).reshape(-1)
+            if value.size != self.action_dims[mid]:
+                raise ValueError(
+                    f"{mid} action has {value.size} entries; "
+                    f"expected {self.action_dims[mid]}"
+                )
+            padded[i, :value.size] = value
+        return padded
+
     def select_actions(self, obs: Dict[str, np.ndarray], deterministic: bool = False) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray]]:
-        actions = {}
-        action_log_probs = {}  # MADDPG does not use, but maintain interface compatibility
-        values = {}  # MADDPG does not use, but maintain interface compatibility
-        
-        manager_ids = list(obs.keys())
-        
-        # prepare states array format, MADDPG expects numpy array
-        states = []
-        for manager_id in manager_ids:
-            current_obs = obs[manager_id]
-            if isinstance(current_obs, np.ndarray):
-                states.append(current_obs)
-            else:
-                states.append(np.array(current_obs))
-        
-        states = np.array(states)  # Shape: (num_agents, state_dim)
-        
-        # use FOMADDPG to select actions
-        try:
-            # call FOMADDPG's select_actions method
-            agent_actions = self.fomaddpg.select_actions(states, add_noise=not deterministic)
-            
-            # convert to dictionary format and map to FlexOffer parameter range
-            for i, manager_id in enumerate(manager_ids):
-                raw_action = agent_actions[i]
-                fo_action = self._map_action_to_fo_params(raw_action)
-                
-                actions[manager_id] = fo_action
-                action_log_probs[manager_id] = np.zeros_like(fo_action)  # placeholder
-                values[manager_id] = np.array([0.0])  # placeholder
-                
-                logger.debug(f"Manager {manager_id} MADDPG FlexOffer action: {fo_action.shape} dimension, "
-                           f"first 5 parameters: {fo_action[:5]}")
-                
-        except Exception as e:
-            logger.error(f"FOMADDPG action selection failed: {e}")
-            for manager_id in manager_ids:
-                actions[manager_id] = np.random.uniform(-1, 1, self.action_dim)
-                action_log_probs[manager_id] = np.zeros(self.action_dim)
-                values[manager_id] = np.array([0.0])
-        
+        states = self._stack_observations(obs)
+        # Do not replace a failed policy decision with untracked random actions.
+        raw_actions = self.fomaddpg.select_actions(states, add_noise=not deterministic)
+        actions, action_log_probs, values = {}, {}, {}
+        for i, mid in enumerate(self.agent_ids):
+            raw = raw_actions[i, :self.action_dims[mid]]
+            action = self._map_action_to_fo_params(raw)
+            actions[mid] = action
+            action_log_probs[mid] = np.zeros_like(action)
+            values[mid] = np.array([0.0])
         return actions, action_log_probs, values
-    
+
     def collect_step(self, 
                      obs: Dict[str, np.ndarray],
                      actions: Dict[str, np.ndarray],
@@ -226,66 +233,29 @@ class FOMAddpgAdapter:
             action_log_probs: action log probabilities (MADDPG does not use)
             values: value function predictions (MADDPG does not use)
         """
-        # numerical stability: check and fix rewards
-        manager_ids = list(obs.keys())
-        
-        # prepare MADDPG format data
-        states = []
-        agent_actions = []
+        states = self._stack_observations(obs)
+        next_states = self._stack_observations(next_obs)
+        agent_actions = self._stack_actions(actions)
         agent_rewards = []
         agent_dones = []
-        
-        for manager_id in manager_ids:
-            # observation
-            current_obs = obs[manager_id]
-            if isinstance(current_obs, np.ndarray):
-                states.append(current_obs)
-            else:
-                states.append(np.array(current_obs))
-            
-            # action
-            action = actions[manager_id]
-            if isinstance(action, np.ndarray):
-                agent_actions.append(action)
-            else:
-                agent_actions.append(np.array(action))
-            
-            # reward 
-            raw_reward = rewards[manager_id]
-            if np.isnan(raw_reward) or np.isinf(raw_reward):
-                logger.warning(f"Manager {manager_id} reward invalid ({raw_reward}), set to 0")
-                raw_reward = 0.0
-            
-            # optimized reward scaling
-            normalized_reward = np.clip(raw_reward, -50.0, 50.0) * 0.5  
+        for mid in self.agent_ids:
+            raw_reward = float(rewards[mid])
+            if not np.isfinite(raw_reward):
+                raise ValueError(f"{mid} received non-finite reward")
+            # Preserve the existing MADDPG reward treatment in this
+            # dimension-only change; reward scaling is audited separately.
+            normalized_reward = np.clip(raw_reward, -50.0, 50.0) * 0.5
             agent_rewards.append(normalized_reward)
-            
-            # done flag
-            agent_dones.append(dones[manager_id])
-            
-            # update Manager statistics
-            self.manager_stats[manager_id]['total_reward'] += normalized_reward
-            if normalized_reward > self.manager_stats[manager_id]['best_reward']:
-                self.manager_stats[manager_id]['best_reward'] = normalized_reward
-        
-        # convert to numpy array
-        states = np.array(states)
-        agent_actions = np.array(agent_actions)
-        agent_rewards = np.array(agent_rewards)
-        agent_dones = np.array(agent_dones)
-        
-        # Store the current transition immediately, including the terminal
-        # step. Delaying insertion until the next step loses episode endings
-        # and may accidentally connect the final state to a new episode.
-        next_states = np.array([
-            np.asarray(next_obs[mid]) for mid in manager_ids
-        ])
+            agent_dones.append(bool(dones[mid]))
+            self.manager_stats[mid]['total_reward'] += normalized_reward
+            self.manager_stats[mid]['best_reward'] = max(
+                self.manager_stats[mid]['best_reward'], normalized_reward
+            )
         self.fomaddpg.store_experience(
-            states=states,
-            actions=agent_actions,
-            rewards=agent_rewards,
+            states=states, actions=agent_actions,
+            rewards=np.asarray(agent_rewards, dtype=np.float32),
             next_states=next_states,
-            dones=agent_dones,
+            dones=np.asarray(agent_dones, dtype=bool),
         )
 
     def compute_returns(self):
