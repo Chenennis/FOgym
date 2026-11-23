@@ -11,6 +11,30 @@ from .fosqddpg_policy import FOSQDDPGPolicy
 logger = logging.getLogger(__name__)
 
 
+def map_normalized_fo_actions(raw_actions: torch.Tensor) -> torch.Tensor:
+    """Differentiable conversion of normalized actor actions to FO units.
+
+    Each complete five-dimensional device block follows the environment's
+    [start, end, energy_min, energy_max, priority] action convention.
+    Remaining dimensions (if any) are left unchanged for generic small tests.
+    """
+    width = raw_actions.shape[-1]
+    count = width // 5
+    if not count:
+        return raw_actions
+    blocks = raw_actions[..., :count * 5].reshape(*raw_actions.shape[:-1], count, 5)
+    mapped = torch.stack((
+        blocks[..., 0].clamp(-1.0, 1.0),
+        blocks[..., 1].clamp(-1.0, 1.0),
+        0.1 + 0.45 * (blocks[..., 2].clamp(-1.0, 1.0) + 1.0),
+        1.0 + 0.5 * (blocks[..., 3].clamp(-1.0, 1.0) + 1.0),
+        0.1 + 0.95 * (blocks[..., 4].clamp(-1.0, 1.0) + 1.0),
+    ), dim=-1).reshape(*raw_actions.shape[:-1], count * 5)
+    if count * 5 < width:
+        return torch.cat((mapped, raw_actions[..., count * 5:]), dim=-1)
+    return mapped
+
+
 class FOReplayBuffer:
     """Experience replay buffer for FOSQDDPG algorithm"""
     
@@ -273,7 +297,9 @@ class FOSQDDPG:
                 # Get next actions from target actors
                 next_actions = []
                 for i in range(self.n_agents):
-                    next_action = self.policies[i].actor_target(next_states[:, i, :])
+                    next_action = map_normalized_fo_actions(
+                        self.policies[i].actor_target(next_states[:, i, :])
+                    )
                     if self.action_dims[i] < self.action_dim:
                         next_action = torch.cat(
                             [next_action[:, :self.action_dims[i]],
@@ -309,8 +335,8 @@ class FOSQDDPG:
             agent_constraints = (
                 fo_constraints[:, agent_idx, :] if fo_constraints is not None else None
             )
-            predicted_actions = policy.actor(
-                states[:, agent_idx, :], agent_constraints
+            predicted_actions = map_normalized_fo_actions(
+                policy.actor(states[:, agent_idx, :], agent_constraints)
             )
             joint_actions = actions.detach().clone()
             if self.action_dims[agent_idx] < self.action_dim:
