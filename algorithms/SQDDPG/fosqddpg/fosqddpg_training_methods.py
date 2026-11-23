@@ -81,9 +81,15 @@ def train_fosqddpg_adapter(pipeline):
     # get state and action space dimensions
     try:
         sample_obs, _ = multi_env.reset()
-        state_dim = len(sample_obs[manager_ids[0]])
-        action_dim = multi_env.action_spaces[manager_ids[0]].shape[0]
-        logger.info(f"📊 state space: {state_dim} dimensions, action space: {action_dim} dimensions")
+        observation_dims = {agent_id: len(sample_obs[agent_id]) for agent_id in manager_ids}
+        action_dims = {
+            agent_id: multi_env.action_spaces[agent_id].shape[0] for agent_id in manager_ids
+        }
+        state_dim = max(observation_dims.values())
+        action_dim = max(action_dims.values())
+        logger.info(f"📊 padded state space: {state_dim}, padded action space: {action_dim}")
+        logger.info(f"Manager observation dimensions: {observation_dims}")
+        logger.info(f"Manager action dimensions: {action_dims}")
     except Exception as e:
         logger.error(f"❌ failed to get observation and action space: {e}")
         return {'status': 'failed', 'error': f'failed to get environment parameters: {e}'}
@@ -109,7 +115,9 @@ def train_fosqddpg_adapter(pipeline):
             state_dim=state_dim,
             action_dim=action_dim,
             num_agents=num_managers,
-            
+            observation_dims=observation_dims,
+            action_dims=action_dims,
+
             # learning rate settings
             lr_actor=5e-5,      # low learning rate to improve stability
             lr_critic=1e-4,     # low learning rate to improve stability
