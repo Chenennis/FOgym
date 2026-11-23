@@ -1175,7 +1175,10 @@ class AggregatedResultDisaggregator:
         # get total energy
         total_energy = 0.0
         
-        if hasattr(aggregated_result, 'total_energy'):
+        if isinstance(aggregated_result, dict) and 'total_energy' in aggregated_result:
+            # Pipeline supplies the actual cleared trade quantity as a mapping.
+            total_energy = aggregated_result['total_energy']
+        elif hasattr(aggregated_result, 'total_energy'):
             # direct total_energy attribute
             total_energy = getattr(aggregated_result, 'total_energy', 0.0)
         elif hasattr(aggregated_result, 'total_energy_max'):
@@ -1193,7 +1196,7 @@ class AggregatedResultDisaggregator:
                 logger.debug(f"get total energy from aggregated_fo.quantity: {total_energy}")
         
         # if still cannot get total energy, calculate from original data
-        if total_energy <= 0:
+        if total_energy <= 0 and not (isinstance(aggregated_result, dict) and 'total_energy' in aggregated_result):
             total_energy = sum(item.get('energy', 0) for item in original_data)
             logger.debug(f"calculate total energy from original data: {total_energy}")
         
