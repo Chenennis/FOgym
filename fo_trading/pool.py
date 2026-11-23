@@ -1075,6 +1075,22 @@ class TradingPool:
         Returns:
             Bid: bid object
         """
+        owner = getattr(aggregated_fo, "manager_id", None)
+        if owner is not None and owner != manager_id:
+            raise ValueError(f"aggregated FO manager {owner} differs from bid manager {manager_id}")
+
+        # Positive grid energy is consumption (buy); negative is generation
+        # or discharge (sell). Never invent a nominal 100-kWh offer.
+        lo = float(aggregated_fo.total_energy_min)
+        hi = float(aggregated_fo.total_energy_max)
+        if not np.isfinite(lo) or not np.isfinite(hi) or lo > hi:
+            raise ValueError("invalid aggregated energy bounds")
+        if side not in ("buy", "sell"):
+            raise ValueError(f"invalid bid side: {side}")
+        total_energy = max(0.0, hi) if side == "buy" else max(0.0, -lo)
+        if total_energy <= 0:
+            raise ValueError(f"no {side}-side energy available in aggregated offer")
+
         if price is None:
             # calculate bid price based on grid price and demand prediction
             base_price = self.get_energy_price(time_step)
@@ -1141,20 +1157,6 @@ class TradingPool:
             if manager_id not in self.manager_prices:
                 self.manager_prices[manager_id] = {}
             self.manager_prices[manager_id][side] = price
-        
-        # get total energy from aggregated FlexOffer
-        total_energy = getattr(aggregated_fo, 'total_energy', 0.0)
-        if total_energy == 0.0:
-            # if no total_energy attribute, try other possible attributes
-            if hasattr(aggregated_fo, 'energy_amount'):
-                total_energy = getattr(aggregated_fo, 'energy_amount', 0.0)
-            elif hasattr(aggregated_fo, 'total_amount'):
-                total_energy = getattr(aggregated_fo, 'total_amount', 0.0)
-            else:
-                total_energy = 100.0  # default value
-        
-        # ensure energy value is not zero
-        total_energy = max(10.0, total_energy)  # at least 10 kWh
         
         bid = Bid(
             bid_id=f"bid_{manager_id}_{side}_{time_step}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
