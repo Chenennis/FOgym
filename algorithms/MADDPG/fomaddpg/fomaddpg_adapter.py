@@ -24,7 +24,7 @@ import logging
 from datetime import datetime
 import os
 
-from .fomaddpg import FOMADDPG
+from .fomaddpg import FOMADDPG, map_normalized_fo_actions
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +145,7 @@ class FOMAddpgAdapter:
             noise_scale=kwargs.get('noise_scale', 0.1),
             buffer_capacity=kwargs.get('buffer_capacity', 100000),
             batch_size=kwargs.get('batch_size', 64),
+            action_dims=[self.action_dims[mid] for mid in self.agent_ids],
             device=device
         )
         
@@ -327,30 +328,11 @@ class FOMAddpgAdapter:
             logger.error(f"load FOMADDPG models failed: {e}")
     
     def _map_action_to_fo_params(self, raw_action: np.ndarray) -> np.ndarray:
-        fo_action = np.zeros_like(raw_action)
-        
-        num_devices = len(raw_action) // 5 if len(raw_action) >= 5 else 1
-        
-        for i in range(num_devices):
-            base_idx = i * 5
-            if base_idx + 4 < len(raw_action):
-                # start_flex: [-1, 1] → [-1, 1] 
-                fo_action[base_idx] = np.clip(raw_action[base_idx], -1.0, 1.0)
-                
-                # end_flex: [-1, 1] → [-1, 1] 
-                fo_action[base_idx + 1] = np.clip(raw_action[base_idx + 1], -1.0, 1.0)
-                
-                # energy_min_factor: [-1, 1] → [0.1, 1.0]
-                fo_action[base_idx + 2] = 0.1 + 0.45 * (raw_action[base_idx + 2] + 1.0)
-                
-                # energy_max_factor: [-1, 1] → [1.0, 2.0]  
-                fo_action[base_idx + 3] = 1.0 + 0.5 * (raw_action[base_idx + 3] + 1.0)
-                
-                # priority_weight: [-1, 1] → [0.1, 2.0]
-                fo_action[base_idx + 4] = 0.1 + 0.95 * (raw_action[base_idx + 4] + 1.0)
-        
-        return fo_action
-    
+        """Use the exact differentiable action conversion used during training."""
+        with torch.no_grad():
+            tensor = torch.as_tensor(raw_action, dtype=torch.float32)
+            return map_normalized_fo_actions(tensor).cpu().numpy()
+
     def _generate_default_fo_action(self) -> np.ndarray:
         default_action = np.zeros(self.action_dim)
         num_devices = self.action_dim // 5 if self.action_dim >= 5 else 1
