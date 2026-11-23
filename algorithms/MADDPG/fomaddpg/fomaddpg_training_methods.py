@@ -181,6 +181,7 @@ def train_fomaddpg_adapter(pipeline):
             # collect data to experience replay buffer
             fomaddpg_adapter.collect_step(
                 obs=obs,
+                next_obs=next_obs,
                 actions=actions,
                 rewards=rewards,
                 dones=dones,
