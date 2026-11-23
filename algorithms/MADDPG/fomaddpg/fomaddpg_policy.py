@@ -298,27 +298,23 @@ class FOMaddpgPolicy:
         return constraint_violation.mean()
     
     def _compute_coordination_loss(self, agent_actions: torch.Tensor, all_actions: torch.Tensor) -> torch.Tensor:
-        """
-        compute coordination loss - encourage Manager collaboration
-        
-        Args:
-            agent_actions: current agent's action
-            all_actions: all agents' actions
-            
-        Returns:
-            coordination loss
-        """
-        # compute action correlation, encourage moderate coordination
-        if all_actions.size(1) > self.action_dim:
-            other_actions = all_actions[:, self.action_dim:]  # other agents' actions
-            # compute action difference, moderate difference is beneficial for exploration
-            action_diff = torch.abs(agent_actions.unsqueeze(1) - other_actions.view(-1, self.n_agents-1, self.action_dim))
-            # encourage moderate coordination (not completely一致)
-            coordination_loss = torch.relu(0.5 - action_diff.mean())  # target difference is 0.5
-            return coordination_loss
-        else:
-            return torch.tensor(0.0, device=self.device)
-    
+        """Coordinate against other managers, excluding the current manager."""
+        if self.n_agents <= 1:
+            return agent_actions.sum() * 0.0
+
+        expected_width = self.n_agents * self.action_dim
+        if all_actions.shape[1] != expected_width:
+            raise ValueError(
+                f"Expected joint action width {expected_width}; received {all_actions.shape[1]}"
+            )
+        joint_actions = all_actions.reshape(-1, self.n_agents, self.action_dim)
+        other_actions = torch.cat((
+            joint_actions[:, :self.agent_id],
+            joint_actions[:, self.agent_id + 1:],
+        ), dim=1)
+        differences = torch.abs(agent_actions.unsqueeze(1) - other_actions)
+        return torch.relu(0.5 - differences.mean())
+
     def soft_update(self, target: nn.Module, source: nn.Module, tau: float = 0.005):
         """Polyak-average weights and BatchNorm buffers without tracking gradients."""
         with torch.no_grad():
