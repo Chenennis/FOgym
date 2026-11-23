@@ -156,7 +156,7 @@ def train_fomatd3_adapter(pipeline):
         
         # reset environment
         obs, infos = multi_env.reset()
-        fomatd3_adapter.reset_buffers()  # for TD3, this operation is safe, will not clear experience replay buffer
+        fomatd3_adapter.reset_buffers()  # clear episode cache; retain off-policy replay
         
         episode_rewards = {manager_id: 0.0 for manager_id in manager_ids}
         
@@ -164,11 +164,7 @@ def train_fomatd3_adapter(pipeline):
         if episode > WARMUP_EPISODES:
             current_noise_scale = max(MIN_NOISE, current_noise_scale * NOISE_DECAY)
             # update adapter's noise parameters
-            for agent_id in range(fomatd3_adapter.n_agents):
-                if hasattr(fomatd3_adapter, 'agents') and fomatd3_adapter.agents is not None:
-                    fomatd3_adapter.agents[agent_id].noise_scale = current_noise_scale
-                else:
-                    fomatd3_adapter.noise_scale = current_noise_scale
+            fomatd3_adapter.noise_scale = current_noise_scale
             logger.info(f"📉 noise adjustment: {current_noise_scale:.4f}")
         
         # number of steps per episode
@@ -189,6 +185,7 @@ def train_fomatd3_adapter(pipeline):
                 rewards=rewards,
                 dones=dones,
                 infos=infos,
+                next_obs=next_obs,
                 action_log_probs=action_log_probs,
                 values=values
             )
