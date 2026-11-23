@@ -28,7 +28,9 @@ def _systems():
             "a": {"energy_min": 0.0, "energy_max": 1.0},
             "b": {"energy_min": 0.0, "energy_max": 2.0},
         },
-        "manager_2": {},
+        "manager_2": {
+            "generator": {"energy_min": -5.0, "energy_max": 0.0},
+        },
     }
 
 
