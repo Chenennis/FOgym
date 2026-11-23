@@ -551,21 +551,26 @@ class FOMAPPOAdapter:
         else:
             normalized_rewards = rewards
         
-        # check actual observation dimension
-        first_obs = next(iter(obs.values()))
-        actual_obs_dim = len(first_obs) if isinstance(first_obs, np.ndarray) else len(np.array(first_obs))
-        
-        # if actual observation dimension is different from recorded, update record and record warning
+        # The shared policy expects all managers' observations to have the
+        # same width. A short first manager does not imply a dimension change.
+        # Include next observations so they can also be stored without truncation.
+        actual_obs_dim = max(
+            self.actual_obs_dim,
+            *(np.asarray(obs[mid]).reshape(-1).size for mid in manager_ids),
+            *(np.asarray(next_obs[mid]).reshape(-1).size for mid in manager_ids),
+        )
+
+        # Only grow the shared observation width when a manager requires it.
+        # Never rebuild the policy just because a shorter manager is present.
         dimension_changed = False
-        if actual_obs_dim != self.actual_obs_dim:
-            logger.warning(f"observation dimension changed: from {self.actual_obs_dim} to {actual_obs_dim}. update record and use new dimension.")
+        if actual_obs_dim > self.actual_obs_dim:
+            logger.warning(
+                "maximum manager observation dimension increased: %s -> %s",
+                self.actual_obs_dim, actual_obs_dim,
+            )
             self.actual_obs_dim = actual_obs_dim
-            
-            # recreate buffer and policy network
             self._recreate_buffer_and_policy(actual_obs_dim)
             dimension_changed = True
-            
-            logger.warning("observation dimension updated, will continue to collect data")
         
         # ensure buffer is initialized
         if not hasattr(self, 'buffer') or self.buffer is None:
@@ -610,7 +615,10 @@ class FOMAPPOAdapter:
         # observations are written by SharedReplayBuffer.insert at step+1.
         initial_observations = np.zeros_like(obs_batch)
         for i, manager_id in enumerate(manager_ids[:self.num_agents]):
-            initial_observations[0, i] = obs[manager_id]
+            current_observation = np.asarray(
+                obs[manager_id], dtype=np.float32
+            ).reshape(-1)
+            initial_observations[0, i, :current_observation.size] = current_observation
         if (getattr(self.buffer, "collected_steps", 0) == 0
                 and hasattr(self.buffer, "obs") and hasattr(self.buffer, "share_obs")):
             self.buffer.obs[0] = initial_observations
@@ -622,8 +630,11 @@ class FOMAPPOAdapter:
                 break
                 
             # observation
-            obs_batch[0, i] = next_obs[manager_id]
-            share_obs_batch[0, i] = next_obs[manager_id]  
+            next_observation = np.asarray(
+                next_obs[manager_id], dtype=np.float32
+            ).reshape(-1)
+            obs_batch[0, i, :next_observation.size] = next_observation
+            share_obs_batch[0, i, :next_observation.size] = next_observation
             
             # action
             action_batch[0, i] = raw_actions[manager_id]
