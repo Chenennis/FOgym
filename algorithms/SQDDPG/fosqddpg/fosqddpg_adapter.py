@@ -177,7 +177,9 @@ class FOSQDDPGAdapter:
         # convert to numpy array
         obs_array = self._stack_observations(observations)
         
-        # use FOSQDDPG to select raw actions
+        # The training loop adjusts adapter.noise_scale after warmup.
+        # Keep the underlying action sampler in sync.
+        self.fosqddpg.noise_scale = self.noise_scale
         raw_actions_array = self.fosqddpg.select_actions(obs_array, add_noise=not deterministic)
         
         # convert back to dictionary format and map to FlexOffer parameter range
