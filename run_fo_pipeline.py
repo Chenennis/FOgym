@@ -4654,19 +4654,25 @@ class FOPipeline:
                 # Never substitute an arbitrary 50-kWh default.
                 try:
                     if isinstance(dfo_system, dict):
-                        capacity = float(dfo_system['energy_max'])
+                        upper = float(dfo_system['energy_max'])
+                        lower = float(dfo_system.get('energy_min', 0.0))
                     elif hasattr(dfo_system, 'get_total_energy'):
-                        capacity = float(dfo_system.get_total_energy()[1])
+                        lower, upper = map(float, dfo_system.get_total_energy())
                     elif getattr(dfo_system, 'current_fo', None) is not None:
-                        capacity = float(dfo_system.current_fo.total_energy_max)
+                        lower = float(dfo_system.current_fo.total_energy_min)
+                        upper = float(dfo_system.current_fo.total_energy_max)
                     elif hasattr(dfo_system, 'total_energy_max'):
-                        capacity = float(dfo_system.total_energy_max)
+                        lower = float(getattr(dfo_system, 'total_energy_min', 0.0))
+                        upper = float(dfo_system.total_energy_max)
                     else:
                         logger.warning(f"No energy upper bound for device {manager_id}/{device_id}")
                         continue
-                    if not np.isfinite(capacity) or capacity < 0:
-                        logger.warning(f"Invalid energy upper bound for device {manager_id}/{device_id}")
+                    if (not np.isfinite(lower) or not np.isfinite(upper)
+                            or lower > upper):
+                        logger.warning(f"Invalid energy range for device {manager_id}/{device_id}")
                         continue
+                    capacity = max(0.0, upper)
+                    export_capacity = max(0.0, -lower)
                 except (TypeError, ValueError, KeyError, IndexError) as exc:
                     logger.warning(f"Cannot read energy capacity of {manager_id}/{device_id}: {exc}")
                     continue
@@ -4676,6 +4682,7 @@ class FOPipeline:
                     'system': dfo_system,
                     'energy': capacity,
                     'capacity': capacity,
+                    'export_capacity': export_capacity,
                     'priority': 3,
                     'timestep': timestep
                 })
@@ -4684,7 +4691,12 @@ class FOPipeline:
         # guards the manager-wide budget across multiple trades at one timestep.
         capacities = {(item['manager_id'], item['device_id']): item['capacity']
                       for item in all_original_data}
+        export_capacities = {
+            (item['manager_id'], item['device_id']): item['export_capacity']
+            for item in all_original_data
+        }
         demand_by_manager = {}
+        supply_by_manager = {}
         for trade in trade_results:
             if (not np.isfinite(trade.quantity) or trade.quantity < 0 or
                     trade.time_step != timestep):
@@ -4693,12 +4705,29 @@ class FOPipeline:
             demand_by_manager[trade.buyer_id] = (
                 demand_by_manager.get(trade.buyer_id, 0.0) + trade.quantity
             )
+            supply_by_manager[trade.seller_id] = (
+                supply_by_manager.get(trade.seller_id, 0.0) + trade.quantity
+            )
         for manager_id, demand in demand_by_manager.items():
             available = sum(v for (owner, _), v in capacities.items() if owner == manager_id)
             if demand > available + 1e-9:
                 logger.error(
                     f"Disaggregation infeasible for {manager_id}: "
                     f"trades {demand:.6f} kWh exceed device capacity {available:.6f} kWh"
+                )
+                return []
+
+        # A buyer's ability to consume cannot substitute for seller delivery.
+        # Both sides must have sufficient signed energy budgets in this round.
+        for manager_id, supplied in supply_by_manager.items():
+            deliverable = sum(
+                value for (owner, _), value in export_capacities.items()
+                if owner == manager_id
+            )
+            if supplied > deliverable + 1e-9:
+                logger.error(
+                    f"Seller {manager_id} cannot deliver {supplied:.6f} kWh; "
+                    f"available signed export is {deliverable:.6f} kWh"
                 )
                 return []
 
