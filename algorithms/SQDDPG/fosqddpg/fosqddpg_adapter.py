@@ -319,37 +319,109 @@ class FOSQDDPGAdapter:
         return summary
     
     def save_models(self, save_path: str):
-        """save models"""
+        """Save inference weights and a full checkpoint for training resumption."""
         os.makedirs(save_path, exist_ok=True)
-        
+
+        checkpoint = {
+            "version": 1,
+            "agent_ids": list(self.agent_ids),
+            "observation_dims": dict(self.observation_dims),
+            "action_dims": dict(self.action_dims),
+            "training_iterations": self.training_iterations,
+            "total_iterations": self.total_iterations,
+            "algorithm_iterations": self.fosqddpg.total_iterations,
+            "current_episode": self.current_episode,
+            "noise_scale": self.noise_scale,
+            "reward_normalizer": dict(self.reward_normalizer),
+            "manager_rewards": dict(self._manager_rewards),
+            "policies": [],
+            "replay": [
+                transition._asdict()
+                for transition in self.fosqddpg.replay_buffer.buffer
+            ],
+        }
         for i, policy in enumerate(self.fosqddpg.policies):
             agent_id = self.agent_ids[i]
-            
-            # save Actor and Critic networks
-            actor_path = os.path.join(save_path, f"{agent_id}_actor.pt")
-            critic_path = os.path.join(save_path, f"{agent_id}_critic.pt")
-            
-            torch.save(policy.actor.state_dict(), actor_path)
-            torch.save(policy.critic.state_dict(), critic_path)
-            
-            logger.info(f"save {agent_id} model to {save_path}")
-    
+            checkpoint["policies"].append({
+                "actor": policy.actor.state_dict(),
+                "critic": policy.critic.state_dict(),
+                "actor_target": policy.actor_target.state_dict(),
+                "critic_target": policy.critic_target.state_dict(),
+                "actor_optimizer": policy.actor_optimizer.state_dict(),
+                "critic_optimizer": policy.critic_optimizer.state_dict(),
+            })
+            # Preserve the existing weight-only file names for downstream users.
+            torch.save(policy.actor.state_dict(),
+                       os.path.join(save_path, f"{agent_id}_actor.pt"))
+            torch.save(policy.critic.state_dict(),
+                       os.path.join(save_path, f"{agent_id}_critic.pt"))
+
+        torch.save(checkpoint, os.path.join(save_path, "sqddpg_training.pt"))
+        logger.info("Saved SQDDPG weights and training checkpoint to %s", save_path)
+
     def load_models(self, load_path: str):
-        """load models"""
-        for i, policy in enumerate(self.fosqddpg.policies):
-            agent_id = self.agent_ids[i]
-            
-            # load Actor and Critic networks
-            actor_path = os.path.join(load_path, f"{agent_id}_actor.pt")
-            critic_path = os.path.join(load_path, f"{agent_id}_critic.pt")
-            
-            if os.path.exists(actor_path) and os.path.exists(critic_path):
-                policy.actor.load_state_dict(torch.load(actor_path, map_location=self.device))
-                policy.critic.load_state_dict(torch.load(critic_path, map_location=self.device))
-                logger.info(f"load {agent_id} model from {load_path}")
-            else:
-                logger.warning(f"model file not found for {agent_id}")
-    
+        """Restore a full checkpoint, or load legacy weights for inference."""
+        checkpoint_path = os.path.join(load_path, "sqddpg_training.pt")
+        if os.path.isfile(checkpoint_path):
+            # Checkpoints contain NumPy replay arrays; load trusted local files only.
+            checkpoint = torch.load(
+                checkpoint_path, map_location=self.device, weights_only=False
+            )
+            if (checkpoint.get("version") != 1
+                    or checkpoint.get("agent_ids") != self.agent_ids
+                    or checkpoint.get("observation_dims") != self.observation_dims
+                    or checkpoint.get("action_dims") != self.action_dims
+                    or len(checkpoint.get("policies", [])) != self.num_agents):
+                raise ValueError("SQDDPG checkpoint is incompatible with this adapter")
+            for policy, saved in zip(self.fosqddpg.policies, checkpoint["policies"]):
+                policy.actor.load_state_dict(saved["actor"])
+                policy.critic.load_state_dict(saved["critic"])
+                policy.actor_target.load_state_dict(saved["actor_target"])
+                policy.critic_target.load_state_dict(saved["critic_target"])
+                policy.actor_optimizer.load_state_dict(saved["actor_optimizer"])
+                policy.critic_optimizer.load_state_dict(saved["critic_optimizer"])
+                policy.actor_target.eval()
+                policy.critic_target.eval()
+
+            replay = self.fosqddpg.replay_buffer
+            replay.buffer.clear()
+            for sample in checkpoint["replay"]:
+                replay.push(**sample)
+            self.training_iterations = checkpoint["training_iterations"]
+            self.total_iterations = checkpoint["total_iterations"]
+            self.fosqddpg.total_iterations = checkpoint["algorithm_iterations"]
+            self.current_episode = checkpoint["current_episode"]
+            self.noise_scale = checkpoint["noise_scale"]
+            self.fosqddpg.noise_scale = self.noise_scale
+            self.reward_normalizer = dict(checkpoint["reward_normalizer"])
+            self._manager_rewards = dict(checkpoint["manager_rewards"])
+            logger.info("Restored SQDDPG training checkpoint from %s", checkpoint_path)
+            return
+
+        # Backwards compatibility with previously saved actor/critic files.
+        paths = [
+            (os.path.join(load_path, f"{agent_id}_actor.pt"),
+             os.path.join(load_path, f"{agent_id}_critic.pt"))
+            for agent_id in self.agent_ids
+        ]
+        missing = [p for pair in paths for p in pair if not os.path.isfile(p)]
+        if missing:
+            raise FileNotFoundError(
+                "SQDDPG model files missing: " + ", ".join(missing)
+            )
+        for policy, (actor_path, critic_path) in zip(self.fosqddpg.policies, paths):
+            policy.actor.load_state_dict(
+                torch.load(actor_path, map_location=self.device, weights_only=True)
+            )
+            policy.critic.load_state_dict(
+                torch.load(critic_path, map_location=self.device, weights_only=True)
+            )
+            policy.actor_target.load_state_dict(policy.actor.state_dict())
+            policy.critic_target.load_state_dict(policy.critic.state_dict())
+            policy.actor_target.eval()
+            policy.critic_target.eval()
+        logger.info("Loaded legacy SQDDPG weights (training state unavailable) from %s", load_path)
+
     def _map_action_to_fo_params(self, raw_action: np.ndarray) -> np.ndarray:
         """Use the same physical FO action mapping as actor/target training."""
         with torch.no_grad():
