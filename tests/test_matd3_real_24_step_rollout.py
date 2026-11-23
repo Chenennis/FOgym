@@ -46,7 +46,7 @@ def test_matd3_real_24_step_rollout_with_consecutive_updates():
             assert np.all(actions[mid] <= space.high + 1e-6)
 
         next_obs, rewards, dones, truncated, infos = env.step(actions)
-        terminal = {mid: bool(dones[mid] or truncated[mid]) for mid in mids}
+        terminal = {mid: bool(dones[mid] or truncated) for mid in mids}
         adapter.collect_step(
             obs=obs, next_obs=next_obs, actions=actions,
             rewards=rewards, dones=terminal, infos=infos,
