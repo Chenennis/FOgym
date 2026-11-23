@@ -243,14 +243,14 @@ class FOMAddpgAdapter:
             raw_reward = float(rewards[mid])
             if not np.isfinite(raw_reward):
                 raise ValueError(f"{mid} received non-finite reward")
-            # Preserve the existing MADDPG reward treatment in this
-            # dimension-only change; reward scaling is audited separately.
-            normalized_reward = np.clip(raw_reward, -50.0, 50.0) * 0.5
+            # Fixed linear scaling preserves reward differences over time.
+            # Keep manager statistics in the original environmental reward units.
+            normalized_reward = raw_reward / 1000.0
             agent_rewards.append(normalized_reward)
             agent_dones.append(bool(dones[mid]))
-            self.manager_stats[mid]['total_reward'] += normalized_reward
+            self.manager_stats[mid]['total_reward'] += raw_reward
             self.manager_stats[mid]['best_reward'] = max(
-                self.manager_stats[mid]['best_reward'], normalized_reward
+                self.manager_stats[mid]['best_reward'], raw_reward
             )
         self.fomaddpg.store_experience(
             states=states, actions=agent_actions,
