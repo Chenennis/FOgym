@@ -4564,8 +4564,8 @@ class FOPipeline:
                     slice_id=0,
                     start_time=slice_start,
                     end_time=slice_end,
-                    energy_min=max(0.0, total_min),
-                    energy_max=max(total_min, total_max),
+                    energy_min=total_min,
+                    energy_max=total_max,
                     duration_minutes=60.0,  # 60分钟
                     device_type=device_type,
                     device_id=device_id,
