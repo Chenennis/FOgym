@@ -281,8 +281,8 @@ def train_fomaddpg_adapter(pipeline):
         training_history.append(training_data_total)
         
         # display learning progress periodically
-        if (episode + 1) % 10 == 0:
-            logger.info(f"\n========== FOMADDPG training progress: {episode+1}/{pipeline.num_episodes} episodes ==========")
+        if episode % 10 == 0:
+            logger.info(f"\n========== FOMADDPG training progress: {episode}/{pipeline.num_episodes} episodes ==========")
             
             # get training statistics
             try:
@@ -313,9 +313,9 @@ def train_fomaddpg_adapter(pipeline):
             logger.info("=" * 70)
         
         # save model periodically
-        if (episode + 1) % 20 == 0 or episode == pipeline.num_episodes:
+        if episode % 20 == 0 or episode == pipeline.num_episodes:
             try:
-                model_path = f"results/fomaddpg_optimized_ep{episode+1}"
+                model_path = f"results/fomaddpg_optimized_ep{episode}"
                 fomaddpg_adapter.save_models(model_path)
                 logger.info(f"📀 model saved to: {model_path}")
                 
@@ -382,8 +382,8 @@ def train_fomaddpg_adapter(pipeline):
             
             # add training loss
             loss_info = {
-                'policy_loss': item.get('policy_loss', 0.001),
-                'value_loss': item.get('value_loss', 0.001),
+                'policy_loss': item.get('policy_loss'),
+                'value_loss': item.get('value_loss'),
                 'entropy': item.get('entropy', 0.0)  # MADDPG has no entropy
             }
             result['training_history']['training_loss'][manager_id].append(loss_info)
