@@ -124,3 +124,48 @@ def test_heterogeneous_manager_observations_are_padded_for_shared_buffer():
     np.testing.assert_allclose(recorded["obs"][0, 1], [10, 11, 12, 13])
     np.testing.assert_allclose(recorded["obs"][0, 2], [10, 11, 12, 0])
     np.testing.assert_allclose(recorded["obs"][0, 3], [10, 0, 0, 0])
+
+
+def test_shared_policy_returns_manager_specific_action_widths():
+    """A common policy output must respect each environment manager's action space."""
+    source = (Path(__file__).resolve().parents[1] / "algorithms" /
+              "MAPPO" / "fomappo" / "fomappo_adapter.py")
+    parsed = ast.parse(source.read_text(encoding="utf-8"))
+    adapter_class = next(node for node in parsed.body
+                         if isinstance(node, ast.ClassDef) and node.name == "FOMAPPOAdapter")
+    method = next(node for node in adapter_class.body
+                  if isinstance(node, ast.FunctionDef) and node.name == "select_actions")
+    import torch
+    namespace = {"np": np, "torch": torch, "Dict": Dict, "Tuple": Tuple,
+                 "logger": logging.getLogger(__name__)}
+    exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), "exec"),
+         namespace)
+
+    class MockPolicy:
+        def get_actions(self, cent_obs, obs, actor_rnn, critic_rnn,
+                        masks, available_actions=None, deterministic=False):
+            batch = obs.shape[0]
+            actions = torch.zeros((batch, 10), dtype=torch.float32)
+            log_probs = torch.ones((batch, 1), dtype=torch.float32) * -1.0
+            values = torch.zeros((batch, 1), dtype=torch.float32)
+            return values, actions, log_probs, actor_rnn, critic_rnn
+
+    adapter = SimpleNamespace(
+        num_agents=4, action_dim=10, actual_obs_dim=4,
+        device=torch.device("cpu"), policy=MockPolicy(),
+        args=SimpleNamespace(recurrent_N=1, hidden_size=2),
+        manager_action_dims={"manager_1": 5, "manager_2": 10,
+                             "manager_3": 5, "manager_4": 10},
+        _map_action_to_fo_params=lambda action: action.copy(),
+    )
+    observations = {
+        f"manager_{i}": np.full(4, i, dtype=np.float32)
+        for i in range(1, 5)
+    }
+    actions, log_probs, values = namespace["select_actions"](adapter, observations)
+    assert {mid: len(action) for mid, action in actions.items()} == {
+        "manager_1": 5, "manager_2": 10,
+        "manager_3": 5, "manager_4": 10,
+    }
+    assert all(len(a) == 10 for a in adapter._last_raw_actions.values())
+    assert all(np.asarray(p).shape == (1,) for p in log_probs.values())
