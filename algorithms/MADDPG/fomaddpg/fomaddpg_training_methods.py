@@ -15,6 +15,13 @@ except ImportError:
     FOMAddpgAdapter = None
     FOMADDPG_ADAPTER_available = False
 
+def maddpg_loss_values(update_info: Optional[Dict[str, Any]]) -> Tuple[Optional[float], Optional[float]]:
+    """Return actual optimizer losses, or missing values when no update occurred."""
+    if update_info is None:
+        return None, None
+    return float(update_info['actor_loss']), float(update_info['critic_loss'])
+
+
 def train_fomaddpg_adapter(pipeline):
     logger.info("🚀 start optimized FOMADDPG training (solve overfitting and instability problem)")
     logger.info(f"plan to train {pipeline.num_episodes} episodes")
@@ -164,6 +171,7 @@ def train_fomaddpg_adapter(pipeline):
         fomaddpg_adapter.reset_buffers()  # for MADDPG, this operation is safe, will not clear experience replay buffer
         
         episode_rewards = {manager_id: 0.0 for manager_id in manager_ids}
+        update_info = None  # latest successful update in this episode only
         
         # dynamic adjust noise ratio
         if episode > WARMUP_EPISODES:
@@ -206,10 +214,10 @@ def train_fomaddpg_adapter(pipeline):
             if timestep % UPDATE_FREQ == 0 and episode > WARMUP_EPISODES:
                 # 🔧 optimization: first few episodes don't update, only collect experience
                 train_info = fomaddpg_adapter.train_on_batch()
-                if isinstance(train_info, dict):
-                    policy_loss = train_info.get('policy_loss', 0.0)
-                    value_loss = train_info.get('value_loss', 0.0)
-                    logger.debug(f"  ⚙️ training update: Actor Loss: {policy_loss:.5f}, Critic Loss: {value_loss:.5f}")
+                if train_info is not None:
+                    update_info = train_info
+                    actor_loss, critic_loss = maddpg_loss_values(train_info)
+                    logger.debug(f"  ⚙️ training update: Actor Loss: {actor_loss:.5f}, Critic Loss: {critic_loss:.5f}")
             
             # display time step reward
             timestep_total = sum(rewards.values())
@@ -219,16 +227,19 @@ def train_fomaddpg_adapter(pipeline):
         if episode > WARMUP_EPISODES:
             # update multiple times after episode
             for _ in range(5):  # update 5 times
-                update_info = fomaddpg_adapter.train_on_batch()
+                train_info = fomaddpg_adapter.train_on_batch()
+                if train_info is not None:
+                    update_info = train_info
         
         # record episode reward and statistics
         episode_total_reward = sum(episode_rewards.values())
         logger.info(f"Episode {episode} completed:")
         logger.info(f"  🎯 total reward: {episode_total_reward:.3f}")
         
-        # if there is training information
-        if 'update_info' in locals() and isinstance(update_info, dict):
-            logger.info(f"  📈 training loss: Actor {update_info.get('policy_loss', 0):.4f}, Critic {update_info.get('value_loss', 0):.4f}")
+        # Only report real losses from an optimizer update in this episode.
+        actor_loss, critic_loss = maddpg_loss_values(update_info)
+        if update_info is not None:
+            logger.info(f"  📈 training loss: Actor {actor_loss:.4f}, Critic {critic_loss:.4f}")
         
         # display each manager's reward and record to training history
         for manager_id, reward in episode_rewards.items():
@@ -241,19 +252,19 @@ def train_fomaddpg_adapter(pipeline):
                 'manager_id': manager_id,
                 'episode': episode,
                 'episode_reward': reward,
-                'policy_loss': float(update_info.get('policy_loss', 0.001)) if 'update_info' in locals() else 0.001,
-                'value_loss': float(update_info.get('value_loss', 0.001)) if 'update_info' in locals() else 0.001,
+                'policy_loss': actor_loss,
+                'value_loss': critic_loss,
                 'entropy': 0.0  # MADDPG has no entropy
             }
             training_history.append(training_data)
             
             # record training loss
-            if hasattr(pipeline, '_record_training_loss') and 'update_info' in locals():
+            if hasattr(pipeline, '_record_training_loss') and update_info is not None:
                 pipeline._record_training_loss(
                     manager_id=manager_id,
                     episode=episode,
-                    policy_loss=float(update_info.get('policy_loss', 0.001)),
-                    value_loss=float(update_info.get('value_loss', 0.001)),
+                    policy_loss=actor_loss,
+                    value_loss=critic_loss,
                     entropy=0.0  # MADDPG has no entropy
                 )
         
@@ -263,8 +274,8 @@ def train_fomaddpg_adapter(pipeline):
             'manager_id': 'total',
             'episode': episode,
             'episode_reward': episode_total_reward,
-            'policy_loss': float(update_info.get('policy_loss', 0.0)) if 'update_info' in locals() else 0.0,
-            'value_loss': float(update_info.get('value_loss', 0.0)) if 'update_info' in locals() else 0.0,
+            'policy_loss': actor_loss,
+            'value_loss': critic_loss,
             'entropy': 0.0  # MADDPG has no entropy
         }
         training_history.append(training_data_total)
