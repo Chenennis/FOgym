@@ -78,8 +78,10 @@ def train_fomatd3_adapter(pipeline):
     # get state and action space dimension
     try:
         sample_obs, _ = multi_env.reset()
-        state_dim = len(sample_obs[manager_ids[0]])
-        action_dim = multi_env.action_spaces[manager_ids[0]].shape[0]
+        observation_dims = {mid: len(sample_obs[mid]) for mid in manager_ids}
+        action_dims = {mid: multi_env.action_spaces[mid].shape[0] for mid in manager_ids}
+        state_dim = max(observation_dims.values())
+        action_dim = max(action_dims.values())
         logger.info(f"📊 state space: {state_dim} dimensions, action space: {action_dim} dimensions")
     except Exception as e:
         logger.error(f"❌ get observation and action space failed: {e}")
@@ -106,6 +108,8 @@ def train_fomatd3_adapter(pipeline):
             state_dim=state_dim,
             action_dim=action_dim,
             num_agents=num_managers,
+            observation_dims=observation_dims,
+            action_dims=action_dims,
             episode_length=pipeline.steps_per_episode,
             
             # learning rate - TD3 usually uses lower learning rate to improve stability
@@ -183,7 +187,7 @@ def train_fomatd3_adapter(pipeline):
                 obs=obs,
                 actions=actions,
                 rewards=rewards,
-                dones=dones,
+                dones={mid: bool(dones[mid] or truncated[mid]) for mid in manager_ids},
                 infos=infos,
                 next_obs=next_obs,
                 action_log_probs=action_log_probs,
