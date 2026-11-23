@@ -23,8 +23,8 @@ def make_fo(device, hour, energy_min, energy_max):
 
 @pytest.mark.parametrize("method", ["LP", "DP"])
 def test_rejected_candidates_are_returned_without_loss_or_false_membership(method):
-    # 95 kWh in one hour has a smaller RMSE to the 100-kW target than 96 kWh.
-    first = make_fo("first", 8, 95.0, 95.0)
+    # 100 kWh in one hour has a smaller RMSE to the 100-kW target than 101 kWh.
+    first = make_fo("first", 8, 100.0, 100.0)
     second = make_fo("second", 8, 1.0, 1.0)
     results = FOAggregatorFactory.create_aggregator(method).aggregate([first, second])
 
@@ -32,8 +32,8 @@ def test_rejected_candidates_are_returned_without_loss_or_false_membership(metho
     assert sorted(tuple(r.source_fo_ids) for r in results) == [
         ("first_fo_h8",), ("second_fo_h8",)
     ]
-    assert sum(r.aggregated_fo.total_energy_min for r in results) == pytest.approx(96.0)
-    assert sum(r.aggregated_fo.total_energy_max for r in results) == pytest.approx(96.0)
+    assert sum(r.aggregated_fo.total_energy_min for r in results) == pytest.approx(101.0)
+    assert sum(r.aggregated_fo.total_energy_max for r in results) == pytest.approx(101.0)
 
 
 @pytest.mark.parametrize("method", ["LP", "DP"])
