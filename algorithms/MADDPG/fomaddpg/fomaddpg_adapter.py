@@ -307,26 +307,17 @@ class FOMAddpgAdapter:
         return summary
     
     def save_models(self, save_path: str):
-        """save models"""
-        try:
-            # ensure directory exists
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            
-            # use FOMADDPG's save method
-            self.fomaddpg.save_models(save_path)
-            logger.info(f"FOMADDPG models saved to {save_path}")
-        except Exception as e:
-            logger.error(f"save FOMADDPG models failed: {e}")
-    
+        """Save all agent models; report filesystem and serialization failures."""
+        directory = os.path.dirname(os.path.abspath(save_path))
+        os.makedirs(directory, exist_ok=True)
+        self.fomaddpg.save_models(save_path)
+        logger.info("FOMADDPG models saved to %s", save_path)
+
     def load_models(self, load_path: str):
-        """load models"""
-        try:
-            # use FOMADDPG's load method
-            self.fomaddpg.load_models(load_path)
-            logger.info(f"FOMADDPG models loaded from {load_path}")
-        except Exception as e:
-            logger.error(f"load FOMADDPG models failed: {e}")
-    
+        """Restore all agent models, raising when any model is absent."""
+        self.fomaddpg.load_models(load_path)
+        logger.info("FOMADDPG models loaded from %s", load_path)
+
     def _map_action_to_fo_params(self, raw_action: np.ndarray) -> np.ndarray:
         """Use the exact differentiable action conversion used during training."""
         with torch.no_grad():
