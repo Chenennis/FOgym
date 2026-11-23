@@ -26,7 +26,7 @@ def test_trading_pool_bid_quantity_uses_actual_afo_capacity():
     # Avoid price model initialization: explicit price tests just the quantity contract.
     pool = TradingPool.__new__(TradingPool)
     afo = make_afo("manager_1", "small", 1.0, 2.0)
-    bid = pool.create_bid_from_aggregated_fo("manager_1", afo, 8, side="sell", price=0.2)
+    bid = pool.create_bid_from_aggregated_fo("manager_1", afo, 8, side="buy", price=0.2)
     assert bid.quantity == pytest.approx(2.0)
     assert bid.max_quantity == pytest.approx(2.0)
     assert 0.0 <= bid.min_quantity <= bid.quantity
