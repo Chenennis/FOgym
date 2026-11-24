@@ -136,8 +136,13 @@ class FOAggregator(ABC):
         aggregated_slices = []
         for i in range(max_slices):
             # get energy of two FOs in the slice
-            e1_min, e1_max = fo1.get_energy_bounds(i) if i < len(fo1.slices) else (0.0, 0.0)
-            e2_min, e2_max = fo2.get_energy_bounds(i) if i < len(fo2.slices) else (0.0, 0.0)
+            # Compatibility has already established one-to-one time alignment.
+            # get_energy_bounds() accepts a slice ID, not a positional index;
+            # reading by index would silently replace nonzero-ID energy with zero.
+            s1 = fo1.slices[i]
+            s2 = fo2.slices[i]
+            e1_min, e1_max = s1.energy_min, s1.energy_max
+            e2_min, e2_max = s2.energy_min, s2.energy_max
             
             # aggregate energy 
             agg_e_min = e1_min + e2_min
