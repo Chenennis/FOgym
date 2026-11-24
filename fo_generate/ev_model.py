@@ -1,3 +1,4 @@
+from copy import copy
 from dataclasses import dataclass
 from typing import Optional, Tuple, List, Dict
 import numpy as np
@@ -123,14 +124,12 @@ class EVModel:
         p_max = min(self.params.max_charging_power, remaining_capacity / self.params.efficiency)
         
         # adjust charging power based on user preference and time constraint
-        if self.user_behavior.fast_charge_preferred and self.params.fast_charge_capable:
-            # fast charging mode: charge as fast as possible
-            p_max = self.params.max_charging_power
-        else:
+        if not (self.user_behavior.fast_charge_preferred and self.params.fast_charge_capable):
             # adjust maximum power based on charging flexibility
             if self.user_behavior.charge_flexibility > 0.5:
                 # high flexibility: can charge intermittently, reduce peak power
                 p_max = min(p_max, self.params.max_charging_power * 0.7)
+        # Fast charging retains the remaining-capacity limit computed above.
         
         # calculate minimum charging power
         p_min = 0  # EV can charge intermittently, so minimum power can be 0
@@ -164,23 +163,25 @@ class EVModel:
             time_horizon = 24  # default value is 24 hours
         
         dfo = DFOSystem(time_horizon)
+        # Forecast on a copy; offer generation must not execute charging.
+        simulated = copy(self)
         
         for t in range(time_horizon):
             # calculate energy boundary
-            energy_min, energy_max = self.get_available_power(current_time)
+            energy_min, energy_max = simulated.get_available_power(current_time)
             
             # create constraints
             constraints = []
             
             # add SOC constraint
             soc_constraint = np.array([1.0, -1.0])  # SOC >= min, SOC <= max
-            constraints.append((soc_constraint, self.params.soc_max - self.current_soc))
-            constraints.append((-soc_constraint, self.current_soc - self.params.soc_min))
+            constraints.append((soc_constraint, self.params.soc_max - simulated.current_soc))
+            constraints.append((-soc_constraint, simulated.current_soc - self.params.soc_min))
             
             # if there is user behavior information, add target SOC constraint
             if self.user_behavior and t == time_horizon - 1:
                 target_constraint = np.array([1.0])  # SOC >= target_soc
-                constraints.append((target_constraint, self.user_behavior.target_soc - self.current_soc))
+                constraints.append((target_constraint, self.user_behavior.target_soc - simulated.current_soc))
             
             # create time slice
             slice = DFOSlice(
@@ -196,7 +197,7 @@ class EVModel:
             
             # simulate state change after one time step
             avg_power = (energy_min + energy_max) / 2
-            self.update_soc(avg_power, time_step)
+            simulated.update_soc(avg_power, time_step)
             
         return dfo
 
