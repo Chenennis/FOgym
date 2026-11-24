@@ -32,7 +32,7 @@ def train_fomaddpg_adapter(pipeline):
         pipeline.num_episodes = 1
     
     # record maximum allowed episodes number
-    max_allowed_episodes = min(pipeline.num_episodes, 100)  # set a safe upper limit
+    max_allowed_episodes = pipeline.num_episodes
     logger.info(f"maximum allowed episodes number: {max_allowed_episodes}")
     
     # update actual running algorithm
