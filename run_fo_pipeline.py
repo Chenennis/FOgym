@@ -3370,6 +3370,24 @@ class FOPipeline:
             # Step 4: Trade FlexOffer
             trade_results = self._trade_flexoffers_for_timestep(aggregated_results, timestep)
             
+            # One authoritative diagnostic snapshot per pipeline timestep.
+            # Counts do not alter clearing, dispatch or reward calculations.
+            pipeline_diagnostics = {
+                'dfo_devices': sum(len(devices) for devices in fo_systems.values()),
+                'afo_count': len(aggregated_results),
+                **getattr(self, '_last_trading_diagnostics', {}),
+            }
+            logger.info(
+                f"PIPELINE_STAGE_COUNTS t={timestep} "
+                f"DFO={pipeline_diagnostics['dfo_devices']} "
+                f"AFO={pipeline_diagnostics['afo_count']} "
+                f"buy={pipeline_diagnostics.get('buy_bids', 0)} "
+                f"sell={pipeline_diagnostics.get('sell_bids', 0)} "
+                f"submitted={pipeline_diagnostics.get('submitted_bids', 0)} "
+                f"rejected={pipeline_diagnostics.get('rejected_bids', 0)} "
+                f"trades={len(trade_results)}"
+            )
+
             # Step 5: Disaggregate aggregated FlexOffer
             disaggregated_results = self._disaggregate_flexoffers_for_timestep(trade_results, fo_systems, timestep)
             
@@ -3383,6 +3401,7 @@ class FOPipeline:
                 "fo_systems": fo_systems,
                 "aggregated_results": aggregated_results, 
                 "trade_results": trade_results,
+                "pipeline_diagnostics": pipeline_diagnostics,
                 "disaggregated_results": disaggregated_results,
                 "schedule_results": schedule_results,
                 "user_satisfaction": schedule_results.get("satisfaction", 0.0)
@@ -4626,6 +4645,10 @@ class FOPipeline:
         """Submit only physically backed manager-owned offers and real trades."""
         logger.info(f"Trading FlexOffer for timestep {timestep}...")
 
+        self._last_trading_diagnostics = {
+            'buy_bids': 0, 'sell_bids': 0,
+            'submitted_bids': 0, 'rejected_bids': 0,
+        }
         if not aggregated_results:
             return []
 
@@ -4649,9 +4672,14 @@ class FOPipeline:
                     logger.debug(f"Skipping infeasible {side} bid for {result.afo_id}: {exc}")
                     continue
                 bids.append(bid)
+                key = 'buy_bids' if side == 'buy' else 'sell_bids'
+                self._last_trading_diagnostics[key] += 1
 
         for bid in bids:
-            self.trading_pool.submit_bid(bid)
+            if self.trading_pool.submit_bid(bid):
+                self._last_trading_diagnostics['submitted_bids'] += 1
+            else:
+                self._last_trading_diagnostics['rejected_bids'] += 1
 
         if not bids:
             logger.info(f"No feasible energy bids at timestep {timestep}")
@@ -5287,8 +5315,15 @@ class FOPipeline:
                     if hasattr(trade, 'quantity') and hasattr(trade, 'price'):
                         trade_value += trade.quantity * trade.price
                 
+                diagnostics = timestep_result.get('pipeline_diagnostics', {})
                 timestep_rows.append({
                     'algorithm': algorithm_name,
+                    'dfo_devices': diagnostics.get('dfo_devices', 0),
+                    'afo_count': diagnostics.get('afo_count', 0),
+                    'buy_bids': diagnostics.get('buy_bids', 0),
+                    'sell_bids': diagnostics.get('sell_bids', 0),
+                    'submitted_bids': diagnostics.get('submitted_bids', 0),
+                    'rejected_bids': diagnostics.get('rejected_bids', 0),
                     'timestep': timestep,
                     'hour': hour,
                     'trades_count': trades_count,
@@ -5312,7 +5347,12 @@ class FOPipeline:
                 import csv
                 with open(csv_file, 'w', newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['algorithm', 'timestep', 'hour', 'trades_count', 'disaggregated_count', 'trade_value', 'user_satisfaction'])
+                    writer.writerow([
+                        'algorithm', 'dfo_devices', 'afo_count', 'buy_bids', 'sell_bids',
+                        'submitted_bids', 'rejected_bids', 'timestep', 'hour',
+                        'trades_count', 'disaggregated_count', 'trade_value',
+                        'user_satisfaction',
+                    ])
                     
                     for timestep_result in results["timestep_results"]:
                         timestep = timestep_result["timestep"]
@@ -5326,7 +5366,17 @@ class FOPipeline:
                             if hasattr(trade, 'quantity') and hasattr(trade, 'price'):
                                 trade_value += trade.quantity * trade.price
                         
-                        writer.writerow([algorithm_name, timestep, hour, trades_count, disaggregated_count, trade_value, satisfaction])
+                        diagnostics = timestep_result.get('pipeline_diagnostics', {})
+                        writer.writerow([
+                            algorithm_name, diagnostics.get('dfo_devices', 0),
+                            diagnostics.get('afo_count', 0),
+                            diagnostics.get('buy_bids', 0),
+                            diagnostics.get('sell_bids', 0),
+                            diagnostics.get('submitted_bids', 0),
+                            diagnostics.get('rejected_bids', 0),
+                            timestep, hour, trades_count, disaggregated_count,
+                            trade_value, satisfaction,
+                        ])
                         
                 logger.info(f"Saved pipeline execution results to {csv_file} using built-in CSV module")
             except Exception as e2:
