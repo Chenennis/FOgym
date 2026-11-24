@@ -4547,86 +4547,58 @@ class FOPipeline:
                 device_type = dfo_system.device_type
                 slices = getattr(dfo_system, 'slices', [])
             
-            # The pipeline operates on one hourly FO per timestep.
-            # Preserve authoritative DFO windows; never rewrite them to 2-minute
-            # slices or compress a multi-hour DFO into a single trading hour.
+            # Create time slice list
             fo_slices = []
             base_time = datetime.now().replace(minute=0, second=0, microsecond=0)
-            hour = timestep
-            fo_start = base_time + timedelta(hours=hour)
-            fo_end = fo_start + timedelta(hours=1)
-
+            hour = timestep  # Use timestep as hour
+            
+            # Create FOSlice for each DFO slice (only for actual DFOSystem)
             if slices:
-                has_windows = [
-                    (s.start_time is not None, s.end_time is not None)
-                    for s in slices
-                ]
-                if all(start and end for start, end in has_windows):
-                    fo_start = slices[0].start_time
-                    fo_end = slices[-1].end_time
-                    if (fo_end - fo_start != timedelta(hours=1) or
-                            fo_start.minute != 0 or fo_start.second != 0 or
-                            fo_start.microsecond != 0 or
-                            fo_start.hour != timestep % 24):
-                        raise ValueError("DFO time windows do not cover the pipeline hour")
-                    for index, dfo_slice in enumerate(slices):
-                        slice_start, slice_end = dfo_slice.start_time, dfo_slice.end_time
-                        expected_start = (fo_start if index == 0
-                                          else slices[index - 1].end_time)
-                        if (slice_start != expected_start or
-                                slice_end <= slice_start or slice_end > fo_end):
-                            raise ValueError("DFO windows must be ordered, continuous and nonoverlapping")
-                        fo_slices.append(FOSlice(
-                            slice_id=index,
-                            start_time=slice_start, end_time=slice_end,
-                            energy_min=dfo_slice.energy_min,
-                            energy_max=dfo_slice.energy_max,
-                            duration_minutes=(slice_end - slice_start).total_seconds() / 60.0,
-                            device_type=device_type, device_id=device_id,
-                            priority=3,
-                            flexibility_factor=dfo_slice.flexibility_factor
-                        ))
-                elif all(not start and not end for start, end in has_windows):
-                    # The DFO has no absolute timestamps. Partition the one-hour
-                    # pipeline interval evenly; do not invent a 2-minute duration.
-                    count = len(slices)
-                    for index, dfo_slice in enumerate(slices):
-                        slice_start = fo_start + timedelta(hours=index / count)
-                        slice_end = fo_start + timedelta(hours=(index + 1) / count)
-                        fo_slices.append(FOSlice(
-                            slice_id=index,
-                            start_time=slice_start, end_time=slice_end,
-                            energy_min=dfo_slice.energy_min,
-                            energy_max=dfo_slice.energy_max,
-                            duration_minutes=(slice_end - slice_start).total_seconds() / 60.0,
-                            device_type=device_type, device_id=device_id,
-                            priority=3,
-                            flexibility_factor=dfo_slice.flexibility_factor
-                        ))
-                else:
-                    raise ValueError("DFO slices have incomplete or inconsistent time windows")
-
-            # Legacy dictionary inputs without slices explicitly represent one hour.
+                for i, dfo_slice in enumerate(slices):
+                # Calculate start and end time of time slice
+                    slice_start = base_time + timedelta(hours=hour, minutes=i*2)  # 2 minutes per slice
+                    slice_end = slice_start + timedelta(minutes=2)
+                
+                    fo_slice = FOSlice(
+                        slice_id=i,
+                        start_time=slice_start,
+                        end_time=slice_end,
+                        energy_min=dfo_slice.energy_min,
+                        energy_max=dfo_slice.energy_max,
+                        duration_minutes=2.0,  # 2 minutes per slice
+                        device_type=device_type,
+                        device_id=device_id,
+                        priority=3,
+                        flexibility_factor=dfo_slice.flexibility_factor
+                    )
+                    fo_slices.append(fo_slice)
+            
+            # If DFO system doesn't have slices, create a default slice
             if not fo_slices:
-                fo_slices.append(FOSlice(
+                # Create a slice covering the entire hour
+                slice_start = base_time + timedelta(hours=hour)
+                slice_end = slice_start + timedelta(hours=1)
+                
+                fo_slice = FOSlice(
                     slice_id=0,
-                    start_time=fo_start,
-                    end_time=fo_end,
+                    start_time=slice_start,
+                    end_time=slice_end,
                     energy_min=total_min,
                     energy_max=total_max,
-                    duration_minutes=60.0,
+                    duration_minutes=60.0,  # 60分钟
                     device_type=device_type,
                     device_id=device_id,
                     priority=3,
                     flexibility_factor=0.5
-                ))
-
+                )
+                fo_slices.append(fo_slice)
+            
             # Create FlexOffer object
             fo = FlexOffer(
                 fo_id=f"fo_{device_id}_t{timestep}",
                 hour=hour % 24,  # Ensure hour is in range 0-23
-                start_time=fo_start,
-                end_time=fo_end,
+                start_time=base_time + timedelta(hours=hour),
+                end_time=base_time + timedelta(hours=hour+1),
                 device_id=device_id,
                 device_type=device_type,
                 slices=fo_slices
