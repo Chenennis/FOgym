@@ -5132,7 +5132,7 @@ class FOPipeline:
                 
                 # 1. Trade value reward
                 trade_value = 0.0
-                trades = timestep_data.get("trades", [])
+                trades = timestep_data.get("trade_results", [])
                 for trade in trades:
                     if hasattr(trade, 'quantity') and hasattr(trade, 'price'):
                         trade_value += trade.quantity * trade.price
