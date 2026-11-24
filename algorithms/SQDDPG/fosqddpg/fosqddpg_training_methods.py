@@ -29,7 +29,7 @@ def train_fosqddpg_adapter(pipeline):
         pipeline.num_episodes = 1
     
     # record maximum allowed episodes number
-    max_allowed_episodes = min(pipeline.num_episodes, 100)  # set a safe upper limit
+    max_allowed_episodes = pipeline.num_episodes
     logger.info(f"maximum allowed episodes number: {max_allowed_episodes}")
     
     # update actual running algorithm
@@ -81,9 +81,15 @@ def train_fosqddpg_adapter(pipeline):
     # get state and action space dimensions
     try:
         sample_obs, _ = multi_env.reset()
-        state_dim = len(sample_obs[manager_ids[0]])
-        action_dim = multi_env.action_spaces[manager_ids[0]].shape[0]
-        logger.info(f"📊 state space: {state_dim} dimensions, action space: {action_dim} dimensions")
+        observation_dims = {agent_id: len(sample_obs[agent_id]) for agent_id in manager_ids}
+        action_dims = {
+            agent_id: multi_env.action_spaces[agent_id].shape[0] for agent_id in manager_ids
+        }
+        state_dim = max(observation_dims.values())
+        action_dim = max(action_dims.values())
+        logger.info(f"📊 padded state space: {state_dim}, padded action space: {action_dim}")
+        logger.info(f"Manager observation dimensions: {observation_dims}")
+        logger.info(f"Manager action dimensions: {action_dims}")
     except Exception as e:
         logger.error(f"❌ failed to get observation and action space: {e}")
         return {'status': 'failed', 'error': f'failed to get environment parameters: {e}'}
@@ -109,7 +115,9 @@ def train_fosqddpg_adapter(pipeline):
             state_dim=state_dim,
             action_dim=action_dim,
             num_agents=num_managers,
-            
+            observation_dims=observation_dims,
+            action_dims=action_dims,
+
             # learning rate settings
             lr_actor=5e-5,      # low learning rate to improve stability
             lr_critic=1e-4,     # low learning rate to improve stability
@@ -160,6 +168,8 @@ def train_fosqddpg_adapter(pipeline):
         fosqddpg_adapter.reset_episode()  # reset episode state
         
         episode_rewards = {manager_id: 0.0 for manager_id in manager_ids}
+        update_info = None
+        episode_update_count = 0
         
         # dynamic adjustment of noise ratio
         if episode > WARMUP_EPISODES:
@@ -184,6 +194,7 @@ def train_fosqddpg_adapter(pipeline):
                 obs=obs,
                 actions=actions,
                 rewards=rewards,
+                next_obs=next_obs,
                 dones=dones,
                 infos=infos,
                 timestep=timestep
@@ -200,8 +211,10 @@ def train_fosqddpg_adapter(pipeline):
             if timestep % UPDATE_FREQ == 0 and episode > WARMUP_EPISODES:
                 train_info = fosqddpg_adapter.train_on_batch()
                 if isinstance(train_info, dict):
-                    policy_loss = train_info.get('policy_loss', 0.0)
-                    value_loss = train_info.get('value_loss', 0.0)
+                    update_info = train_info
+                    episode_update_count += 1
+                    policy_loss = train_info['actor_loss']
+                    value_loss = train_info['critic_loss']
                     logger.debug(f"  ⚙️ training update: Actor Loss: {policy_loss:.5f}, Critic Loss: {value_loss:.5f}")
             
             # display time step rewards
@@ -212,19 +225,20 @@ def train_fosqddpg_adapter(pipeline):
         if episode > WARMUP_EPISODES:
             # update several times after episode
             for _ in range(5):
-                update_info = fosqddpg_adapter.train_on_batch()
+                train_info = fosqddpg_adapter.train_on_batch()
+                if isinstance(train_info, dict):
+                    update_info = train_info
+                    episode_update_count += 1
         
         # record episode rewards and statistics
         episode_total_reward = sum(episode_rewards.values())
         logger.info(f"Episode {episode} completed:")
         logger.info(f"  🎯 total reward: {episode_total_reward:.3f}")
         
-        # if there is training information
-        if 'update_info' in locals() and isinstance(update_info, dict):
-            shapley_info = update_info.get('shapley_info', {})
-            logger.info(f"  📈 training loss: Actor {update_info.get('policy_loss', 0):.4f}, "
-                       f"Critic {update_info.get('value_loss', 0):.4f}")
-            logger.info(f"  🔍 Shapley value: {shapley_info}")
+        logger.info(f"  completed optimizer updates this episode: {episode_update_count}")
+        if isinstance(update_info, dict):
+            logger.info(f"  📈 training loss: Actor {update_info['actor_loss']:.4f}, "
+                       f"Critic {update_info['critic_loss']:.4f}")
         
         # display each manager's reward and record to training history
         for manager_id, reward in episode_rewards.items():
@@ -237,19 +251,19 @@ def train_fosqddpg_adapter(pipeline):
                 'manager_id': manager_id,
                 'episode': episode,
                 'episode_reward': reward,
-                'policy_loss': float(update_info.get('policy_loss', 0.001)) if 'update_info' in locals() else 0.001,
-                'value_loss': float(update_info.get('value_loss', 0.001)) if 'update_info' in locals() else 0.001,
+                'policy_loss': float(update_info['actor_loss']) if update_info is not None else float('nan'),
+                'value_loss': float(update_info['critic_loss']) if update_info is not None else float('nan'),
                 'entropy': 0.0  # FOSQDDPG has no entropy concept
             }
             training_history.append(training_data)
             
             # record training loss
-            if hasattr(pipeline, '_record_training_loss') and 'update_info' in locals():
+            if hasattr(pipeline, '_record_training_loss') and update_info is not None:
                 pipeline._record_training_loss(
                     manager_id=manager_id,
                     episode=episode,
-                    policy_loss=float(update_info.get('policy_loss', 0.001)),
-                    value_loss=float(update_info.get('value_loss', 0.001)),
+                    policy_loss=float(update_info['actor_loss']),
+                    value_loss=float(update_info['critic_loss']),
                     entropy=0.0  # FOSQDDPG has no entropy concept
                 )
         
@@ -259,15 +273,15 @@ def train_fosqddpg_adapter(pipeline):
             'manager_id': 'total',
             'episode': episode,
             'episode_reward': episode_total_reward,
-            'policy_loss': float(update_info.get('policy_loss', 0.0)) if 'update_info' in locals() else 0.0,
-            'value_loss': float(update_info.get('value_loss', 0.0)) if 'update_info' in locals() else 0.0,
+            'policy_loss': float(update_info['actor_loss']) if update_info is not None else float('nan'),
+            'value_loss': float(update_info['critic_loss']) if update_info is not None else float('nan'),
             'entropy': 0.0
         }
         training_history.append(training_data_total)
         
         # periodically output learning progress
-        if (episode + 1) % 10 == 0:
-            logger.info(f"\n========== FOSQDDPG training progress: {episode+1}/{pipeline.num_episodes} episodes ==========")
+        if episode % 10 == 0:
+            logger.info(f"\n========== FOSQDDPG training progress: {episode}/{pipeline.num_episodes} episodes ==========")
             
             # get training statistics
             try:
@@ -298,9 +312,9 @@ def train_fosqddpg_adapter(pipeline):
             logger.info("=" * 70)
         
         # periodically save model
-        if (episode + 1) % 20 == 0 or episode == pipeline.num_episodes:
+        if episode % 20 == 0 or episode == max_allowed_episodes:
             try:
-                model_path = f"results/fosqddpg_adapter_ep{episode+1}"
+                model_path = f"results/fosqddpg_adapter_ep{episode}"
                 fosqddpg_adapter.save_models(model_path)
                 logger.info(f"📀 model saved to: {model_path}")
                 

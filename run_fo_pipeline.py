@@ -3370,6 +3370,24 @@ class FOPipeline:
             # Step 4: Trade FlexOffer
             trade_results = self._trade_flexoffers_for_timestep(aggregated_results, timestep)
             
+            # One authoritative diagnostic snapshot per pipeline timestep.
+            # Counts do not alter clearing, dispatch or reward calculations.
+            pipeline_diagnostics = {
+                'dfo_devices': sum(len(devices) for devices in fo_systems.values()),
+                'afo_count': len(aggregated_results),
+                **getattr(self, '_last_trading_diagnostics', {}),
+            }
+            logger.info(
+                f"PIPELINE_STAGE_COUNTS t={timestep} "
+                f"DFO={pipeline_diagnostics['dfo_devices']} "
+                f"AFO={pipeline_diagnostics['afo_count']} "
+                f"buy={pipeline_diagnostics.get('buy_bids', 0)} "
+                f"sell={pipeline_diagnostics.get('sell_bids', 0)} "
+                f"submitted={pipeline_diagnostics.get('submitted_bids', 0)} "
+                f"rejected={pipeline_diagnostics.get('rejected_bids', 0)} "
+                f"trades={len(trade_results)}"
+            )
+
             # Step 5: Disaggregate aggregated FlexOffer
             disaggregated_results = self._disaggregate_flexoffers_for_timestep(trade_results, fo_systems, timestep)
             
@@ -3383,6 +3401,7 @@ class FOPipeline:
                 "fo_systems": fo_systems,
                 "aggregated_results": aggregated_results, 
                 "trade_results": trade_results,
+                "pipeline_diagnostics": pipeline_diagnostics,
                 "disaggregated_results": disaggregated_results,
                 "schedule_results": schedule_results,
                 "user_satisfaction": schedule_results.get("satisfaction", 0.0)
@@ -4454,59 +4473,60 @@ class FOPipeline:
                     return self._generate_basic_flexoffers_for_timestep(timestep)
     
     def _aggregate_flexoffers_for_timestep(self, fo_systems, timestep):
-        """Aggregate FlexOffer for specified time step"""
+        """Aggregate each manager's FlexOffers independently, preserving ownership."""
         logger.info(f"Aggregating FlexOffer for timestep {timestep}...")
-        
+
         if not fo_systems:
             logger.warning(f"No FlexOffer to aggregate for timestep {timestep}")
             return []
-        
-        # Collect all FlexOffer systems, convert to FlexOffer list
-        flex_offers = []
+
+        aggregated_results = []
         for manager_id, manager_systems in fo_systems.items():
+            flex_offers = []
             for device_id, fo_system in manager_systems.items():
-                # Check if system has FlexOffer
                 if hasattr(fo_system, 'current_fo') and fo_system.current_fo:
                     flex_offers.append(fo_system.current_fo)
                 elif hasattr(fo_system, 'generate_flexoffer'):
-                    # If no current_fo, try to generate FlexOffer
                     fo = fo_system.generate_flexoffer()
                     if fo:
                         flex_offers.append(fo)
                 else:
-                    # New: handle DFOSystem object, convert to FlexOffer
                     try:
                         fo = self._convert_dfo_to_flexoffer(fo_system, device_id, timestep)
                         if fo:
                             flex_offers.append(fo)
                     except Exception as e:
                         logger.warning(f"Conversion of DFO system {device_id} failed: {e}")
-                        continue
-                        
-        if not flex_offers:
-            logger.warning(f"No valid FlexOffer for timestep {timestep}")
-            return []
-        
-        # Use new aggregator to aggregate
-        try:
-            aggregated_results = self.fo_aggregator.aggregate(flex_offers)
-            logger.info(f"FlexOffer aggregation for timestep {timestep} completed, generated {len(aggregated_results)} aggregated results")
-            return aggregated_results
-        except Exception as e:
-            logger.error(f"FlexOffer aggregation failed: {e}")
-            # Create backup aggregated results
-            backup_results = []
-            for i, fo in enumerate(flex_offers):
-                backup_afo = AggregatedFlexOffer(
-                    afo_id=f"backup_afo_t{timestep}_{i}",
-                    source_fo_ids=[fo.fo_id],
-                    aggregated_fo=fo,
-                    aggregation_method="backup"
-                )
-                backup_results.append(backup_afo)
-            logger.info(f"Using backup aggregation scheme, generated {len(backup_results)} results")
-            return backup_results
-    
+
+            if not flex_offers:
+                continue
+
+            try:
+                manager_results = self.fo_aggregator.aggregate(flex_offers)
+            except Exception as e:
+                logger.error(f"Aggregation failed for {manager_id}: {e}; preserving original offers")
+                manager_results = [
+                    AggregatedFlexOffer(
+                        afo_id=f"backup_afo_{manager_id}_t{timestep}_{i}",
+                        source_fo_ids=[fo.fo_id],
+                        aggregated_fo=fo,
+                        aggregation_method="backup",
+                    )
+                    for i, fo in enumerate(flex_offers)
+                ]
+
+            for i, result in enumerate(manager_results):
+                result.manager_id = manager_id
+                # The aggregator's internal numbering restarts on each call.
+                result.afo_id = f"{manager_id}_t{timestep}_{i}_{result.afo_id}"
+            aggregated_results.extend(manager_results)
+
+        logger.info(
+            f"FlexOffer aggregation for timestep {timestep} completed, "
+            f"generated {len(aggregated_results)} manager-owned results"
+        )
+        return aggregated_results
+
     def _convert_dfo_to_flexoffer(self, dfo_system, device_id, timestep):
         """Convert DFO system to FlexOffer object"""
         try:
@@ -4563,8 +4583,8 @@ class FOPipeline:
                     slice_id=0,
                     start_time=slice_start,
                     end_time=slice_end,
-                    energy_min=max(0.0, total_min),
-                    energy_max=max(total_min, total_max),
+                    energy_min=total_min,
+                    energy_max=total_max,
                     duration_minutes=60.0,  # 60分钟
                     device_type=device_type,
                     device_id=device_id,
@@ -4594,92 +4614,56 @@ class FOPipeline:
             return None
     
     def _trade_flexoffers_for_timestep(self, aggregated_results, timestep):
-        """Trade FlexOffer for specified time step"""
+        """Submit only physically backed manager-owned offers and real trades."""
         logger.info(f"Trading FlexOffer for timestep {timestep}...")
-        
+
+        self._last_trading_diagnostics = {
+            'buy_bids': 0, 'sell_bids': 0,
+            'submitted_bids': 0, 'rejected_bids': 0,
+        }
         if not aggregated_results:
-            logger.warning(f"No aggregated results to trade for timestep {timestep}")
             return []
-        
-        # Ensure all Managers participate in trading
+
+        known_manager_ids = {manager.manager_id for manager in self.managers}
         bids = []
-        manager_offer_map = {}  # Map Manager to its aggregated result
-        
-        # Assign aggregated result to each Manager
-        for i, manager in enumerate(self.managers):
-            manager_id = manager.manager_id
-            
-            # Assign an aggregated result to each Manager, if result is insufficient, cycle through
-            result_idx = i % len(aggregated_results)
-            selected_result = aggregated_results[result_idx]
-            manager_offer_map[manager_id] = selected_result
-            
-            # Create sell bid
-            sell_bid = self.trading_pool.create_bid_from_aggregated_fo(
-                manager_id=manager_id,
-                aggregated_fo=selected_result,
-                time_step=timestep,
-                side="sell"
-            )
-            bids.append(sell_bid)
-            
-            # Create buy bid
-            buy_bid = self.trading_pool.create_bid_from_aggregated_fo(
-                manager_id=manager_id,
-                aggregated_fo=selected_result,
-                time_step=timestep,
-                side="buy"
-            )
-            bids.append(buy_bid)
-            
-            logger.info(f"Created buy and sell bids for {manager_id}, using aggregated result {result_idx}")
-        
-        # Submit all bids
+        for result in aggregated_results:
+            manager_id = getattr(result, "manager_id", None)
+            if manager_id not in known_manager_ids:
+                logger.warning(f"Skipping unowned aggregated offer {result.afo_id}: {manager_id}")
+                continue
+
+            for side in ("sell", "buy"):
+                try:
+                    bid = self.trading_pool.create_bid_from_aggregated_fo(
+                        manager_id=manager_id,
+                        aggregated_fo=result,
+                        time_step=timestep,
+                        side=side,
+                    )
+                except ValueError as exc:
+                    logger.debug(f"Skipping infeasible {side} bid for {result.afo_id}: {exc}")
+                    continue
+                bids.append(bid)
+                key = 'buy_bids' if side == 'buy' else 'sell_bids'
+                self._last_trading_diagnostics[key] += 1
+
         for bid in bids:
-            self.trading_pool.submit_bid(bid)
-        
-        # Execute trading round
+            if self.trading_pool.submit_bid(bid):
+                self._last_trading_diagnostics['submitted_bids'] += 1
+            else:
+                self._last_trading_diagnostics['rejected_bids'] += 1
+
+        if not bids:
+            logger.info(f"No feasible energy bids at timestep {timestep}")
+            return []
+
         trading_results = self.trading_pool.execute_trading_round(timestep)
-        trades = trading_results.get('trades', [])
-        
-        # Ensure each Manager has trading opportunity - if auto-matching fails, create mock trade
-        existing_buyers = set(trade.buyer_id for trade in trades)
-        existing_sellers = set(trade.seller_id for trade in trades)
-        
-        # Create mock trade for Managers that didn't participate in trading
-        manager_ids = [m.manager_id for m in self.managers]
-        for manager_id in manager_ids:
-            if manager_id not in existing_buyers:
-                # Create a mock buy trade
-                selected_result = manager_offer_map[manager_id]
-                mock_trade = Trade(
-                    trade_id=f"mock_buy_{manager_id}_{timestep}",
-                    buyer_id=manager_id,
-                    seller_id=manager_ids[(manager_ids.index(manager_id) + 1) % len(manager_ids)],  # Cycle through sellers
-                    energy_type="electricity",
-                    quantity=getattr(selected_result, 'total_energy', 100.0) * 0.5,  # Allocate 50% of energy
-                    price=0.15,  # Base price
-                    time_step=timestep,
-                    status="completed",
-                    trade_time=datetime.now()
-                )
-                trades.append(mock_trade)
-                logger.info(f"Created mock buy trade for {manager_id}: {mock_trade.trade_id}")
-        
-        # For compatibility, keep existing add_offer method
-        for i, result in enumerate(aggregated_results):
-            manager_index = (i % self.num_managers) + 1
-            manager_id = f"manager_{manager_index}"
-            offer_id = f"offer_t{timestep}_{i}"
-            
-            self.trading_pool.add_offer(manager_id, offer_id, "dfo", result)
-        
+        trades = trading_results.get("trades", [])
+
+        # Never manufacture transactions just to populate the output.
         logger.info(f"Trading for timestep {timestep} completed, executed {len(trades)} trades")
-        logger.info(f"Buyers participating in trading: {set(trade.buyer_id for trade in trades)}")
-        logger.info(f"Sellers participating in trading: {set(trade.seller_id for trade in trades)}")
-        
         return trades
-    
+
     def _disaggregate_flexoffers_for_timestep(self, trade_results, original_fo_systems, timestep):
         """Disaggregate FlexOffer for specified time step"""
         logger.info(f"Disaggregating FlexOffer for timestep {timestep}, using algorithm: {self.disaggregation_method}...")
@@ -4694,16 +4678,87 @@ class FOPipeline:
         all_original_data = []
         for manager_id, device_systems in original_fo_systems.items():
             for device_id, dfo_system in device_systems.items():
-                total_energy = getattr(dfo_system, 'total_energy', 50.0)
+                # Device capacity must be traceable to a real FO/DFO bound.
+                # Never substitute an arbitrary 50-kWh default.
+                try:
+                    if isinstance(dfo_system, dict):
+                        upper = float(dfo_system['energy_max'])
+                        lower = float(dfo_system.get('energy_min', 0.0))
+                    elif hasattr(dfo_system, 'get_total_energy'):
+                        lower, upper = map(float, dfo_system.get_total_energy())
+                    elif getattr(dfo_system, 'current_fo', None) is not None:
+                        lower = float(dfo_system.current_fo.total_energy_min)
+                        upper = float(dfo_system.current_fo.total_energy_max)
+                    elif hasattr(dfo_system, 'total_energy_max'):
+                        lower = float(getattr(dfo_system, 'total_energy_min', 0.0))
+                        upper = float(dfo_system.total_energy_max)
+                    else:
+                        logger.warning(f"No energy upper bound for device {manager_id}/{device_id}")
+                        continue
+                    if (not np.isfinite(lower) or not np.isfinite(upper)
+                            or lower > upper):
+                        logger.warning(f"Invalid energy range for device {manager_id}/{device_id}")
+                        continue
+                    capacity = max(0.0, upper)
+                    export_capacity = max(0.0, -lower)
+                except (TypeError, ValueError, KeyError, IndexError) as exc:
+                    logger.warning(f"Cannot read energy capacity of {manager_id}/{device_id}: {exc}")
+                    continue
                 all_original_data.append({
                     'manager_id': manager_id,
                     'device_id': device_id,
                     'system': dfo_system,
-                    'energy': total_energy,
+                    'energy': capacity,
+                    'capacity': capacity,
+                    'export_capacity': export_capacity,
                     'priority': 3,
                     'timestep': timestep
                 })
         
+        # Reject infeasible trade portfolios before allocating anything. This
+        # guards the manager-wide budget across multiple trades at one timestep.
+        capacities = {(item['manager_id'], item['device_id']): item['capacity']
+                      for item in all_original_data}
+        export_capacities = {
+            (item['manager_id'], item['device_id']): item['export_capacity']
+            for item in all_original_data
+        }
+        demand_by_manager = {}
+        supply_by_manager = {}
+        for trade in trade_results:
+            if (not np.isfinite(trade.quantity) or trade.quantity < 0 or
+                    trade.time_step != timestep):
+                logger.error(f"Invalid trade quantity/timestep: {trade.trade_id}")
+                return []
+            demand_by_manager[trade.buyer_id] = (
+                demand_by_manager.get(trade.buyer_id, 0.0) + trade.quantity
+            )
+            supply_by_manager[trade.seller_id] = (
+                supply_by_manager.get(trade.seller_id, 0.0) + trade.quantity
+            )
+        for manager_id, demand in demand_by_manager.items():
+            available = sum(v for (owner, _), v in capacities.items() if owner == manager_id)
+            if demand > available + 1e-9:
+                logger.error(
+                    f"Disaggregation infeasible for {manager_id}: "
+                    f"trades {demand:.6f} kWh exceed device capacity {available:.6f} kWh"
+                )
+                return []
+
+        # A buyer's ability to consume cannot substitute for seller delivery.
+        # Both sides must have sufficient signed energy budgets in this round.
+        for manager_id, supplied in supply_by_manager.items():
+            deliverable = sum(
+                value for (owner, _), value in export_capacities.items()
+                if owner == manager_id
+            )
+            if supplied > deliverable + 1e-9:
+                logger.error(
+                    f"Seller {manager_id} cannot deliver {supplied:.6f} kWh; "
+                    f"available signed export is {deliverable:.6f} kWh"
+                )
+                return []
+
         for trade in trade_results:
             buyer_id = trade.buyer_id
             seller_id = trade.seller_id
@@ -4776,20 +4831,33 @@ class FOPipeline:
                     
                     logger.info(f"Fallback processing: disaggregated trade {trade.trade_id} for {buyer_id}: {trade_quantity:.2f} kWh average distributed to {len(buyer_data)} devices")
             else:
-                # If no original data found for buyer, create a default disaggregation result
-                default_result = {
-                    'manager_id': buyer_id,
-                    'device_id': f"default_device_{buyer_id}",
-                    'allocated_energy': trade_quantity,
-                    'timestep': timestep,
-                    'trade_id': trade.trade_id,
-                    'buyer_id': buyer_id,
-                    'seller_id': seller_id,
-                    'allocation_method': 'default_allocation'
-                }
-                disaggregated_results.append(default_result)
-                logger.info(f"Created default disaggregation result for {buyer_id}: {trade_quantity:.2f} kWh")
+                logger.error(f"No real device capacity for buyer {buyer_id}; reject disaggregation")
+                return []
         
+        # Verify the actual algorithm output, including its fallback path, at
+        # device granularity and across all trades. Do not return partial or
+        # fabricated allocations on failure.
+        allocated_by_device = {}
+        allocated_by_trade = {}
+        for result in disaggregated_results:
+            key = (result['manager_id'], result['device_id'])
+            amount = float(result['allocated_energy'])
+            if key not in capacities or not np.isfinite(amount) or amount < -1e-9:
+                logger.error(f"Disaggregation produced invalid device allocation: {key}")
+                return []
+            allocated_by_device[key] = allocated_by_device.get(key, 0.0) + amount
+            allocated_by_trade[result['trade_id']] = (
+                allocated_by_trade.get(result['trade_id'], 0.0) + amount
+            )
+        for key, allocated in allocated_by_device.items():
+            if allocated > capacities[key] + 1e-9:
+                logger.error(f"Device {key} over-allocated: {allocated} > {capacities[key]}")
+                return []
+        for trade in trade_results:
+            if abs(allocated_by_trade.get(trade.trade_id, 0.0) - trade.quantity) > 1e-8:
+                logger.error(f"Trade {trade.trade_id} disaggregation does not conserve energy")
+                return []
+
         logger.info(f"Disaggregation for timestep {timestep} completed, generated {len(disaggregated_results)} disaggregation results")
         
         # Group results by Manager
@@ -5036,7 +5104,7 @@ class FOPipeline:
                 
                 # 1. Trade value reward
                 trade_value = 0.0
-                trades = timestep_data.get("trades", [])
+                trades = timestep_data.get("trade_results", [])
                 for trade in trades:
                     if hasattr(trade, 'quantity') and hasattr(trade, 'price'):
                         trade_value += trade.quantity * trade.price
@@ -5219,8 +5287,15 @@ class FOPipeline:
                     if hasattr(trade, 'quantity') and hasattr(trade, 'price'):
                         trade_value += trade.quantity * trade.price
                 
+                diagnostics = timestep_result.get('pipeline_diagnostics', {})
                 timestep_rows.append({
                     'algorithm': algorithm_name,
+                    'dfo_devices': diagnostics.get('dfo_devices', 0),
+                    'afo_count': diagnostics.get('afo_count', 0),
+                    'buy_bids': diagnostics.get('buy_bids', 0),
+                    'sell_bids': diagnostics.get('sell_bids', 0),
+                    'submitted_bids': diagnostics.get('submitted_bids', 0),
+                    'rejected_bids': diagnostics.get('rejected_bids', 0),
                     'timestep': timestep,
                     'hour': hour,
                     'trades_count': trades_count,
@@ -5244,7 +5319,12 @@ class FOPipeline:
                 import csv
                 with open(csv_file, 'w', newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['algorithm', 'timestep', 'hour', 'trades_count', 'disaggregated_count', 'trade_value', 'user_satisfaction'])
+                    writer.writerow([
+                        'algorithm', 'dfo_devices', 'afo_count', 'buy_bids', 'sell_bids',
+                        'submitted_bids', 'rejected_bids', 'timestep', 'hour',
+                        'trades_count', 'disaggregated_count', 'trade_value',
+                        'user_satisfaction',
+                    ])
                     
                     for timestep_result in results["timestep_results"]:
                         timestep = timestep_result["timestep"]
@@ -5258,7 +5338,17 @@ class FOPipeline:
                             if hasattr(trade, 'quantity') and hasattr(trade, 'price'):
                                 trade_value += trade.quantity * trade.price
                         
-                        writer.writerow([algorithm_name, timestep, hour, trades_count, disaggregated_count, trade_value, satisfaction])
+                        diagnostics = timestep_result.get('pipeline_diagnostics', {})
+                        writer.writerow([
+                            algorithm_name, diagnostics.get('dfo_devices', 0),
+                            diagnostics.get('afo_count', 0),
+                            diagnostics.get('buy_bids', 0),
+                            diagnostics.get('sell_bids', 0),
+                            diagnostics.get('submitted_bids', 0),
+                            diagnostics.get('rejected_bids', 0),
+                            timestep, hour, trades_count, disaggregated_count,
+                            trade_value, satisfaction,
+                        ])
                         
                 logger.info(f"Saved pipeline execution results to {csv_file} using built-in CSV module")
             except Exception as e2:
@@ -5308,8 +5398,12 @@ class FOPipeline:
             
             # Get observation and action space dimensions
             sample_obs, _ = multi_env.reset()
-            state_dim = len(sample_obs[manager_ids[0]])
-            action_dim = multi_env.action_spaces[manager_ids[0]].shape[0]
+            state_dim = max(len(sample_obs[mid]) for mid in manager_ids)
+            manager_action_dims = {
+                mid: int(multi_env.action_spaces[mid].shape[0])
+                for mid in manager_ids
+            }
+            action_dim = max(manager_action_dims.values())
             
             logger.info(f"State space dimension: {state_dim}, action space dimension: {action_dim}")
             
@@ -5320,6 +5414,7 @@ class FOPipeline:
                     state_dim=state_dim,
                     action_dim=action_dim,
                     num_agents=num_managers,
+                    manager_action_dims=manager_action_dims,
                     episode_length=self.steps_per_episode,
                     lr_actor=1e-5,    # stabilized from 1e-4
                     lr_critic=1e-4,   # stabilized from 5e-4
@@ -5392,7 +5487,9 @@ class FOPipeline:
                         dones=dones,
                         infos=infos,
                         action_log_probs=action_log_probs,
-                        values=values
+                        values=values,
+                        next_obs=next_obs,
+                        raw_actions=self.fomappo_adapter._last_raw_actions
                     )
                     
                     # Accumulate episode rewards
@@ -5746,8 +5843,12 @@ class FOPipeline:
             
             # Get observation and action space dimensions
             sample_obs, _ = multi_env.reset()
-            state_dim = len(sample_obs[manager_ids[0]])
-            action_dim = multi_env.action_spaces[manager_ids[0]].shape[0]
+            state_dim = max(len(sample_obs[mid]) for mid in manager_ids)
+            manager_action_dims = {
+                mid: int(multi_env.action_spaces[mid].shape[0])
+                for mid in manager_ids
+            }
+            action_dim = max(manager_action_dims.values())
             
             logger.info(f"State space: {state_dim} dimensions, action space: {action_dim} dimensions")
             
@@ -5756,6 +5857,7 @@ class FOPipeline:
                 state_dim=state_dim,
                 action_dim=action_dim,
                 num_agents=num_managers,
+                manager_action_dims=manager_action_dims,
                 episode_length=self.steps_per_episode,
                 lr_actor=1e-4,
                 lr_critic=5e-4,
@@ -5805,8 +5907,10 @@ class FOPipeline:
                         rewards=rewards,
                         dones=dones,
                         infos=infos,
-                        action_log_probs=action_log_probs,  # pass action log probabilities
-                        values=values  # pass value estimates
+                        action_log_probs=action_log_probs,
+                        values=values,
+                        next_obs=next_obs,
+                        raw_actions=adapter._last_raw_actions
                     )
                     
                     # Accumulate rewards

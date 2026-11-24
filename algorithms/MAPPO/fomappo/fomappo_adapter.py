@@ -144,6 +144,12 @@ class FOMAPPOAdapter:
         self.device = torch.device(device)
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.manager_action_dims = dict(kwargs.get("manager_action_dims") or {})
+        if any(
+            not isinstance(dim, (int, np.integer)) or dim <= 0 or dim > action_dim
+            for dim in self.manager_action_dims.values()
+        ):
+            raise ValueError("manager action dimensions must be positive and <= shared action_dim")
         self.num_agents = num_agents
         self.episode_length = episode_length
         self.actual_obs_dim = state_dim
@@ -217,6 +223,7 @@ class FOMAPPOAdapter:
             cent_obs_space=share_obs_space,
             act_space=act_space
             )
+            self.buffer.collected_steps = 0
             logger.info("✅ shared buffer created successfully")
             
             # create FOMAPPO trainer
@@ -306,9 +313,9 @@ class FOMAPPOAdapter:
                     act_space=act_space
                 )
                 
-                if old_step > 0:
-                    logger.info(f"restore buffer step value: {old_step}")
-                    self.buffer.step = old_step
+                # A newly recreated buffer contains no transitions, regardless
+                # of the old ring index.
+                self.buffer.collected_steps = 0
                 
                 logger.info(f"✅ successfully recreated buffer, observation dimension: {self.actual_obs_dim}")
             else:
@@ -328,6 +335,7 @@ class FOMAPPOAdapter:
                     cent_obs_space=share_obs_space,
                     act_space=act_space
                 )
+                self.buffer.collected_steps = 0
                 logger.info(f"created new buffer, observation dimension: {self.actual_obs_dim}")
             
             # update trainer's buffer reference
@@ -344,6 +352,7 @@ class FOMAPPOAdapter:
         actions = {}
         action_log_probs = {}
         values = {}
+        self._last_raw_actions = {}
         
         manager_ids = sorted(list(obs.keys()))  # ensure consistent order
         batch_size = len(manager_ids)
@@ -364,10 +373,10 @@ class FOMAPPOAdapter:
                 obs_batch.append(np.array(current_obs))
             obs_lengths.append(len(obs_batch[-1]))
         
-        max_obs_length = max(obs_lengths)
-        
-        # update actual observation dimension record
-        if max_obs_length != self.actual_obs_dim:
+        max_obs_length = max(self.actual_obs_dim, *obs_lengths)
+
+        # Only grow the shared input width when new features appear.
+        if max_obs_length > self.actual_obs_dim:
             logger.warning(f"observation dimension changed: from {self.actual_obs_dim} to {max_obs_length}. update record and use new dimension.")
             self.actual_obs_dim = max_obs_length
             
@@ -415,9 +424,21 @@ class FOMAPPOAdapter:
             
             for i, manager_id in enumerate(manager_ids):
                 raw_action = action_np[i]
-                fo_action = self._map_action_to_fo_params(raw_action)
-                
+                target_dim = getattr(self, "manager_action_dims", {}).get(
+                    manager_id, self.action_dim
+                )
+                if not 0 < target_dim <= len(raw_action):
+                    raise ValueError(
+                        f"invalid action dimension {target_dim} for {manager_id}; "
+                        f"shared policy emitted {len(raw_action)} dimensions"
+                    )
+                # The environment receives only its own action coordinates.
+                # PPO retains the complete policy-sampled vector and its joint
+                # Gaussian log-probability for a consistent likelihood ratio.
+                fo_action = self._map_action_to_fo_params(raw_action[:target_dim])
+
                 actions[manager_id] = fo_action
+                self._last_raw_actions[manager_id] = raw_action.copy()
                 action_log_probs[manager_id] = action_log_prob_np[i]
                 values[manager_id] = value_np[i]
                 
@@ -501,7 +522,9 @@ class FOMAPPOAdapter:
                      dones: Dict[str, bool],
                      infos: Dict[str, Any],
                      action_log_probs: Optional[Dict[str, np.ndarray]] = None,
-                     values: Optional[Dict[str, np.ndarray]] = None):
+                     values: Optional[Dict[str, np.ndarray]] = None,
+                     next_obs: Optional[Dict[str, np.ndarray]] = None,
+                     raw_actions: Optional[Dict[str, np.ndarray]] = None):
         """
         collect one step of experience data to shared buffer
         
@@ -514,6 +537,12 @@ class FOMAPPOAdapter:
             action_log_probs: action log probabilities (optional)
             values: value function predictions (optional)
         """
+        # MAPPO's SharedReplayBuffer.insert places obs at index step+1.
+        # Its actions/log-probs remain at index step.
+        if next_obs is None:
+            raise ValueError("MAPPO collect_step requires next_obs for temporal alignment")
+        if raw_actions is None:
+            raw_actions = getattr(self, "_last_raw_actions", None) or actions
         # detailed record rewards information
         reward_values = list(rewards.values())
         reward_mean = np.mean(reward_values) if reward_values else 0.0
@@ -539,21 +568,26 @@ class FOMAPPOAdapter:
         else:
             normalized_rewards = rewards
         
-        # check actual observation dimension
-        first_obs = next(iter(obs.values()))
-        actual_obs_dim = len(first_obs) if isinstance(first_obs, np.ndarray) else len(np.array(first_obs))
-        
-        # if actual observation dimension is different from recorded, update record and record warning
+        # The shared policy expects all managers' observations to have the
+        # same width. A short first manager does not imply a dimension change.
+        # Include next observations so they can also be stored without truncation.
+        actual_obs_dim = max(
+            self.actual_obs_dim,
+            *(np.asarray(obs[mid]).reshape(-1).size for mid in manager_ids),
+            *(np.asarray(next_obs[mid]).reshape(-1).size for mid in manager_ids),
+        )
+
+        # Only grow the shared observation width when a manager requires it.
+        # Never rebuild the policy just because a shorter manager is present.
         dimension_changed = False
-        if actual_obs_dim != self.actual_obs_dim:
-            logger.warning(f"observation dimension changed: from {self.actual_obs_dim} to {actual_obs_dim}. update record and use new dimension.")
+        if actual_obs_dim > self.actual_obs_dim:
+            logger.warning(
+                "maximum manager observation dimension increased: %s -> %s",
+                self.actual_obs_dim, actual_obs_dim,
+            )
             self.actual_obs_dim = actual_obs_dim
-            
-            # recreate buffer and policy network
             self._recreate_buffer_and_policy(actual_obs_dim)
             dimension_changed = True
-            
-            logger.warning("observation dimension updated, will continue to collect data")
         
         # ensure buffer is initialized
         if not hasattr(self, 'buffer') or self.buffer is None:
@@ -575,7 +609,7 @@ class FOMAPPOAdapter:
         reward_batch = np.zeros((1, self.num_agents, 1), dtype=np.float32)
         
         # action log probabilities and value predictions
-        action_log_prob_batch = np.zeros((1, self.num_agents, self.action_dim), dtype=np.float32)
+        action_log_prob_batch = np.zeros((1, self.num_agents, 1), dtype=np.float32)
         value_pred_batch = np.zeros((1, self.num_agents, 1), dtype=np.float32)
         
         # RNN states
@@ -586,31 +620,69 @@ class FOMAPPOAdapter:
         masks = np.ones((1, self.num_agents, 1), dtype=np.float32)
         bad_masks = np.ones((1, self.num_agents, 1), dtype=np.float32)
         active_masks = np.ones((1, self.num_agents, 1), dtype=np.float32)
+        for i, manager_id in enumerate(manager_ids[:self.num_agents]):
+            if dones.get(manager_id, False):
+                masks[0, i, 0] = 0.0
+                active_masks[0, i, 0] = 0.0
+            info = infos.get(manager_id, {}) or {}
+            if isinstance(info, dict) and info.get("TimeLimit.truncated", False):
+                bad_masks[0, i, 0] = 0.0
         
+        # Initialize the first observation for a new rollout. Subsequent
+        # observations are written by SharedReplayBuffer.insert at step+1.
+        initial_observations = np.zeros_like(obs_batch)
+        for i, manager_id in enumerate(manager_ids[:self.num_agents]):
+            current_observation = np.asarray(
+                obs[manager_id], dtype=np.float32
+            ).reshape(-1)
+            initial_observations[0, i, :current_observation.size] = current_observation
+        if (getattr(self.buffer, "collected_steps", 0) == 0
+                and hasattr(self.buffer, "obs") and hasattr(self.buffer, "share_obs")):
+            self.buffer.obs[0] = initial_observations
+            self.buffer.share_obs[0] = initial_observations
+
         # fill data
         for i, manager_id in enumerate(manager_ids):
             if i >= self.num_agents:
                 break
                 
             # observation
-            obs_batch[0, i] = obs[manager_id]
-            share_obs_batch[0, i] = obs[manager_id]  
+            next_observation = np.asarray(
+                next_obs[manager_id], dtype=np.float32
+            ).reshape(-1)
+            obs_batch[0, i, :next_observation.size] = next_observation
+            share_obs_batch[0, i, :next_observation.size] = next_observation
             
             # action
-            action_batch[0, i] = actions[manager_id]
+            action_batch[0, i] = raw_actions[manager_id]
             
             # reward
             reward_batch[0, i, 0] = normalized_rewards[manager_id]
             
             # action log probabilities
-            if action_log_probs is not None and manager_id in action_log_probs:
-                action_log_prob_batch[0, i] = action_log_probs[manager_id]
-            else:
-                action_log_prob_batch[0, i] = np.zeros(self.action_dim)  # use zero instead of log(0.5)
+            if action_log_probs is None or manager_id not in action_log_probs:
+                raise ValueError(
+                    f"missing sampled action log probability for {manager_id}"
+                )
+            log_prob_array = np.asarray(
+                action_log_probs[manager_id], dtype=np.float32
+            ).reshape(-1)
+            if log_prob_array.size != 1:
+                raise ValueError(
+                    f"expected one joint action log probability for {manager_id}, "
+                    f"got shape {np.shape(action_log_probs[manager_id])}"
+                )
+            action_log_prob_batch[0, i, 0] = log_prob_array.item()
                 
             # value prediction
             if values is not None and manager_id in values:
-                value_pred_batch[0, i, 0] = values[manager_id]
+                value_array = np.asarray(values[manager_id], dtype=np.float32).reshape(-1)
+                if value_array.size != 1:
+                    raise ValueError(
+                        f"expected one critic value for {manager_id}, got shape "
+                        f"{np.shape(values[manager_id])}"
+                    )
+                value_pred_batch[0, i, 0] = value_array.item()
             else:
                 value_pred_batch[0, i, 0] = 0.0
         
@@ -618,8 +690,8 @@ class FOMAPPOAdapter:
         try:
             # if dimension changed, reset buffer to ensure consistency
             if dimension_changed:
-                logger.info("reset buffer due to dimension change")
-                self.buffer.reset()
+                logger.info("buffer recreated due to observation dimension change")
+                self.buffer.collected_steps = 0
             
             self.buffer.insert(
                 share_obs=share_obs_batch,
@@ -633,6 +705,10 @@ class FOMAPPOAdapter:
                 masks=masks,
                 bad_masks=bad_masks,
                 active_masks=active_masks
+            )
+            self.buffer.collected_steps = min(
+                getattr(self.buffer, "collected_steps", 0) + 1,
+                self.args.episode_length,
             )
             logger.debug(f"successfully collected data to buffer: step={self.buffer.step}, rewards={np.mean(reward_batch):.4f}")
             
@@ -673,36 +749,22 @@ class FOMAPPOAdapter:
                     reward_max = np.max(self.buffer.rewards)
                     logger.info(f"rewards statistics: mean={reward_mean:.6f}, std={reward_std:.6f}, min={reward_min:.6f}, max={reward_max:.6f}")
             
-            # check if buffer has enough data
-            buffer_empty = self.buffer.step == 0 or (hasattr(self.buffer, 'rewards') and np.count_nonzero(self.buffer.rewards) == 0)
-            if buffer_empty:
-                # check if it is training initial phase
-                is_initial_phase = not hasattr(self, '_training_started') or not self._training_started
-                if is_initial_phase:
-                    logger.info("training initial phase, buffer is empty is normal, add initialization data")
-                    # mark training started
-                    self._training_started = True
-                else:
-                    logger.warning("training has been performed but buffer has no data or all data are zero, try to add real data")
-                
-                # add dummy data to avoid empty buffer error
-                self._add_dummy_data_to_buffer()
-                logger.info(f"after adding dummy data: step={self.buffer.step}, rewards shape={self.buffer.rewards.shape}")
-                
-                # check if adding dummy data is successful
-                if self.buffer.step == 0 or not np.any(self.buffer.rewards):
-                    logger.error("even after adding dummy data, buffer is still empty, cannot compute returns")
-                    return False
-                else:
-                    logger.info("dummy data added successfully, continue to compute returns")
-            
+            # The circular write index is zero after a complete rollout.
+            # Only the number of successfully inserted transitions indicates
+            # whether the return calculation has a full trajectory.
+            collected_steps = getattr(self.buffer, "collected_steps", 0)
+            if collected_steps != self.args.episode_length:
+                logger.error(
+                    "cannot compute returns: incomplete rollout (%s/%s transitions)",
+                    collected_steps, self.args.episode_length,
+                )
+                return False
+
             # get value estimation of last step
             try:
                 # check if there are valid rewards data
                 if hasattr(self.buffer, 'rewards') and np.sum(np.abs(self.buffer.rewards)) < 1e-6:
-                    logger.warning("all rewards in buffer are zero or near zero, add small random noise to avoid all zero returns")
-                    self.buffer.rewards = self.buffer.rewards + np.random.normal(0, 0.01, self.buffer.rewards.shape)
-                    logger.info(f"number of non-zero rewards after adding noise: {np.count_nonzero(self.buffer.rewards)}")
+                    logger.info("rollout rewards are near zero; preserve the environment rewards unchanged")
                 
                 # get shared observation and state
                 share_obs = np.concatenate(self.buffer.share_obs[-1])
@@ -917,22 +979,20 @@ class FOMAPPOAdapter:
                     'num_updates': 0
                 }
         
-        # check if buffer has enough data
-        if self.buffer.step == 0:
-            logger.warning("buffer is empty or has no enough data, add data to train")
-            # try to add data
-            self._add_dummy_data_to_buffer()
-            if self.buffer.step == 0:
-                logger.error("even after adding data, buffer is still empty")
-                return {
-                    'policy_loss': 0.0,
-                    'value_loss': 0.0,
-                    'entropy': 0.0,
-                    'grad_norm': 0.0,
-                    'ratio': 1.0,
-                    'num_updates': 0
-                }
-        
+        # A circular index of zero can mean either empty or exactly full.
+        if getattr(self.buffer, "collected_steps", 0) < self.args.episode_length:
+            logger.error("rollout incomplete: %s/%s steps collected",
+                         getattr(self.buffer, "collected_steps", 0),
+                         self.args.episode_length)
+            return {
+                'policy_loss': 0.0,
+                'value_loss': 0.0,
+                'entropy': 0.0,
+                'grad_norm': 0.0,
+                'ratio': 1.0,
+                'num_updates': 0
+            }
+
         # check if rewards are meaningful
         if hasattr(self.buffer, 'rewards'):
             non_zero_rewards = np.count_nonzero(self.buffer.rewards)
@@ -993,8 +1053,9 @@ class FOMAPPOAdapter:
                 if key not in train_info:
                     train_info[key] = 0.0
             
-            # add training iterations
-            train_info['num_updates'] = 1
+            # Preserve the trainer's actual optimizer-step count.
+            # A training call is not necessarily a single PPO update.
+            train_info['num_updates'] = train_info.get('num_updates', 0)
             
             return train_info
             
@@ -1243,6 +1304,7 @@ class FOMAPPOAdapter:
                 cent_obs_space=share_obs_space,
                 act_space=act_space
             )
+            self.buffer.collected_steps = 0
             logger.info("shared buffer reconstruction successful")
         except Exception as e:
             logger.error(f"shared buffer reconstruction failed: {e}")

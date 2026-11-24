@@ -11,12 +11,38 @@ from .fosqddpg_policy import FOSQDDPGPolicy
 logger = logging.getLogger(__name__)
 
 
+def map_normalized_fo_actions(raw_actions: torch.Tensor) -> torch.Tensor:
+    """Differentiable conversion of normalized actor actions to FO units.
+
+    Each complete five-dimensional device block follows the environment's
+    [start, end, energy_min, energy_max, priority] action convention.
+    Remaining dimensions (if any) are left unchanged for generic small tests.
+    """
+    width = raw_actions.shape[-1]
+    count = width // 5
+    if not count:
+        return raw_actions
+    blocks = raw_actions[..., :count * 5].reshape(*raw_actions.shape[:-1], count, 5)
+    mapped = torch.stack((
+        blocks[..., 0].clamp(-1.0, 1.0),
+        blocks[..., 1].clamp(-1.0, 1.0),
+        0.1 + 0.45 * (blocks[..., 2].clamp(-1.0, 1.0) + 1.0),
+        1.0 + 0.5 * (blocks[..., 3].clamp(-1.0, 1.0) + 1.0),
+        0.1 + 0.95 * (blocks[..., 4].clamp(-1.0, 1.0) + 1.0),
+    ), dim=-1).reshape(*raw_actions.shape[:-1], count * 5)
+    if count * 5 < width:
+        return torch.cat((mapped, raw_actions[..., count * 5:]), dim=-1)
+    return mapped
+
+
 class FOReplayBuffer:
     """Experience replay buffer for FOSQDDPG algorithm"""
     
-    def __init__(self, capacity: int = 100000, device: str = "cpu"):
+    def __init__(self, capacity: int = 100000, device: str = "cpu",
+                 rng: Optional[random.Random] = None):
         self.capacity = capacity
         self.device = device
+        self.rng = rng if rng is not None else random
         self.buffer = deque(maxlen=capacity)
         self.Transition = namedtuple('Transition', 
                                    ('states', 'actions', 'rewards', 'next_states', 'dones',
@@ -35,7 +61,7 @@ class FOReplayBuffer:
     
     def sample(self, batch_size: int) -> Tuple:
         """Sample a batch of transitions"""
-        batch = random.sample(self.buffer, batch_size)
+        batch = self.rng.sample(self.buffer, batch_size)
         
         # Convert to tensors
         states = torch.FloatTensor(np.array([t.states for t in batch])).to(self.device)
@@ -75,7 +101,10 @@ class FOSQDDPG:
                  buffer_capacity: int = 100000,
                  batch_size: int = 64,
                  sample_size: int = 5,
-                 device: str = "cpu"):
+                 device: str = "cpu",
+                 action_dims: Optional[List[int]] = None,
+                 replay_rng: Optional[random.Random] = None,
+                 noise_rng: Optional[np.random.Generator] = None):
         
         self.n_agents = n_agents
         self.state_dim = state_dim
@@ -83,9 +112,15 @@ class FOSQDDPG:
         self.gamma = gamma
         self.tau = tau
         self.noise_scale = noise_scale
+        self.noise_rng = noise_rng if noise_rng is not None else np.random
         self.batch_size = batch_size
         self.sample_size = sample_size  # Shapley value sampling size
         self.device = device
+        self.action_dims = list(action_dims) if action_dims is not None else [action_dim] * n_agents
+        if len(self.action_dims) != n_agents or any(
+            dim <= 0 or dim > action_dim for dim in self.action_dims
+        ):
+            raise ValueError("Invalid per-agent action dimensions")
         
         # Create policies for each agent
         self.policies = []
@@ -104,7 +139,7 @@ class FOSQDDPG:
             self.policies.append(policy)
         
         # Shared replay buffer
-        self.replay_buffer = FOReplayBuffer(buffer_capacity, device)
+        self.replay_buffer = FOReplayBuffer(buffer_capacity, device, rng=replay_rng)
         
         # Training statistics
         self.total_iterations = 0
@@ -135,7 +170,7 @@ class FOSQDDPG:
             
             # Add exploration noise
             if add_noise:
-                noise = np.random.normal(0, self.noise_scale, size=action.shape)
+                noise = self.noise_rng.normal(0, self.noise_scale, size=action.shape)
                 action = action + noise
                 action = np.clip(action, -self.policies[i].max_action, self.policies[i].max_action)
             
@@ -187,64 +222,53 @@ class FOSQDDPG:
     
     def compute_shapley_values(self, states: torch.Tensor, actions: torch.Tensor,
                              agent_idx: int) -> torch.Tensor:
+        """Sample permutation-based marginal contributions for one agent.
+
+        A coalition retains the original joint state and uses zero actions for
+        agents outside the coalition. For each sampled permutation, return
+        Q(S union {agent}) - Q(S), where S precedes the agent in that order.
         """
-        Compute Shapley values for marginal contribution
-        
-        Args:
-            states: Batch of states [batch_size, n_agents, state_dim]
-            actions: Batch of actions [batch_size, n_agents, action_dim]
-            agent_idx: Index of the agent to compute Shapley values for
-            
-        Returns:
-            shapley_values: Shapley values [batch_size, sample_size, 1]
-        """
+        if not 0 <= agent_idx < self.n_agents:
+            raise IndexError("agent_idx out of bounds")
         batch_size = states.size(0)
-        
-        # Sample grand coalitions
-        subcoalition_map, grand_coalitions = self.sample_grand_coalitions(batch_size)
-        
-        # Reshape grand coalitions for action gathering
-        grand_coalitions_expanded = grand_coalitions.unsqueeze(-1).expand(
-            batch_size, self.sample_size, self.n_agents, self.n_agents, self.action_dim
+
+        # Each row is a uniformly sampled permutation of agent IDs.
+        permutations = torch.rand(
+            batch_size, self.sample_size, self.n_agents,
+            device=actions.device
+        ).argsort(dim=-1)
+        positions = (permutations == agent_idx).long().argmax(dim=-1)
+        order = torch.arange(
+            self.n_agents, device=actions.device
+        ).view(1, 1, -1)
+        predecessors = order < positions.unsqueeze(-1)
+        # Convert predecessor positions back into original agent indexing.
+        before_mask = torch.zeros(
+            batch_size, self.sample_size, self.n_agents,
+            dtype=actions.dtype, device=actions.device
         )
-        
-        # Gather actions according to grand coalitions
-        actions_expanded = actions.unsqueeze(1).unsqueeze(2).expand(
-            batch_size, self.sample_size, self.n_agents, self.n_agents, self.action_dim
+        before_mask.scatter_(
+            2, permutations, predecessors.to(actions.dtype)
         )
-        actions_permuted = actions_expanded.gather(3, grand_coalitions_expanded)
-        
-        # Apply subcoalition mask
-        act_map = subcoalition_map.unsqueeze(-1).float()
-        actions_masked = actions_permuted * act_map
-        actions_flattened = actions_masked.contiguous().view(
-            batch_size, self.sample_size, self.n_agents, -1
-        )
-        
-        # Expand states
-        states_expanded = states.unsqueeze(1).unsqueeze(2).expand(
-            batch_size, self.sample_size, self.n_agents, self.n_agents, self.state_dim
-        )
-        states_flattened = states_expanded.contiguous().view(
-            batch_size, self.sample_size, self.n_agents, self.n_agents * self.state_dim
-        )
-        
-        # Concatenate states and actions for critic input
-        critic_input = torch.cat((states_flattened, actions_flattened), dim=-1)
-        
-        # Compute Q-values using the agent's critic
-        agent_critic_input = critic_input[:, :, agent_idx, :]  # [batch_size, sample_size, input_dim]
-        agent_critic_input_reshaped = agent_critic_input.view(-1, agent_critic_input.size(-1))
-        
-        q_values = self.policies[agent_idx].critic(
-            agent_critic_input_reshaped[:, :self.n_agents * self.state_dim],
-            agent_critic_input_reshaped[:, self.n_agents * self.state_dim:]
-        )
-        
-        q_values = q_values.view(batch_size, self.sample_size, 1)
-        
-        return q_values
-    
+        after_mask = before_mask.clone()
+        after_mask[..., agent_idx] = 1.0
+
+        joint_actions = actions.unsqueeze(1)
+        before_actions = (
+            joint_actions * before_mask.unsqueeze(-1)
+        ).reshape(-1, self.n_agents * self.action_dim)
+        after_actions = (
+            joint_actions * after_mask.unsqueeze(-1)
+        ).reshape(-1, self.n_agents * self.action_dim)
+        joint_states = states.reshape(batch_size, -1).unsqueeze(1).expand(
+            -1, self.sample_size, -1
+        ).reshape(-1, self.n_agents * self.state_dim)
+
+        critic = self.policies[agent_idx].critic
+        q_before = critic(joint_states, before_actions)
+        q_after = critic(joint_states, after_actions)
+        return (q_after - q_before).reshape(batch_size, self.sample_size, 1)
+
     def store_experience(self, states: np.ndarray, actions: np.ndarray, rewards: np.ndarray,
                         next_states: np.ndarray, dones: np.ndarray,
                         fo_constraints: Optional[np.ndarray] = None,
@@ -278,7 +302,15 @@ class FOSQDDPG:
                 # Get next actions from target actors
                 next_actions = []
                 for i in range(self.n_agents):
-                    next_action = policy.actor_target(next_states[:, i, :])
+                    next_action = map_normalized_fo_actions(
+                        self.policies[i].actor_target(next_states[:, i, :])
+                    )
+                    if self.action_dims[i] < self.action_dim:
+                        next_action = torch.cat(
+                            [next_action[:, :self.action_dims[i]],
+                             torch.zeros_like(next_action[:, self.action_dims[i]:])],
+                            dim=1
+                        )
                     next_actions.append(next_action)
                 next_actions = torch.stack(next_actions, dim=1)
                 
@@ -302,25 +334,44 @@ class FOSQDDPG:
             torch.nn.utils.clip_grad_norm_(policy.critic.parameters(), 1.0)
             policy.critic_optimizer.step()
             
-            # Compute Shapley values for actor loss
-            shapley_values = self.compute_shapley_values(states, actions, agent_idx)
-            shapley_mean = shapley_values.mean(dim=1)  # [batch_size, 1]
-            
-            # Actor loss (negative Shapley values for gradient ascent)
-            actor_loss = -shapley_mean.mean()
-            
-            # Add FlexOffer constraint loss if available
+            # The replayed actions are constants: they cannot provide a
+            # policy gradient. Replace this agent's action with its current
+            # actor output while holding the other agents' actions fixed.
+            agent_constraints = (
+                fo_constraints[:, agent_idx, :] if fo_constraints is not None else None
+            )
+            predicted_actions = map_normalized_fo_actions(
+                policy.actor(states[:, agent_idx, :], agent_constraints)
+            )
+            joint_actions = actions.detach().clone()
+            if self.action_dims[agent_idx] < self.action_dim:
+                predicted_actions = torch.cat(
+                    [predicted_actions[:, :self.action_dims[agent_idx]],
+                     torch.zeros_like(predicted_actions[:, self.action_dims[agent_idx]:])],
+                    dim=1
+                )
+            joint_actions[:, agent_idx, :] = predicted_actions
+            # Optimize this agent's sampled Shapley marginal contribution,
+            # not the grand coalition Q-value. The current actor's action
+            # remains in the computation graph; other agents' actions are
+            # fixed replayed values.
+            shapley_values = self.compute_shapley_values(
+                states, joint_actions, agent_idx
+            )
+            actor_loss = -shapley_values.mean()
+
             if fo_constraints is not None:
-                predicted_actions = policy.actor(states[:, agent_idx, :], fo_constraints[:, agent_idx, :])
-                constraint_loss = F.mse_loss(predicted_actions, actions[:, agent_idx, :])
+                constraint_loss = F.mse_loss(
+                    predicted_actions, actions[:, agent_idx, :]
+                )
                 actor_loss = actor_loss + 0.1 * constraint_loss
-            
-            # Update actor
+
             policy.actor_optimizer.zero_grad()
             actor_loss.backward()
             torch.nn.utils.clip_grad_norm_(policy.actor.parameters(), 1.0)
             policy.actor_optimizer.step()
-            
+
+
             # Update target networks
             policy.update_target_networks()
             

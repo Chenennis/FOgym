@@ -292,8 +292,12 @@ class FOMAPPO():
         # use buffer passed from adapter
         buffer = self.buffer
             
-        if buffer.step == 0:
-            logger.error("training failed: buffer is empty, step=0, no experience data collected")
+        # SharedReplayBuffer.step wraps to zero after a full rollout.
+        # Prefer the explicit insert count; the ring index is not an emptiness flag.
+        collected_steps = getattr(buffer, "collected_steps", buffer.step)
+        if collected_steps < self.args.episode_length:
+            logger.error("training failed: incomplete rollout (%s/%s steps)",
+                         collected_steps, self.args.episode_length)
             return {
                 'policy_loss': 0.0,
                 'value_loss': 0.0,
@@ -309,15 +313,11 @@ class FOMAPPO():
             logger.info(f"before training, buffer check: rewards non-zero ratio={non_zero_rewards/total_rewards:.2%}, number={non_zero_rewards}/{total_rewards}")
             
             if non_zero_rewards == 0:
-                logger.error("training failed: all rewards in buffer are zero, cannot perform effective training")
-                return {
-                    'policy_loss': 0.0,
-                    'value_loss': 0.0,
-                    'dist_entropy': 0.0,
-                    'grad_norm': 0.0,
-                    'ratio': 1.0
-                }
-        
+                logger.info(
+                    "rollout rewards are all zero; continue PPO training because "
+                    "value estimates and advantages may still provide a learning signal"
+                )
+
         # calculate advantage (if not calculated)
         if not hasattr(buffer, 'advantages') or buffer.advantages is None:
             logger.warning("advantage not calculated, try to calculate")
@@ -402,6 +402,10 @@ class FOMAPPO():
         # record PPO update start
         logger.info(f"start PPO update: {self.args.ppo_epoch} epochs, {self.args.num_mini_batch} mini-batches")
         
+        # Count optimizer steps that actually completed. Requested epochs and
+        # minibatches are not evidence that an update took place.
+        num_updates = 0
+
         # PPO update
         for epoch in range(self.args.ppo_epoch):
             try:
@@ -433,7 +437,8 @@ class FOMAPPO():
                                                                                          rnn_states_critic_batch, 
                                                                                          actions_batch, 
                                                                                          masks_batch,
-                                                                                         active_masks_batch)
+                                                                                         available_actions=available_actions_batch,
+                                                                                         active_masks=active_masks_batch)
                     
                     # calculate ratio
                     ratio = torch.exp(action_log_probs - old_action_log_probs_batch)
@@ -470,6 +475,7 @@ class FOMAPPO():
 
                     self.policy.actor_optimizer.step()
                     self.policy.critic_optimizer.step()
+                    num_updates += 1
 
                     # update training information
                     train_info['policy_loss'] += policy_loss.item()
@@ -479,33 +485,33 @@ class FOMAPPO():
                     train_info['grad_norm'] = grad_norm
                     
             except Exception as e:
-                logger.error(f"PPO update failed: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
-                continue
-        
-        # calculate average loss
-        num_updates = self.args.ppo_epoch * self.args.num_mini_batch
-        if num_updates > 0:
-            for k in train_info.keys():
-                if k != 'grad_norm':
-                    train_info[k] /= num_updates
-        
-        # ensure return value is not zero (if training actually happened)
-        if num_updates > 0:
-            for key in ['policy_loss', 'value_loss', 'dist_entropy']:
-                if key in train_info and abs(train_info[key]) < 1e-10:
-                    train_info[key] = 1e-8
-        
+                # Do not report successful training or consume the rollout
+                # when one of its PPO passes raises. Partial parameter updates
+                # from earlier minibatches are not rolled back.
+                logger.exception("PPO update failed after %s completed minibatches",
+                                 num_updates)
+                raise RuntimeError(
+                    f"PPO update failed after {num_updates} completed minibatches"
+                ) from e
+
+        if num_updates == 0:
+            raise RuntimeError("PPO update failed: no optimizer steps completed")
+
+        for key in ("policy_loss", "value_loss", "dist_entropy", "ratio"):
+            train_info[key] /= num_updates
+        train_info["num_updates"] = num_updates
+
         # record training result
         logger.info(f"PPO training completed: policy_loss={train_info['policy_loss']:.6f}, value_loss={train_info['value_loss']:.6f}, entropy={train_info['dist_entropy']:.6f}")
         
-        # after training, process buffer
+        # Consume experience only after all PPO updates succeed.
         try:
             buffer.after_update()
         except Exception as e:
-            logger.error(f"after training, process buffer failed: {e}")
-     
+            logger.exception("PPO buffer finalization failed")
+            raise RuntimeError("PPO buffer finalization failed") from e
+        buffer.collected_steps = 0
+
         return train_info
 
     def prep_training(self):

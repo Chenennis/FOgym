@@ -199,7 +199,10 @@ class FOSQDDPGPolicy:
         # Initialize target networks
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.critic_target.load_state_dict(self.critic.state_dict())
-        
+        # Bootstrap evaluation must not change BatchNorm running statistics.
+        self.actor_target.eval()
+        self.critic_target.eval()
+
         # Optimizers
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=lr_actor)
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=lr_critic)
@@ -227,13 +230,22 @@ class FOSQDDPGPolicy:
         return action.cpu().data.numpy().flatten()
     
     def update_target_networks(self):
-        """Soft update of target networks"""
-        for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
-            target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-        
-        for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
-            target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-    
+        """Polyak-average parameters and BatchNorm floating-point buffers."""
+        with torch.no_grad():
+            for online, target in (
+                (self.actor, self.actor_target),
+                (self.critic, self.critic_target),
+            ):
+                for source_param, target_param in zip(online.parameters(), target.parameters()):
+                    target_param.lerp_(source_param, self.tau)
+                for source_buffer, target_buffer in zip(online.buffers(), target.buffers()):
+                    if target_buffer.is_floating_point():
+                        target_buffer.lerp_(source_buffer, self.tau)
+                    else:
+                        # BatchNorm's num_batches_tracked is integer-valued.
+                        target_buffer.copy_(source_buffer)
+                target.eval()
+
     def save_models(self, filepath: str):
         """Save actor and critic models"""
         torch.save({

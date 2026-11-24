@@ -93,6 +93,11 @@ def test_constraint_penalty_in_reward():
     }
     env_state = {'price': 0.15}
 
+    # Force the deterministic reward branch (episode_count > 50).
+    # Early-episode learning_progress_reward uses global random sampling,
+    # so comparing two calls without this setup produces a flaky assertion.
+    agent.episode_count = 100
+
     # With no constraint penalty
     r_clean, info_clean = agent._calculate_pipeline_reward(
         pipeline_results, env_state, constraint_penalty=0.0

@@ -11,12 +11,32 @@ from collections import deque
 logger = logging.getLogger(__name__)
 
 
+def map_normalized_fo_actions(raw_actions: torch.Tensor) -> torch.Tensor:
+    """Map normalized Actor actions into FO environment units, preserving gradients."""
+    width = raw_actions.shape[-1]
+    count = width // 5
+    if count == 0:
+        return torch.zeros_like(raw_actions)
+    blocks = raw_actions[..., :count * 5].reshape(*raw_actions.shape[:-1], count, 5)
+    mapped = torch.stack((
+        blocks[..., 0].clamp(-1., 1.),
+        blocks[..., 1].clamp(-1., 1.),
+        0.1 + 0.45 * (blocks[..., 2].clamp(-1., 1.) + 1.),
+        1.0 + 0.5 * (blocks[..., 3].clamp(-1., 1.) + 1.),
+        0.1 + 0.95 * (blocks[..., 4].clamp(-1., 1.) + 1.),
+    ), dim=-1).reshape(*raw_actions.shape[:-1], count * 5)
+    if count * 5 < width:
+        mapped = torch.cat((mapped, torch.zeros_like(raw_actions[..., count * 5:])), dim=-1)
+    return mapped
+
+
 class FOTd3Agent:
     
     def __init__(self, agent_id: str, obs_dim: int, action_dim: int, global_state_dim: int,
                  lr_actor: float = 1e-4, lr_critic: float = 1e-3, hidden_dim: int = 256,
                  max_action: float = 1.0, gamma: float = 0.99, tau: float = 0.005,
-                 device: str = "cpu"):
+                 device: str = "cpu", valid_action_dim: Optional[int] = None):
+        self.valid_action_dim = action_dim if valid_action_dim is None else valid_action_dim
         self.agent_id = agent_id
         self.obs_dim = obs_dim
         self.action_dim = action_dim
@@ -137,9 +157,13 @@ class FOTd3Agent:
             noise = torch.randn_like(next_own_action) * target_noise
             noise = torch.clamp(noise, -noise_clip, noise_clip)
             next_action_noisy = torch.clamp(next_own_action + noise, -self.max_action, self.max_action)
+            physical_next_action = torch.zeros_like(next_action_noisy)
+            physical_next_action[:, :self.valid_action_dim] = map_normalized_fo_actions(
+                next_action_noisy[:, :self.valid_action_dim]
+            )
             
             # target Q value calculation (global state + own action)
-            next_state_action = torch.cat([next_global_state, next_action_noisy], dim=1)
+            next_state_action = torch.cat([next_global_state, physical_next_action], dim=1)
             target_q1, target_q2 = self.critic_target(next_state_action)
             target_q = torch.min(target_q1, target_q2)
             target_q = reward + (1 - done) * self.gamma * target_q
@@ -164,7 +188,11 @@ class FOTd3Agent:
     def update_actor(self, global_state: torch.Tensor, own_obs: torch.Tensor) -> float:
         """update Actor network"""
         # calculate actor loss
-        action = self.actor(own_obs)
+        raw_action = self.actor(own_obs)
+        action = torch.zeros_like(raw_action)
+        action[:, :self.valid_action_dim] = map_normalized_fo_actions(
+            raw_action[:, :self.valid_action_dim]
+        )
         state_action = torch.cat([global_state, action], dim=1)
         actor_loss = -self.critic.Q1(state_action).mean()
         
@@ -214,11 +242,24 @@ class FOMATD3Adapter:
                  target_noise: float = 0.2,
                  policy_delay: int = 2,
                  device: str = "cpu",
+                 observation_dims: Optional[Dict[str, int]] = None,
+                 action_dims: Optional[Dict[str, int]] = None,
                  **kwargs):
         
         self.state_dim = state_dim  # dimension of single agent's observation
         self.action_dim = action_dim
         self.num_agents = num_agents
+        self.agent_ids = [f"manager_{i+1}" for i in range(num_agents)]
+        self.observation_dims = {
+            mid: (observation_dims or {}).get(mid, state_dim) for mid in self.agent_ids
+        }
+        self.action_dims = {
+            mid: (action_dims or {}).get(mid, action_dim) for mid in self.agent_ids
+        }
+        if any(not (0 < dim <= state_dim) for dim in self.observation_dims.values()) or any(
+            not (0 < dim <= action_dim) for dim in self.action_dims.values()
+        ):
+            raise ValueError("Invalid manager observation/action dimension")
         self.episode_length = episode_length
         self.batch_size = batch_size
         self.policy_delay = policy_delay
@@ -232,7 +273,7 @@ class FOMATD3Adapter:
         
         # create agents
         self.agents = {}
-        manager_ids = [f"manager_{i+1}" for i in range(num_agents)]
+        manager_ids = self.agent_ids
         
         for manager_id in manager_ids:
             self.agents[manager_id] = FOTd3Agent(
@@ -245,7 +286,8 @@ class FOMATD3Adapter:
                 hidden_dim=hidden_dim,
                 gamma=gamma,
                 tau=tau,
-                device=device
+                device=device,
+                valid_action_dim=self.action_dims[manager_id]
             )
         
         # experience replay buffer
@@ -320,46 +362,17 @@ class FOMATD3Adapter:
         }
         
     def _normalize_rewards(self, rewards: np.ndarray) -> np.ndarray:
-        """normalize rewards - scaling method, keep relative relationship"""
+        """Use a fixed positive reward scale for consistent Bellman targets.
 
-        fixed_scale_normalized = rewards / 1000.0
-        
-        # dynamic range normalization (keep relative relationship)
-        # update running max and min
-        if self.reward_normalizer['count'] == 0:
-            self.reward_normalizer['running_min'] = np.min(rewards)
-            self.reward_normalizer['running_max'] = np.max(rewards)
-        else:
-            self.reward_normalizer['running_min'] = min(
-                self.reward_normalizer['running_min'], np.min(rewards)
-            )
-            self.reward_normalizer['running_max'] = max(
-                self.reward_normalizer['running_max'], np.max(rewards)
-            )
-        
-        self.reward_normalizer['count'] += len(rewards)
-        
-        # prevent division by zero
-        reward_range = self.reward_normalizer['running_max'] - self.reward_normalizer['running_min']
-        if reward_range > self.reward_normalizer['epsilon']:
-            # normalize to [0,1] range, keep relative relationship
-            range_normalized = (rewards - self.reward_normalizer['running_min']) / reward_range
-            # further scale to appropriate range
-            range_normalized = range_normalized * 0.1  # scale to [0,0.1]
-        else:
-            # if reward change is small, use fixed scaling
-            range_normalized = fixed_scale_normalized
-        
-        # choose normalization method:
-        # if reward change range is large, use dynamic range normalization
-        # if reward change is small, use fixed scaling
-        if reward_range > 10.0:  # if reward change is larger than 10, use dynamic normalization
-            normalized_rewards = range_normalized
-        else:  # if reward change is small, use fixed scaling
-            normalized_rewards = fixed_scale_normalized
-        
-        return normalized_rewards
-    
+        A replayed transition must retain the same scaled reward regardless of
+        which other transitions were previously sampled.
+        """
+        rewards = np.asarray(rewards, dtype=np.float64)
+        if not np.isfinite(rewards).all():
+            raise ValueError("MATD3 received non-finite rewards")
+        self.reward_normalizer['count'] += rewards.size
+        return rewards / 1000.0
+
     def _update_exploration_noise(self):
         """dynamic adjust exploration noise"""
         if self.training_improvement_config['adaptive_noise']:
@@ -376,22 +389,41 @@ class FOMATD3Adapter:
         
     def reset_buffers(self):
         """reset buffers"""
-        self.replay_buffer['ptr'] = 0
-        self.replay_buffer['size'] = 0
-        
+        # Off-policy replay must persist across episode boundaries.
+        # Only clear any per-episode transition cache.
         # reset experience cache variables
         self._prev_states = None
         self._prev_actions = None
         self._prev_rewards = None
         self._prev_dones = None
         
+    def _stack_observations(self, obs: Dict[str, np.ndarray]) -> np.ndarray:
+        padded = np.zeros((self.num_agents, self.state_dim), dtype=np.float32)
+        for i, mid in enumerate(self.agent_ids):
+            value = np.asarray(obs[mid], dtype=np.float32).reshape(-1)
+            if value.size != self.observation_dims[mid]:
+                raise ValueError(f"{mid} observation has {value.size} entries; expected {self.observation_dims[mid]}")
+            padded[i, :value.size] = value
+        return padded
+
+    def _stack_actions(self, actions: Dict[str, np.ndarray]) -> np.ndarray:
+        padded = np.zeros((self.num_agents, self.action_dim), dtype=np.float32)
+        for i, mid in enumerate(self.agent_ids):
+            value = np.asarray(actions[mid], dtype=np.float32).reshape(-1)
+            if value.size != self.action_dims[mid]:
+                raise ValueError(f"{mid} action has {value.size} entries; expected {self.action_dims[mid]}")
+            padded[i, :value.size] = value
+        return padded
+
     def select_actions(self, obs: Dict[str, np.ndarray], deterministic: bool = False) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray]]:
 
         actions = {}
         action_log_probs = {}  # TD3 not used, keep compatibility
         values = {}           # TD3 not used, keep compatibility
         
-        for manager_id, observation in obs.items():
+        states = self._stack_observations(obs)
+        for i, manager_id in enumerate(self.agent_ids):
+            observation = states[i]
             if manager_id in self.agents:
                 raw_action = self.agents[manager_id].select_action(
                     observation, 
@@ -399,10 +431,12 @@ class FOMATD3Adapter:
                     noise_scale=self.noise_scale
                 )
                 
-                fo_action = self._map_action_to_fo_params(raw_action)
+                fo_action = self._map_action_to_fo_params(
+                    raw_action[:self.action_dims[manager_id]]
+                )
                 
                 actions[manager_id] = fo_action
-                action_log_probs[manager_id] = np.zeros(self.action_dim) 
+                action_log_probs[manager_id] = np.zeros(self.action_dims[manager_id]) 
                 values[manager_id] = np.zeros(1)  
                 
                 logger.debug(f"Manager {manager_id} TD3 FlexOffer action: {fo_action.shape} dim, "
@@ -415,46 +449,34 @@ class FOMATD3Adapter:
         
         return actions, action_log_probs, values
         
-    def collect_step(self, 
+    def collect_step(self,
                      obs: Dict[str, np.ndarray],
                      actions: Dict[str, np.ndarray],
                      rewards: Dict[str, float],
                      dones: Dict[str, bool],
                      infos: Dict[str, Any],
+                     next_obs: Dict[str, np.ndarray],
                      action_log_probs: Optional[Dict[str, np.ndarray]] = None,
                      values: Optional[Dict[str, np.ndarray]] = None):
-        """collect experience step """
-        try:
-            manager_ids = list(obs.keys())
-            
-            # convert to array format
-            states = np.array([obs[mid] for mid in manager_ids])
-            actions_array = np.array([actions[mid] for mid in manager_ids])
-            rewards_array = np.array([rewards[mid] for mid in manager_ids])
-            dones_array = np.array([dones[mid] for mid in manager_ids])
-            
-            # use cache mechanism to handle next_states
-            if hasattr(self, '_prev_states') and self._prev_states is not None:
-                # if there is previous state, store it as experience
-                ptr = self.replay_buffer['ptr']
-                self.replay_buffer['states'][ptr] = self._prev_states
-                self.replay_buffer['actions'][ptr] = self._prev_actions
-                self.replay_buffer['rewards'][ptr] = self._prev_rewards
-                self.replay_buffer['next_states'][ptr] = states  # current state as previous step's next_states
-                self.replay_buffer['dones'][ptr] = self._prev_dones
-                
-                self.replay_buffer['ptr'] = (ptr + 1) % self.replay_buffer['capacity']
-                self.replay_buffer['size'] = min(self.replay_buffer['size'] + 1, self.replay_buffer['capacity'])
-            
-            # save current state for next storage
-            self._prev_states = states.copy()
-            self._prev_actions = actions_array.copy()
-            self._prev_rewards = rewards_array.copy()
-            self._prev_dones = dones_array.copy()
-            
-        except Exception as e:
-            logger.error(f"FOMATD3 experience collection failed: {e}")
-            
+        """Store the executed (state, action, reward, next_state, done) transition."""
+        manager_ids = list(self.agents.keys())
+        states = self._stack_observations(obs)
+        next_states = self._stack_observations(next_obs)
+        actions_array = self._stack_actions(actions)
+        rewards_array = np.asarray([rewards[mid] for mid in manager_ids], dtype=np.float32)
+        dones_array = np.asarray([dones[mid] for mid in manager_ids], dtype=bool)
+
+        ptr = self.replay_buffer['ptr']
+        self.replay_buffer['states'][ptr] = states
+        self.replay_buffer['actions'][ptr] = actions_array
+        self.replay_buffer['rewards'][ptr] = rewards_array
+        self.replay_buffer['next_states'][ptr] = next_states
+        self.replay_buffer['dones'][ptr] = dones_array
+        self.replay_buffer['ptr'] = (ptr + 1) % self.replay_buffer['capacity']
+        self.replay_buffer['size'] = min(
+            self.replay_buffer['size'] + 1, self.replay_buffer['capacity']
+        )
+
     def train_on_batch(self) -> Dict[str, Any]:
         """train a batch - strictly follow original MATD3 architecture (with reward normalization improvement)"""
         # check warm-up period
@@ -463,7 +485,8 @@ class FOMATD3Adapter:
             return {'status': 'warming_up', 'buffer_size': self.replay_buffer['size']}
             
         self.total_iterations += 1
-        
+        self.training_iterations = self.total_iterations
+
         # sample batch
         batch_indices = np.random.choice(self.replay_buffer['size'], self.batch_size, replace=False)
         
@@ -527,8 +550,16 @@ class FOMATD3Adapter:
         if self.total_iterations % 100 == 0:  # adjust every 100 steps
             self._update_exploration_noise()
             
-        # add training statistics
+        # Aggregate the actual per-agent losses for the pipeline's metrics.
+        critic_losses = [training_stats[f'{mid}_critic_loss'] for mid in manager_ids]
+        actor_losses = [
+            training_stats[f'{mid}_actor_loss'] for mid in manager_ids
+            if f'{mid}_actor_loss' in training_stats
+        ]
         training_stats.update({
+            'status': 'updated',
+            'policy_loss': float(np.mean(actor_losses)) if actor_losses else 0.0,
+            'value_loss': float(np.mean(critic_losses)),
             'total_iterations': self.total_iterations,
             'buffer_size': self.replay_buffer['size'],
             'current_noise_scale': self.noise_scale,
@@ -573,52 +604,59 @@ class FOMATD3Adapter:
         return summary
 
     def save_models(self, save_path: str):
-        """save models"""
+        """Save online and target networks, optimizer states, and TD3 counters."""
         os.makedirs(save_path, exist_ok=True)
-        for manager_id, agent in self.agents.items():
-            torch.save(agent.actor.state_dict(), f"{save_path}/{manager_id}_actor.pt")
-            torch.save(agent.critic.state_dict(), f"{save_path}/{manager_id}_critic.pt")
-            
-    def load_models(self, load_path: str):
-        """load models"""
-        for manager_id, agent in self.agents.items():
-            actor_path = f"{load_path}/{manager_id}_actor.pt"
-            critic_path = f"{load_path}/{manager_id}_critic.pt"
-            if os.path.exists(actor_path) and os.path.exists(critic_path):
-                agent.actor.load_state_dict(torch.load(actor_path, map_location=self.device))
-                agent.critic.load_state_dict(torch.load(critic_path, map_location=self.device))
-                agent._hard_update(agent.actor_target, agent.actor)
-                agent._hard_update(agent.critic_target, agent.critic)
-                logger.info(f"model of {manager_id} loaded")
-            else:
-                logger.warning(f"model file of {manager_id} not found")
-    
-    def _map_action_to_fo_params(self, raw_action: np.ndarray) -> np.ndarray:
+        checkpoint = {
+            'version': 2,
+            'manager_ids': list(self.agent_ids),
+            'observation_dims': dict(self.observation_dims),
+            'action_dims': dict(self.action_dims),
+            'total_iterations': self.total_iterations,
+            'training_iterations': self.training_iterations,
+            'noise_scale': self.noise_scale,
+            'reward_normalizer': dict(self.reward_normalizer),
+            'agents': {
+                mid: {
+                    'actor': agent.actor.state_dict(),
+                    'critic': agent.critic.state_dict(),
+                    'actor_target': agent.actor_target.state_dict(),
+                    'critic_target': agent.critic_target.state_dict(),
+                    'actor_optimizer': agent.actor_optimizer.state_dict(),
+                    'critic_optimizer': agent.critic_optimizer.state_dict(),
+                }
+                for mid, agent in self.agents.items()
+            },
+        }
+        torch.save(checkpoint, os.path.join(save_path, 'matd3_checkpoint.pt'))
 
-        fo_action = np.zeros_like(raw_action)
-        
-        num_devices = len(raw_action) // 5 if len(raw_action) >= 5 else 1
-        
-        for i in range(num_devices):
-            base_idx = i * 5
-            if base_idx + 4 < len(raw_action):
-                # start_flex: [-1, 1] → [-1, 1] (keep unchanged)
-                fo_action[base_idx] = np.clip(raw_action[base_idx], -1.0, 1.0)
-                
-                # end_flex: [-1, 1] → [-1, 1] (keep unchanged)
-                fo_action[base_idx + 1] = np.clip(raw_action[base_idx + 1], -1.0, 1.0)
-                
-                # energy_min_factor: [-1, 1] → [0.1, 1.0]
-                fo_action[base_idx + 2] = 0.1 + 0.45 * (raw_action[base_idx + 2] + 1.0)
-                
-                # energy_max_factor: [-1, 1] → [1.0, 2.0]  
-                fo_action[base_idx + 3] = 1.0 + 0.5 * (raw_action[base_idx + 3] + 1.0)
-                
-                # priority_weight: [-1, 1] → [0.1, 2.0]
-                fo_action[base_idx + 4] = 0.1 + 0.95 * (raw_action[base_idx + 4] + 1.0)
-        
-        return fo_action
-    
+    def load_models(self, load_path: str):
+        """Load a complete MATD3 model checkpoint; fail visibly if incompatible."""
+        path = os.path.join(load_path, 'matd3_checkpoint.pt')
+        checkpoint = torch.load(path, map_location=self.device, weights_only=True)
+        if checkpoint.get('version') != 2:
+            raise ValueError('Unsupported MATD3 checkpoint version')
+        if (checkpoint['manager_ids'] != self.agent_ids
+                or checkpoint['observation_dims'] != self.observation_dims
+                or checkpoint['action_dims'] != self.action_dims):
+            raise ValueError('MATD3 checkpoint manager dimensions do not match')
+        for mid, agent in self.agents.items():
+            saved = checkpoint['agents'][mid]
+            agent.actor.load_state_dict(saved['actor'])
+            agent.critic.load_state_dict(saved['critic'])
+            agent.actor_target.load_state_dict(saved['actor_target'])
+            agent.critic_target.load_state_dict(saved['critic_target'])
+            agent.actor_optimizer.load_state_dict(saved['actor_optimizer'])
+            agent.critic_optimizer.load_state_dict(saved['critic_optimizer'])
+        self.total_iterations = checkpoint['total_iterations']
+        self.training_iterations = checkpoint['training_iterations']
+        self.noise_scale = checkpoint['noise_scale']
+        self.reward_normalizer = checkpoint['reward_normalizer']
+        logger.info('MATD3 model checkpoint loaded from %s', path)
+
+    def _map_action_to_fo_params(self, raw_action: np.ndarray) -> np.ndarray:
+        raw_tensor = torch.as_tensor(raw_action, dtype=torch.float32)
+        return map_normalized_fo_actions(raw_tensor).cpu().numpy()
+
     def _generate_default_fo_action(self) -> np.ndarray:
         default_action = np.zeros(self.action_dim)
         num_devices = self.action_dim // 5 if self.action_dim >= 5 else 1

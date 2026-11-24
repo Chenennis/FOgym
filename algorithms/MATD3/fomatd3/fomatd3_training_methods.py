@@ -16,6 +16,12 @@ except ImportError:
     FOMATD3Adapter = None
     FOMATD3_ADAPTER_available = False
 
+def matd3_replay_capacity(num_episodes: int, steps_per_episode: int,
+                          batch_size: int, max_capacity: int = 100000) -> int:
+    """Allocate enough transitions for the requested run without excessive preallocation."""
+    return min(max_capacity, max(batch_size, num_episodes * steps_per_episode))
+
+
 def train_fomatd3_adapter(pipeline):
     logger.info("🚀 start optimized FOMATD3 training (TD3 twin critic network architecture)")
     logger.info(f"plan to train {pipeline.num_episodes} episodes")
@@ -26,7 +32,7 @@ def train_fomatd3_adapter(pipeline):
         pipeline.num_episodes = 1
     
     # record maximum allowed episodes number
-    max_allowed_episodes = min(pipeline.num_episodes, 100)  # set a safe upper limit
+    max_allowed_episodes = pipeline.num_episodes
     logger.info(f"maximum allowed episodes number: {max_allowed_episodes}")
     
     # update actual running algorithm
@@ -78,8 +84,10 @@ def train_fomatd3_adapter(pipeline):
     # get state and action space dimension
     try:
         sample_obs, _ = multi_env.reset()
-        state_dim = len(sample_obs[manager_ids[0]])
-        action_dim = multi_env.action_spaces[manager_ids[0]].shape[0]
+        observation_dims = {mid: len(sample_obs[mid]) for mid in manager_ids}
+        action_dims = {mid: multi_env.action_spaces[mid].shape[0] for mid in manager_ids}
+        state_dim = max(observation_dims.values())
+        action_dim = max(action_dims.values())
         logger.info(f"📊 state space: {state_dim} dimensions, action space: {action_dim} dimensions")
     except Exception as e:
         logger.error(f"❌ get observation and action space failed: {e}")
@@ -106,6 +114,8 @@ def train_fomatd3_adapter(pipeline):
             state_dim=state_dim,
             action_dim=action_dim,
             num_agents=num_managers,
+            observation_dims=observation_dims,
+            action_dims=action_dims,
             episode_length=pipeline.steps_per_episode,
             
             # learning rate - TD3 usually uses lower learning rate to improve stability
@@ -115,7 +125,9 @@ def train_fomatd3_adapter(pipeline):
             device=pipeline.device if hasattr(pipeline, 'device') else "cpu",
             
             # TD3 specific parameters
-            buffer_capacity=500000,  # larger buffer
+            buffer_capacity=matd3_replay_capacity(
+                pipeline.num_episodes, pipeline.steps_per_episode, BATCH_SIZE
+            ),
             batch_size=BATCH_SIZE,
             gamma=0.99,              # discount factor
             tau=0.001,               # soft update parameter (smaller, more stable)
@@ -156,19 +168,16 @@ def train_fomatd3_adapter(pipeline):
         
         # reset environment
         obs, infos = multi_env.reset()
-        fomatd3_adapter.reset_buffers()  # for TD3, this operation is safe, will not clear experience replay buffer
+        fomatd3_adapter.reset_buffers()  # clear episode cache; retain off-policy replay
         
         episode_rewards = {manager_id: 0.0 for manager_id in manager_ids}
+        update_info = None
         
         # dynamic adjust noise ratio (TD3 can handle slower noise decay)
         if episode > WARMUP_EPISODES:
             current_noise_scale = max(MIN_NOISE, current_noise_scale * NOISE_DECAY)
             # update adapter's noise parameters
-            for agent_id in range(fomatd3_adapter.n_agents):
-                if hasattr(fomatd3_adapter, 'agents') and fomatd3_adapter.agents is not None:
-                    fomatd3_adapter.agents[agent_id].noise_scale = current_noise_scale
-                else:
-                    fomatd3_adapter.noise_scale = current_noise_scale
+            fomatd3_adapter.noise_scale = current_noise_scale
             logger.info(f"📉 noise adjustment: {current_noise_scale:.4f}")
         
         # number of steps per episode
@@ -187,8 +196,9 @@ def train_fomatd3_adapter(pipeline):
                 obs=obs,
                 actions=actions,
                 rewards=rewards,
-                dones=dones,
+                dones={mid: bool(dones[mid] or truncated) for mid in manager_ids},
                 infos=infos,
+                next_obs=next_obs,
                 action_log_probs=action_log_probs,
                 values=values
             )
@@ -204,10 +214,12 @@ def train_fomatd3_adapter(pipeline):
             # update only every few time steps, and the frequency of Actor network update is further reduced
             if timestep % UPDATE_FREQ == 0 and episode > WARMUP_EPISODES:
                 train_info = fomatd3_adapter.train_on_batch()
-                if isinstance(train_info, dict):
-                    policy_loss = train_info.get('policy_loss', 0.0)
-                    value_loss = train_info.get('value_loss', 0.0)
-                    logger.debug(f"  ⚙️ training update: Actor Loss: {policy_loss:.5f}, Critic Loss: {value_loss:.5f}")
+                if train_info.get('status') == 'updated':
+                    update_info = train_info
+                    logger.debug(
+                        "TD3 Actor Loss: %.5f, Critic Loss: %.5f",
+                        train_info['policy_loss'], train_info['value_loss']
+                    )
             
             # display time step reward
             timestep_total = sum(rewards.values())
@@ -217,7 +229,9 @@ def train_fomatd3_adapter(pipeline):
         if episode > WARMUP_EPISODES:
             # update multiple times after episode, TD3 characteristics: Critic update more, Actor update less
             for _ in range(5):  # update 5 times
-                update_info = fomatd3_adapter.train_on_batch()
+                train_info = fomatd3_adapter.train_on_batch()
+                if train_info.get('status') == 'updated':
+                    update_info = train_info
         
         # record episode reward and statistics
         episode_total_reward = sum(episode_rewards.values())
@@ -225,7 +239,7 @@ def train_fomatd3_adapter(pipeline):
         logger.info(f"  🎯 total reward: {episode_total_reward:.3f}")
         
         # if there is training information
-        if 'update_info' in locals() and isinstance(update_info, dict):
+        if update_info is not None:
             logger.info(f"  📈 training loss: Actor {update_info.get('policy_loss', 0):.4f}, Critic {update_info.get('value_loss', 0):.4f}")
         
         # display each manager's reward and record to training history
@@ -239,14 +253,14 @@ def train_fomatd3_adapter(pipeline):
                 'manager_id': manager_id,
                 'episode': episode,
                 'episode_reward': reward,
-                'policy_loss': float(update_info.get('policy_loss', 0.001)) if 'update_info' in locals() else 0.001,
-                'value_loss': float(update_info.get('value_loss', 0.001)) if 'update_info' in locals() else 0.001,
+                'policy_loss': float(update_info.get('policy_loss', 0.001)) if update_info is not None else 0.0,
+                'value_loss': float(update_info.get('value_loss', 0.001)) if update_info is not None else 0.0,
                 'entropy': 0.0  # TD3 has no entropy
             }
             training_history.append(training_data)
             
             # record training loss
-            if hasattr(pipeline, '_record_training_loss') and 'update_info' in locals():
+            if hasattr(pipeline, '_record_training_loss') and update_info is not None:
                 pipeline._record_training_loss(
                     manager_id=manager_id,
                     episode=episode,
@@ -261,15 +275,15 @@ def train_fomatd3_adapter(pipeline):
             'manager_id': 'total',
             'episode': episode,
             'episode_reward': episode_total_reward,
-            'policy_loss': float(update_info.get('policy_loss', 0.0)) if 'update_info' in locals() else 0.0,
-            'value_loss': float(update_info.get('value_loss', 0.0)) if 'update_info' in locals() else 0.0,
+            'policy_loss': float(update_info.get('policy_loss', 0.0)) if update_info is not None else 0.0,
+            'value_loss': float(update_info.get('value_loss', 0.0)) if update_info is not None else 0.0,
             'entropy': 0.0  # TD3 has no entropy
         }
         training_history.append(training_data_total)
         
         # periodically output learning progress
-        if (episode + 1) % 10 == 0:
-            logger.info(f"\n========== FOMATD3 training progress: {episode+1}/{pipeline.num_episodes} episodes ==========")
+        if episode % 10 == 0:
+            logger.info(f"\n========== FOMATD3 training progress: {episode}/{pipeline.num_episodes} episodes ==========")
             
             # get training statistics
             try:
@@ -300,9 +314,9 @@ def train_fomatd3_adapter(pipeline):
             logger.info("=" * 70)
         
         # periodically save model
-        if (episode + 1) % 20 == 0 or episode == pipeline.num_episodes:
+        if episode % 20 == 0 or episode == pipeline.num_episodes:
             try:
-                model_path = f"results/fomatd3_adapter_ep{episode+1}"
+                model_path = f"results/fomatd3_adapter_ep{episode}"
                 fomatd3_adapter.save_models(model_path)
                 logger.info(f"📀 model saved to: {model_path}")
                 

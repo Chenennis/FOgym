@@ -169,7 +169,10 @@ class FOMaddpgPolicy:
         # initialize target network
         self.hard_update(self.actor_target, self.actor)
         self.hard_update(self.critic_target, self.critic)
-        
+        # Bootstrap targets must not sample Dropout or modify BatchNorm statistics.
+        self.actor_target.eval()
+        self.critic_target.eval()
+
         # FlexOffer specific parameters
         self.fo_constraint_weight = 0.1  # FlexOffer constraint weight
         self.coordination_weight = 0.05   # coordination weight
@@ -187,8 +190,14 @@ class FOMaddpgPolicy:
         """
         state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         
-        with torch.no_grad():
-            action = self.actor(state).cpu().numpy()[0]
+        # Evaluation is deterministic even though the actor contains Dropout.
+        was_training = self.actor.training
+        self.actor.eval()
+        try:
+            with torch.no_grad():
+                action = self.actor(state).cpu().numpy()[0]
+        finally:
+            self.actor.train(was_training)
         
         # add exploration noise
         if noise_scale > 0:
@@ -289,36 +298,38 @@ class FOMaddpgPolicy:
         return constraint_violation.mean()
     
     def _compute_coordination_loss(self, agent_actions: torch.Tensor, all_actions: torch.Tensor) -> torch.Tensor:
-        """
-        compute coordination loss - encourage Manager collaboration
-        
-        Args:
-            agent_actions: current agent's action
-            all_actions: all agents' actions
-            
-        Returns:
-            coordination loss
-        """
-        # compute action correlation, encourage moderate coordination
-        if all_actions.size(1) > self.action_dim:
-            other_actions = all_actions[:, self.action_dim:]  # other agents' actions
-            # compute action difference, moderate difference is beneficial for exploration
-            action_diff = torch.abs(agent_actions.unsqueeze(1) - other_actions.view(-1, self.n_agents-1, self.action_dim))
-            # encourage moderate coordination (not completely一致)
-            coordination_loss = torch.relu(0.5 - action_diff.mean())  # target difference is 0.5
-            return coordination_loss
-        else:
-            return torch.tensor(0.0, device=self.device)
-    
+        """Coordinate against other managers, excluding the current manager."""
+        if self.n_agents <= 1:
+            return agent_actions.sum() * 0.0
+
+        expected_width = self.n_agents * self.action_dim
+        if all_actions.shape[1] != expected_width:
+            raise ValueError(
+                f"Expected joint action width {expected_width}; received {all_actions.shape[1]}"
+            )
+        joint_actions = all_actions.reshape(-1, self.n_agents, self.action_dim)
+        other_actions = torch.cat((
+            joint_actions[:, :self.agent_id],
+            joint_actions[:, self.agent_id + 1:],
+        ), dim=1)
+        differences = torch.abs(agent_actions.unsqueeze(1) - other_actions)
+        return torch.relu(0.5 - differences.mean())
+
     def soft_update(self, target: nn.Module, source: nn.Module, tau: float = 0.005):
-        """soft update target network"""
-        for target_param, param in zip(target.parameters(), source.parameters()):
-            target_param.data.copy_(target_param.data * (1.0 - tau) + param.data * tau)
-    
+        """Polyak-average weights and BatchNorm buffers without tracking gradients."""
+        with torch.no_grad():
+            for target_param, param in zip(target.parameters(), source.parameters()):
+                target_param.lerp_(param, tau)
+            for target_buffer, buffer in zip(target.buffers(), source.buffers()):
+                if target_buffer.is_floating_point():
+                    target_buffer.lerp_(buffer, tau)
+                else:
+                    target_buffer.copy_(buffer)
+        target.eval()
+
     def hard_update(self, target: nn.Module, source: nn.Module):
-        """hard update target network"""
-        for target_param, param in zip(target.parameters(), source.parameters()):
-            target_param.data.copy_(param.data)
+        """Synchronize both parameters and BatchNorm buffers."""
+        target.load_state_dict(source.state_dict())
     
     def save(self, filepath: str):
         """save model"""
@@ -340,3 +351,5 @@ class FOMaddpgPolicy:
         # update target network
         self.hard_update(self.actor_target, self.actor)
         self.hard_update(self.critic_target, self.critic) 
+        self.actor_target.eval()
+        self.critic_target.eval()

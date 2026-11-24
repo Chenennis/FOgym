@@ -27,6 +27,7 @@ class AggregatedFlexOffer:
     power_profile_rmse: float = 0.0       # power profile RMSE
     power_profile_cv: float = 0.0         # power profile coefficient of variation
     slice_count: int = 0                  # slice count
+    manager_id: Optional[str] = None       # owning manager for pipeline provenance
     
     def __post_init__(self):
         """calculate properties after initialization"""
@@ -111,15 +112,37 @@ class FOAggregator(ABC):
         if not fo1.is_compatible_with(fo2, self.tf_threshold):
             return None
         
-        # ensure two FOs have the same number of slices
-        max_slices = max(len(fo1.slices), len(fo2.slices))
+        # Energy bounds can only be added slice by slice on the same time grid.
+        # In particular, zero-padding a shorter profile would move energy in time.
+        if (fo1.start_time != fo2.start_time or
+                fo1.end_time != fo2.end_time or
+                len(fo1.slices) != len(fo2.slices)):
+            return None
+        for s1, s2 in zip(fo1.slices, fo2.slices):
+            if (s1.start_time != s2.start_time or
+                    s1.end_time != s2.end_time or
+                    s1.duration_minutes != s2.duration_minutes or
+                    s1.duration_minutes <= 0):
+                return None
+            if (not all(np.isfinite(v) for v in
+                        (s1.energy_min, s1.energy_max, s2.energy_min, s2.energy_max))
+                    or s1.energy_min > s1.energy_max
+                    or s2.energy_min > s2.energy_max):
+                return None
+
+        max_slices = len(fo1.slices)
         
         # create aggregated slices
         aggregated_slices = []
         for i in range(max_slices):
             # get energy of two FOs in the slice
-            e1_min, e1_max = fo1.get_energy_bounds(i) if i < len(fo1.slices) else (0.0, 0.0)
-            e2_min, e2_max = fo2.get_energy_bounds(i) if i < len(fo2.slices) else (0.0, 0.0)
+            # Compatibility has already established one-to-one time alignment.
+            # get_energy_bounds() accepts a slice ID, not a positional index;
+            # reading by index would silently replace nonzero-ID energy with zero.
+            s1 = fo1.slices[i]
+            s2 = fo2.slices[i]
+            e1_min, e1_max = s1.energy_min, s1.energy_max
+            e2_min, e2_max = s2.energy_min, s2.energy_max
             
             # aggregate energy 
             agg_e_min = e1_min + e2_min
@@ -198,6 +221,7 @@ class FOAggregator(ABC):
         """
         current_fo = fini
         used_fos = [fini.fo_id]
+        self._last_used_fo_ids = used_fos
         
         # sort PF by time flexibility in descending order
         PF_sorted = sorted(PF, key=lambda fo: fo.tf(), reverse=True)
@@ -257,7 +281,7 @@ class FOAggregator(ABC):
             aggregated_fo = self.process(PF, fini)
             
             # create aggregated result
-            source_fo_ids = [fini.fo_id] + [fo.fo_id for fo in PF]
+            source_fo_ids = list(self._last_used_fo_ids)
             afo = AggregatedFlexOffer(
                 afo_id=f"AFO_{round_num}_{self.__class__.__name__}",
                 source_fo_ids=source_fo_ids,
@@ -287,8 +311,13 @@ class FOAggregator(ABC):
                        f"total energy range [{afo.total_energy_min:.2f}, {afo.total_energy_max:.2f}], "
                        f"profile size={afo.aggregated_fo.profile_size()}")
         
-        # process FOs in unprocessed set
-        for unused_fo in UF:
+        # Every candidate rejected by the quality or compatibility gates must
+        # remain a standalone offer; otherwise aggregation silently loses energy.
+        used_ids = set(self._last_used_fo_ids) if fini is not None and PF else (
+            {fini.fo_id} if fini is not None else set()
+        )
+        remaining_fos = [fo for fo in PF if fo.fo_id not in used_ids] + list(UF)
+        for unused_fo in remaining_fos:
             afo = AggregatedFlexOffer(
                 afo_id=f"AFO_unused_{unused_fo.fo_id}",
                 source_fo_ids=[unused_fo.fo_id],
@@ -299,7 +328,7 @@ class FOAggregator(ABC):
         
         # enhance logging: record final aggregation result
         logger.info(f"aggregation result statistics: method={self.__class__.__name__}, result count={len(self.results)}, "
-                   f"processed FO count={len(flex_offers) - len(UF)}, unprocessed FO count={len(UF)}")
+                   f"merged FO count={len(used_ids)}, standalone FO count={len(remaining_fos)}")
         
         return self.results
 

@@ -7,10 +7,11 @@ from typing import Dict, List, Tuple, Optional, Any, Union
 import logging
 import json
 import os
+import random
 from collections import defaultdict
 
 # FO Framework imports
-from .fosqddpg import FOSQDDPG
+from .fosqddpg import FOSQDDPG, map_normalized_fo_actions
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,11 @@ class FOSQDDPGAdapter:
                  batch_size: int = 64,
                  sample_size: int = 5,  # Shapley sampling size
                  policy_delay: int = 1,  # FOSQDDPG usually does not need delay update
-                 device: str = "cpu"):
+                 device: str = "cpu",
+                 observation_dims: Optional[Dict[str, int]] = None,
+                 action_dims: Optional[Dict[str, int]] = None,
+                 replay_rng: Optional[random.Random] = None,
+                 noise_rng: Optional[np.random.Generator] = None):
         
         # core parameters
         self.state_dim = state_dim
@@ -54,6 +59,17 @@ class FOSQDDPGAdapter:
         
         # agent ID management
         self.agent_ids = [f"manager_{i+1}" for i in range(num_agents)]
+        self.observation_dims = {
+            agent_id: (observation_dims or {}).get(agent_id, state_dim)
+            for agent_id in self.agent_ids
+        }
+        self.action_dims = {
+            agent_id: (action_dims or {}).get(agent_id, action_dim)
+            for agent_id in self.agent_ids
+        }
+        if (any(dim <= 0 or dim > state_dim for dim in self.observation_dims.values())
+                or any(dim <= 0 or dim > action_dim for dim in self.action_dims.values())):
+            raise ValueError("Manager dimensions must be positive and within padded dimensions")
         
         # training state
         self.training_iterations = 0
@@ -75,7 +91,10 @@ class FOSQDDPGAdapter:
             buffer_capacity=buffer_capacity,
             batch_size=batch_size,
             sample_size=sample_size,
-            device=device
+            device=device,
+            action_dims=[self.action_dims[agent_id] for agent_id in self.agent_ids],
+            replay_rng=replay_rng,
+            noise_rng=noise_rng
         )
         
         # cache mechanism (compatible with FO Pipeline interface)
@@ -115,39 +134,63 @@ class FOSQDDPGAdapter:
         }
     
     def _normalize_rewards(self, rewards: np.ndarray) -> np.ndarray:
-        """normalize reward values - keep relative scaling method"""
-        
-        fixed_scale_normalized = rewards / 1000.0
-        
-        # check variance to decide which method to use
-        reward_variance = np.var(rewards)
-        
-        if reward_variance < 1e-3:  # variance is small, use fixed scaling
-            return fixed_scale_normalized
-        else:
-            # dynamic range normalization (keep relative relationship)
-            reward_min = np.min(rewards)
-            reward_max = np.max(rewards)
-            if reward_max - reward_min > 1e-8:
-                dynamic_normalized = (rewards - reward_min) / (reward_max - reward_min) * 0.1
-                return dynamic_normalized
-            else:
-                return fixed_scale_normalized
+        """Apply a fixed scale so Bellman targets keep consistent reward units."""
+        rewards = np.asarray(rewards, dtype=np.float32)
+        if not np.isfinite(rewards).all():
+            raise ValueError("SQDDPG received non-finite rewards")
+
+        # Track raw reward statistics for diagnostics; do not use them to
+        # alter the reward function as more experience is collected.
+        stats = self.reward_normalizer
+        for reward in rewards.flat:
+            count = stats['count'] + 1
+            delta = float(reward) - stats['running_mean']
+            mean = stats['running_mean'] + delta / count
+            delta2 = float(reward) - mean
+            previous_m2 = stats['running_var'] * (count - 1) if count > 1 else 0.0
+            stats['running_mean'] = mean
+            stats['running_var'] = (previous_m2 + delta * delta2) / count
+            stats['count'] = count
+            stats['running_min'] = min(stats['running_min'], float(reward))
+            stats['running_max'] = max(stats['running_max'], float(reward))
+        return rewards / 1000.0
     
+    def _stack_observations(self, observations: Dict[str, np.ndarray]) -> np.ndarray:
+        padded = np.zeros((self.num_agents, self.state_dim), dtype=np.float32)
+        for i, agent_id in enumerate(self.agent_ids):
+            values = np.asarray(observations[agent_id], dtype=np.float32).reshape(-1)
+            expected = self.observation_dims[agent_id]
+            if values.size != expected:
+                raise ValueError(f"{agent_id} observation has {values.size} entries; expected {expected}")
+            padded[i, :expected] = values
+        return padded
+
+    def _stack_actions(self, actions: Dict[str, np.ndarray]) -> np.ndarray:
+        padded = np.zeros((self.num_agents, self.action_dim), dtype=np.float32)
+        for i, agent_id in enumerate(self.agent_ids):
+            values = np.asarray(actions[agent_id], dtype=np.float32).reshape(-1)
+            expected = self.action_dims[agent_id]
+            if values.size != expected:
+                raise ValueError(f"{agent_id} action has {values.size} entries; expected {expected}")
+            padded[i, :expected] = values
+        return padded
+
     def select_actions(self, 
                       observations: Dict[str, np.ndarray], 
                       deterministic: bool = False) -> Tuple[Dict[str, np.ndarray], Optional[Dict], Optional[Dict]]:
 
         # convert to numpy array
-        obs_array = np.array([observations[agent_id] for agent_id in self.agent_ids])
+        obs_array = self._stack_observations(observations)
         
-        # use FOSQDDPG to select raw actions
+        # The training loop adjusts adapter.noise_scale after warmup.
+        # Keep the underlying action sampler in sync.
+        self.fosqddpg.noise_scale = self.noise_scale
         raw_actions_array = self.fosqddpg.select_actions(obs_array, add_noise=not deterministic)
         
         # convert back to dictionary format and map to FlexOffer parameter range
         actions = {}
         for i, agent_id in enumerate(self.agent_ids):
-            raw_action = raw_actions_array[i]
+            raw_action = raw_actions_array[i, :self.action_dims[agent_id]]
             fo_action = self._map_action_to_fo_params(raw_action)
             actions[agent_id] = fo_action
             
@@ -156,54 +199,40 @@ class FOSQDDPGAdapter:
         
         return actions, None, None
     
-    def collect_step(self, 
+    def collect_step(self,
                     obs: Dict[str, np.ndarray],
-                    actions: Dict[str, np.ndarray], 
+                    actions: Dict[str, np.ndarray],
                     rewards: Dict[str, float],
                     dones: Dict[str, bool],
                     infos: Dict[str, Any],
-                    timestep: int) -> Dict[str, Any]:
-        """
-        collect single step experience (standard FO Pipeline interface)
-        """
-        # convert to numpy array
-        states = np.array([obs[agent_id] for agent_id in self.agent_ids])
-        actions_array = np.array([actions[agent_id] for agent_id in self.agent_ids])
+                    timestep: int,
+                    next_obs: Dict[str, np.ndarray]) -> Dict[str, Any]:
+        """Store the actual transition generated by this environment step."""
+        states = self._stack_observations(obs)
+        next_states = self._stack_observations(next_obs)
+        actions_array = self._stack_actions(actions)
         rewards_array = np.array([rewards[agent_id] for agent_id in self.agent_ids])
         dones_array = np.array([dones[agent_id] for agent_id in self.agent_ids])
-        
-        # normalize rewards
+
         normalized_rewards = self._normalize_rewards(rewards_array)
-        
-        # update manager reward statistics
         for i, agent_id in enumerate(self.agent_ids):
             self._manager_rewards[agent_id].append(rewards_array[i])
-        
-        # use cache mechanism to store experience (compatible with FO Pipeline)
-        if hasattr(self, '_prev_states') and self._prev_states is not None:
-            # store previous experience
-            self.fosqddpg.store_experience(
-                self._prev_states,
-                self._prev_actions, 
-                self._prev_rewards,
-                states,  # current state as next_states
-                self._prev_dones
-            )
-        
-        # save current state for next use
-        self._prev_states = states.copy()
-        self._prev_actions = actions_array.copy()
-        self._prev_rewards = normalized_rewards.copy()
-        self._prev_dones = dones_array.copy()
-        
+
+        # Store every step immediately, including the terminal transition.
+        self.fosqddpg.store_experience(
+            states.copy(), actions_array.copy(), normalized_rewards.copy(),
+            next_states.copy(), dones_array.copy()
+        )
+
         return {
             "states": states,
             "actions": actions_array,
             "rewards": normalized_rewards,
+            "next_states": next_states,
             "dones": dones_array,
             "normalized_rewards": normalized_rewards
         }
-    
+
     def train_on_batch(self) -> Optional[Dict[str, float]]:
         """
         execute one batch training
@@ -239,9 +268,9 @@ class FOSQDDPGAdapter:
                 
                 return training_stats
             
-        except Exception as e:
-            logger.error(f"FOSQDDPG training error: {e}")
-            return None
+        except Exception:
+            logger.exception("FOSQDDPG optimizer update failed")
+            raise
         
         return None
     
@@ -295,63 +324,115 @@ class FOSQDDPGAdapter:
         return summary
     
     def save_models(self, save_path: str):
-        """save models"""
+        """Save inference weights and a full checkpoint for training resumption."""
         os.makedirs(save_path, exist_ok=True)
-        
+
+        checkpoint = {
+            "version": 1,
+            "agent_ids": list(self.agent_ids),
+            "observation_dims": dict(self.observation_dims),
+            "action_dims": dict(self.action_dims),
+            "training_iterations": self.training_iterations,
+            "total_iterations": self.total_iterations,
+            "algorithm_iterations": self.fosqddpg.total_iterations,
+            "current_episode": self.current_episode,
+            "noise_scale": self.noise_scale,
+            "reward_normalizer": dict(self.reward_normalizer),
+            "manager_rewards": dict(self._manager_rewards),
+            "policies": [],
+            "replay": [
+                transition._asdict()
+                for transition in self.fosqddpg.replay_buffer.buffer
+            ],
+        }
         for i, policy in enumerate(self.fosqddpg.policies):
             agent_id = self.agent_ids[i]
-            
-            # save Actor and Critic networks
-            actor_path = os.path.join(save_path, f"{agent_id}_actor.pt")
-            critic_path = os.path.join(save_path, f"{agent_id}_critic.pt")
-            
-            torch.save(policy.actor.state_dict(), actor_path)
-            torch.save(policy.critic.state_dict(), critic_path)
-            
-            logger.info(f"save {agent_id} model to {save_path}")
-    
+            checkpoint["policies"].append({
+                "actor": policy.actor.state_dict(),
+                "critic": policy.critic.state_dict(),
+                "actor_target": policy.actor_target.state_dict(),
+                "critic_target": policy.critic_target.state_dict(),
+                "actor_optimizer": policy.actor_optimizer.state_dict(),
+                "critic_optimizer": policy.critic_optimizer.state_dict(),
+            })
+            # Preserve the existing weight-only file names for downstream users.
+            torch.save(policy.actor.state_dict(),
+                       os.path.join(save_path, f"{agent_id}_actor.pt"))
+            torch.save(policy.critic.state_dict(),
+                       os.path.join(save_path, f"{agent_id}_critic.pt"))
+
+        torch.save(checkpoint, os.path.join(save_path, "sqddpg_training.pt"))
+        logger.info("Saved SQDDPG weights and training checkpoint to %s", save_path)
+
     def load_models(self, load_path: str):
-        """load models"""
-        for i, policy in enumerate(self.fosqddpg.policies):
-            agent_id = self.agent_ids[i]
-            
-            # load Actor and Critic networks
-            actor_path = os.path.join(load_path, f"{agent_id}_actor.pt")
-            critic_path = os.path.join(load_path, f"{agent_id}_critic.pt")
-            
-            if os.path.exists(actor_path) and os.path.exists(critic_path):
-                policy.actor.load_state_dict(torch.load(actor_path, map_location=self.device))
-                policy.critic.load_state_dict(torch.load(critic_path, map_location=self.device))
-                logger.info(f"load {agent_id} model from {load_path}")
-            else:
-                logger.warning(f"model file not found for {agent_id}")
-    
+        """Restore a full checkpoint, or load legacy weights for inference."""
+        checkpoint_path = os.path.join(load_path, "sqddpg_training.pt")
+        if os.path.isfile(checkpoint_path):
+            # Checkpoints contain NumPy replay arrays; load trusted local files only.
+            checkpoint = torch.load(
+                checkpoint_path, map_location=self.device, weights_only=False
+            )
+            if (checkpoint.get("version") != 1
+                    or checkpoint.get("agent_ids") != self.agent_ids
+                    or checkpoint.get("observation_dims") != self.observation_dims
+                    or checkpoint.get("action_dims") != self.action_dims
+                    or len(checkpoint.get("policies", [])) != self.num_agents):
+                raise ValueError("SQDDPG checkpoint is incompatible with this adapter")
+            for policy, saved in zip(self.fosqddpg.policies, checkpoint["policies"]):
+                policy.actor.load_state_dict(saved["actor"])
+                policy.critic.load_state_dict(saved["critic"])
+                policy.actor_target.load_state_dict(saved["actor_target"])
+                policy.critic_target.load_state_dict(saved["critic_target"])
+                policy.actor_optimizer.load_state_dict(saved["actor_optimizer"])
+                policy.critic_optimizer.load_state_dict(saved["critic_optimizer"])
+                policy.actor_target.eval()
+                policy.critic_target.eval()
+
+            replay = self.fosqddpg.replay_buffer
+            replay.buffer.clear()
+            for sample in checkpoint["replay"]:
+                replay.push(**sample)
+            self.training_iterations = checkpoint["training_iterations"]
+            self.total_iterations = checkpoint["total_iterations"]
+            self.fosqddpg.total_iterations = checkpoint["algorithm_iterations"]
+            self.current_episode = checkpoint["current_episode"]
+            self.noise_scale = checkpoint["noise_scale"]
+            self.fosqddpg.noise_scale = self.noise_scale
+            self.reward_normalizer = dict(checkpoint["reward_normalizer"])
+            self._manager_rewards = dict(checkpoint["manager_rewards"])
+            logger.info("Restored SQDDPG training checkpoint from %s", checkpoint_path)
+            return
+
+        # Backwards compatibility with previously saved actor/critic files.
+        paths = [
+            (os.path.join(load_path, f"{agent_id}_actor.pt"),
+             os.path.join(load_path, f"{agent_id}_critic.pt"))
+            for agent_id in self.agent_ids
+        ]
+        missing = [p for pair in paths for p in pair if not os.path.isfile(p)]
+        if missing:
+            raise FileNotFoundError(
+                "SQDDPG model files missing: " + ", ".join(missing)
+            )
+        for policy, (actor_path, critic_path) in zip(self.fosqddpg.policies, paths):
+            policy.actor.load_state_dict(
+                torch.load(actor_path, map_location=self.device, weights_only=True)
+            )
+            policy.critic.load_state_dict(
+                torch.load(critic_path, map_location=self.device, weights_only=True)
+            )
+            policy.actor_target.load_state_dict(policy.actor.state_dict())
+            policy.critic_target.load_state_dict(policy.critic.state_dict())
+            policy.actor_target.eval()
+            policy.critic_target.eval()
+        logger.info("Loaded legacy SQDDPG weights (training state unavailable) from %s", load_path)
+
     def _map_action_to_fo_params(self, raw_action: np.ndarray) -> np.ndarray:
+        """Use the same physical FO action mapping as actor/target training."""
+        with torch.no_grad():
+            raw_tensor = torch.as_tensor(raw_action, dtype=torch.float32)
+            return map_normalized_fo_actions(raw_tensor).cpu().numpy()
 
-        fo_action = np.zeros_like(raw_action)
-
-        num_devices = len(raw_action) // 5 if len(raw_action) >= 5 else 1
-        
-        for i in range(num_devices):
-            base_idx = i * 5
-            if base_idx + 4 < len(raw_action):
-                # start_flex: [-1, 1] → [-1, 1] (keep unchanged)
-                fo_action[base_idx] = np.clip(raw_action[base_idx], -1.0, 1.0)
-                
-                # end_flex: [-1, 1] → [-1, 1] (keep unchanged)
-                fo_action[base_idx + 1] = np.clip(raw_action[base_idx + 1], -1.0, 1.0)
-                
-                # energy_min_factor: [-1, 1] → [0.1, 1.0]
-                fo_action[base_idx + 2] = 0.1 + 0.45 * (raw_action[base_idx + 2] + 1.0)
-                
-                # energy_max_factor: [-1, 1] → [1.0, 2.0]  
-                fo_action[base_idx + 3] = 1.0 + 0.5 * (raw_action[base_idx + 3] + 1.0)
-                
-                # priority_weight: [-1, 1] → [0.1, 2.0]
-                fo_action[base_idx + 4] = 0.1 + 0.95 * (raw_action[base_idx + 4] + 1.0)
-        
-        return fo_action
-    
     def _generate_default_fo_action(self) -> np.ndarray:
         default_action = np.zeros(self.action_dim)
         num_devices = self.action_dim // 5 if self.action_dim >= 5 else 1
