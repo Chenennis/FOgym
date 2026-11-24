@@ -20,7 +20,7 @@ class HeatPumpParameters:
     secondary_use_period: str  # secondary use period
     primary_target_temp: float  # primary target temperature
     secondary_target_temp: float  # secondary target temperature
-    max_power: float     # maximum power
+    max_power: float     # maximum electrical power (kW)
 
 class HeatPumpModel:
     """heat pump model class"""
@@ -35,7 +35,7 @@ class HeatPumpModel:
         return heat_required
         
     def update_temperature(self, heat_energy: float, time_step: float = 1.0) -> float:
-        """update temperature"""
+        """Update temperature using thermal energy over the interval."""
         # consider heat loss
         heat_loss = self.params.heat_loss_coef * (self.current_temp - self.params.temp_min)
         net_heat = heat_energy - heat_loss * time_step
@@ -62,9 +62,11 @@ class HeatPumpModel:
             # calculate heat boundary
             heat_min, heat_max = self.get_available_heat()
             
-            # convert to energy (consider COP)
-            energy_min = heat_min / self.params.cop
-            energy_max = heat_max / self.params.cop
+            # One-hour slices: electrical energy (kWh), not signed heat demand.
+            # Heating-only offers must respect the electrical power rating (kW).
+            energy_max = min(max(0.0, heat_max / self.params.cop),
+                             self.params.max_power)
+            energy_min = min(max(0.0, heat_min / self.params.cop), energy_max)
             
             # create constraints
             constraints = []
@@ -85,8 +87,17 @@ class HeatPumpModel:
         return dfo
 
     @classmethod
-    def from_csv(cls, csv_file: str, room_id: str) -> 'HeatPumpModel':
-        """create heat pump model from CSV file"""
+    def from_csv(cls, csv_file: str, room_id: str, *,
+                 max_power_unit: Optional[str] = None) -> 'HeatPumpModel':
+        """Load a heat pump; the bundled heat_pump_system.csv uses watts.
+
+        Other CSV inputs retain the existing kW convention unless the unit is
+        explicitly specified. Model parameters always use kW.
+        """
+        if max_power_unit is None:
+            max_power_unit = "W" if os.path.basename(csv_file) == "heat_pump_system.csv" else "kW"
+        if max_power_unit not in ("W", "kW"):
+            raise ValueError("max_power_unit must be W or kW")
         # read CSV file
         df = pd.read_csv(csv_file, comment='#')
         
@@ -111,7 +122,7 @@ class HeatPumpModel:
             secondary_use_period=room_data['secondary_use_period'],
             primary_target_temp=float(room_data['primary_target_temp']),
             secondary_target_temp=float(room_data['secondary_target_temp']),
-            max_power=float(room_data['max_power'])
+            max_power=float(room_data['max_power']) / (1000.0 if max_power_unit == "W" else 1.0)
         )
         
         return cls(params)
