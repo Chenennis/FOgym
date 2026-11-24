@@ -34,9 +34,8 @@ def test_binary_aggregation_uses_aligned_slice_positions_not_ids():
     b = make_fo("b", [100, 200], [(5.0, 6.0), (7.0, 8.0)])
     aggregate = FOAggregatorFactory.create_aggregator("DP").binary_aggregation(a, b)
     assert aggregate is not None
-    assert [(s.energy_min, s.energy_max) for s in aggregate.slices] == pytest.approx(
-        [(6.0, 8.0), (10.0, 12.0)]
-    )
+    assert [s.energy_min for s in aggregate.slices] == pytest.approx([6.0, 10.0])
+    assert [s.energy_max for s in aggregate.slices] == pytest.approx([8.0, 12.0])
     assert aggregate.total_energy_min == pytest.approx(16.0)
     assert aggregate.total_energy_max == pytest.approx(20.0)
 
