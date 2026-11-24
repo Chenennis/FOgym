@@ -38,9 +38,11 @@ def map_normalized_fo_actions(raw_actions: torch.Tensor) -> torch.Tensor:
 class FOReplayBuffer:
     """Experience replay buffer for FOSQDDPG algorithm"""
     
-    def __init__(self, capacity: int = 100000, device: str = "cpu"):
+    def __init__(self, capacity: int = 100000, device: str = "cpu",
+                 rng: Optional[random.Random] = None):
         self.capacity = capacity
         self.device = device
+        self.rng = rng if rng is not None else random
         self.buffer = deque(maxlen=capacity)
         self.Transition = namedtuple('Transition', 
                                    ('states', 'actions', 'rewards', 'next_states', 'dones',
@@ -59,7 +61,7 @@ class FOReplayBuffer:
     
     def sample(self, batch_size: int) -> Tuple:
         """Sample a batch of transitions"""
-        batch = random.sample(self.buffer, batch_size)
+        batch = self.rng.sample(self.buffer, batch_size)
         
         # Convert to tensors
         states = torch.FloatTensor(np.array([t.states for t in batch])).to(self.device)
@@ -100,7 +102,9 @@ class FOSQDDPG:
                  batch_size: int = 64,
                  sample_size: int = 5,
                  device: str = "cpu",
-                 action_dims: Optional[List[int]] = None):
+                 action_dims: Optional[List[int]] = None,
+                 replay_rng: Optional[random.Random] = None,
+                 noise_rng: Optional[np.random.Generator] = None):
         
         self.n_agents = n_agents
         self.state_dim = state_dim
@@ -108,6 +112,7 @@ class FOSQDDPG:
         self.gamma = gamma
         self.tau = tau
         self.noise_scale = noise_scale
+        self.noise_rng = noise_rng if noise_rng is not None else np.random
         self.batch_size = batch_size
         self.sample_size = sample_size  # Shapley value sampling size
         self.device = device
@@ -134,7 +139,7 @@ class FOSQDDPG:
             self.policies.append(policy)
         
         # Shared replay buffer
-        self.replay_buffer = FOReplayBuffer(buffer_capacity, device)
+        self.replay_buffer = FOReplayBuffer(buffer_capacity, device, rng=replay_rng)
         
         # Training statistics
         self.total_iterations = 0
@@ -165,7 +170,7 @@ class FOSQDDPG:
             
             # Add exploration noise
             if add_noise:
-                noise = np.random.normal(0, self.noise_scale, size=action.shape)
+                noise = self.noise_rng.normal(0, self.noise_scale, size=action.shape)
                 action = action + noise
                 action = np.clip(action, -self.policies[i].max_action, self.policies[i].max_action)
             
