@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple, Optional, Any, Union
 import logging
 import json
 import os
+import random
 from collections import defaultdict
 
 # FO Framework imports
@@ -34,7 +35,9 @@ class FOSQDDPGAdapter:
                  policy_delay: int = 1,  # FOSQDDPG usually does not need delay update
                  device: str = "cpu",
                  observation_dims: Optional[Dict[str, int]] = None,
-                 action_dims: Optional[Dict[str, int]] = None):
+                 action_dims: Optional[Dict[str, int]] = None,
+                 replay_rng: Optional[random.Random] = None,
+                 noise_rng: Optional[np.random.Generator] = None):
         
         # core parameters
         self.state_dim = state_dim
@@ -89,7 +92,9 @@ class FOSQDDPGAdapter:
             batch_size=batch_size,
             sample_size=sample_size,
             device=device,
-            action_dims=[self.action_dims[agent_id] for agent_id in self.agent_ids]
+            action_dims=[self.action_dims[agent_id] for agent_id in self.agent_ids],
+            replay_rng=replay_rng,
+            noise_rng=noise_rng
         )
         
         # cache mechanism (compatible with FO Pipeline interface)
