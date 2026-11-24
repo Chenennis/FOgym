@@ -1111,8 +1111,12 @@ class TradingPool:
                 self.manager_prices[manager_id] = {}
             self.manager_prices[manager_id][side] = price
         
+        # Multiple device/AFO bids from the same manager are often created in
+        # one second. A per-pool sequence prevents bid_id collisions, which
+        # otherwise overwrite distinct bids during clearing-to-trade lookup.
+        self._next_bid_sequence = getattr(self, '_next_bid_sequence', 0) + 1
         bid = Bid(
-            bid_id=f"bid_{manager_id}_{side}_{time_step}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            bid_id=f"bid_{manager_id}_{side}_{time_step}_{self._next_bid_sequence}",
             participant_id=manager_id,
             price=price,
             quantity=total_energy,
